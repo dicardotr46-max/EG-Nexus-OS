@@ -1,0 +1,32 @@
+{
+  "name": "EG Nexus OS v5.1 — سیستم شخصی ایجنت‌ها",
+  "short_name": "EG Nexus",
+  "description": "سیستم‌عامل شخصی ایجنت‌های هوشمند (چت گروهی، K3 Swarm، استودیو آفیس/FLUX/کلش، کلود ۲۴ ساعته، مرورگر خودکار و NexusBus)",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0b0e",
+  "theme_color": "#0b0b0e",
+  "categories": [
+    "productivity",
+    "utilities",
+    "developer tools"
+  ],
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20192%20192%22%3E%3Crect%20width%3D%22192%22%20height%3D%22192%22%20rx%3D%2242%22%20fill%3D%22%230b0b0e%22/%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2296%22%20r%3D%2256%22%20fill%3D%22none%22%20stroke%3D%22%2306b6d4%22%20stroke-width%3D%2212%22/%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2296%22%20r%3D%2222%22%20fill%3D%22%2310b981%22/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20192%20192%22%3E%3Crect%20width%3D%22192%22%20height%3D%22192%22%20rx%3D%2242%22%20fill%3D%22%230b0b0e%22/%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2296%22%20r%3D%2256%22%20fill%3D%22none%22%20stroke%3D%22%2306b6d4%22%20stroke-width%3D%2212%22/%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2296%22%20r%3D%2222%22%20fill%3D%22%2310b981%22/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
