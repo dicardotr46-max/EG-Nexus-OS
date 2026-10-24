@@ -1,0 +1,91 @@
+name: EG Nexus OS v5.1 - Auto Audit & APK Factory
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    # اجرای خودکار هر ۶ ساعت یک‌بار برای بررسی سلامت کد
+    - cron: '0 */6 * * *'
+
+jobs:
+  audit-and-build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Setup Java JDK 21 (Required for Android SDK 2026)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: 4. Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 5. Automated Code & Syntax Integrity Audit
+        run: |
+          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.1..."
+          if [ ! -f "index.html" ]; then
+            echo "❌ خطا: فایل index.html یافت نشد!"
+            exit 1
+          fi
+          node -e '
+            const fs = require("fs");
+            const html = fs.readFileSync("index.html", "utf8");
+            const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gm;
+            let match, count = 0;
+            while ((match = scriptRegex.exec(html)) !== null) {
+              const code = match[1].trim();
+              if (code.length > 0) {
+                count++;
+                new Function(code);
+              }
+            }
+            console.log("✅ ممیزی سینتکس با موفقیت انجام شد. تعداد بلوک‌های اسکریپت سالم:", count);
+          '
+
+      - name: 6. Prepare Web Assets (www) & Capacitor Config
+        run: |
+          mkdir -p www
+          cp index.html www/
+          [ -f manifest.json ] && cp manifest.json www/ || true
+          [ -f sw.js ] && cp sw.js www/ || true
+          if [ ! -f "package.json" ]; then
+            npm init -y
+          fi
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          if [ ! -f "capacitor.config.json" ]; then
+            cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.egnexus.os",
+            "appName": "EG Nexus OS",
+            "webDir": "www",
+            "bundledWebRuntime": false
+          }
+          EOF
+          fi
+
+      - name: 7. Build Android APK Project
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: 8. Upload Ready-to-Install Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EG-Nexus-OS-v5.1-Debug-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
