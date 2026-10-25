@@ -25,6 +25,10 @@ button, a, label, [onclick] { touch-action: manipulation; }
 #appsCategoryBar > button { flex-shrink: 0; }
 .app-row-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-beta-badge { white-space: nowrap; flex-shrink: 0; }
+.app-account-row { min-width: 0; }
+.app-account-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-workspace-card { width: 100%; min-width: 0; }
+.app-workspace-card input, .app-workspace-card textarea { min-width: 0; }
 #createAgentModal > div, #changeAvatarModal > div, #createGroupModal > div, #settingsSubModal > div { padding-bottom: calc(1.25rem + var(--sa-bottom)); }
 .dvh-screen { height: 100vh; height: 100dvh; height: var(--mobile-vh, 100dvh); }
 .min-dvh-screen { min-height: 100vh; min-height: 100dvh; min-height: var(--mobile-vh, 100dvh); }
@@ -1001,7 +1005,16 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         if (c && typeof c === 'object' && !Array.isArray(c)) {
           Object.defineProperty(cleanConns, k, { value: {
             ...c,
-            accounts: Array.isArray(c.accounts) ? c.accounts.filter(a => typeof a === 'string' && a.trim()).map(a => a.trim()) : [],
+            accounts: Array.isArray(c.accounts) ? c.accounts.map((a, accountIdx) => {
+              if (typeof a === 'string' && a.trim()) return a.trim();
+              if (a && typeof a === 'object' && !Array.isArray(a)) {
+                const email = typeof a.email === 'string' ? a.email.trim().slice(0, 320) : '';
+                const name = typeof (a.name || a.displayName) === 'string' ? String(a.name || a.displayName).trim().slice(0, 160) : '';
+                if (!email && !name) return null;
+                return { id: typeof a.id === 'string' ? a.id.slice(0, 160) : `account_${accountIdx}`, email, name: name || email.split('@')[0] || 'Connected account', avatar: typeof a.avatar === 'string' ? a.avatar.slice(0, 2) : (name[0] || email[0] || 'U'), connectedAt: typeof a.connectedAt === 'string' ? a.connectedAt : '' };
+              }
+              return null;
+            }).filter(Boolean) : [],
             token: typeof c.token === 'string' ? c.token.trim() : '',
             mcpEnabled: Boolean(c.mcpEnabled),
             connectedAt: typeof c.connectedAt === 'string' ? c.connectedAt : ''
@@ -3126,8 +3139,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               ${activeAppsViewMode === 'added'
                 ? `<span class="text-slate-400 text-lg">›</span>`
                 : connected
-                  ? `<span class="w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold">✓</span>`
-                  : `<span class="text-slate-300 text-xl font-light">+</span>`
+                  ? `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Manage ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold">✓</button>`
+                  : `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Connect ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-white/5 text-slate-300 text-xl font-light">+</button>`
               }
             </div>
           </div>
@@ -3135,30 +3148,141 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       }).join('');
     }
     // REA Reverse-Engineered Detail View (Exact Screenshots 1000030180 - 1000030183)
+    const GOOGLE_APP_IDS = new Set(['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit']);
+    const PROVIDER_PRIVACY_URLS = {
+      github: 'https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement',
+      gmail: 'https://policies.google.com/privacy', gcal: 'https://policies.google.com/privacy', gworkspace: 'https://policies.google.com/privacy', google_ads: 'https://policies.google.com/privacy', fitbit: 'https://www.fitbit.com/global/us/legal/privacy-policy',
+      picsart: 'https://picsart.com/privacy-policy', instagram: 'https://privacycenter.instagram.com/policy/', ig_creator: 'https://privacycenter.instagram.com/policy/', meta_ads: 'https://www.facebook.com/privacy/policies/',
+      myfitnesspal: 'https://www.myfitnesspal.com/privacy-policy', withings: 'https://www.withings.com/us/en/legal/privacy-policy', polar: 'https://www.polar.com/en/legal/privacy', trainingpeaks: 'https://www.trainingpeaks.com/privacy-policy/', plaid: 'https://plaid.com/legal/#end-user-privacy-policy', clue: 'https://helloclue.com/privacy', cronometer: 'https://cronometer.com/privacy/', oura: 'https://ouraring.com/privacy-policy'
+    };
+    const PROVIDER_LAUNCH_URLS = {
+      gmail: 'https://mail.google.com/mail/u/0/', gcal: 'https://calendar.google.com/calendar/u/0/r', gworkspace: 'https://workspace.google.com/dashboard/', picsart: 'https://picsart.com/', instagram: 'https://www.instagram.com/', ig_creator: 'https://business.facebook.com/creatorstudio/', meta_ads: 'https://www.facebook.com/adsmanager/', myfitnesspal: 'https://www.myfitnesspal.com/', withings: 'https://healthmate.withings.com/', polar: 'https://flow.polar.com/', trainingpeaks: 'https://app.trainingpeaks.com/', plaid: 'https://dashboard.plaid.com/', clue: 'https://helloclue.com/', cronometer: 'https://cronometer.com/', fitbit: 'https://www.fitbit.com/user/profile/edit', oura: 'https://cloud.ouraring.com/'
+    };
+    let pendingProviderConnection = null;
+    function isGoogleProvider(appId) { return GOOGLE_APP_IDS.has(appId); }
+    function getConnectionAccounts(appId) {
+      const raw = Array.isArray(appState.appConnections?.[appId]?.accounts) ? appState.appConnections[appId].accounts : [];
+      return raw.map((item, idx) => {
+        if (typeof item === 'string') return { id: `legacy_${idx}_${item}`, email: item, name: item.split('@')[0] || 'Connected account', connectedAt: '', avatar: (item[0] || 'U').toUpperCase() };
+        const email = String(item?.email || item?.handle || '').trim();
+        return { id: String(item?.id || `account_${idx}_${email}`), email, name: String(item?.name || item?.displayName || email.split('@')[0] || 'Connected account'), connectedAt: String(item?.connectedAt || ''), avatar: String(item?.avatar || email[0] || 'U').slice(0, 1).toUpperCase() };
+      }).filter(a => a.email || a.name);
+    }
+    function getAppConnectionToken(appId) {
+      const secrets = readSessionSecrets();
+      return String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
+    }
+    function getAppPrivacyUrl(app) { return PROVIDER_PRIVACY_URLS[app.id] || app.website || '#'; }
+    function openProviderUrl(appId) { const url = PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website; if (url) window.open(url, '_blank', 'noopener,noreferrer'); }
+    function providerLabel(appId) { return APPS_CATALOG.find(a => a.id === appId)?.name || appId; }
+    function renderIntegrationModal(title, content) {
+      const modal = document.getElementById('settingsSubModal');
+      document.getElementById('settingsSubTitle').innerText = title;
+      document.getElementById('settingsSubContent').innerHTML = content;
+      modal.classList.remove('hidden');
+    }
+    function closeProviderModalAndRefresh(appId) {
+      closeSettingsPanel();
+      syncAddedAppIds(); saveState();
+      openAppDetailView(appId);
+    }
+    function openProviderConnectSheet(appId) {
+      if (appId === 'github') return openGitHubConnectModal();
+      if (isGoogleProvider(appId)) return openGoogleAccountChooser(appId);
+      const app = APPS_CATALOG.find(a => a.id === appId); if (!app) return;
+      const first = getConnectionAccounts(appId)[0] || {};
+      renderIntegrationModal(`Connect ${escapeHtml(app.name)}`, `<div class="space-y-3" dir="ltr">
+        <p class="text-xs text-slate-300 leading-relaxed">Sign in to <b>${escapeHtml(app.name)}</b> with an account handle or email. An API key/token is optional and stays in the current session secret store.</p>
+        <label class="block text-xs text-slate-300">Account handle or email<input id="providerAccountEmail" value="${escapeHtml(first.email || '')}" placeholder="you@example.com" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
+        <label class="block text-xs text-slate-300">Display name<input id="providerAccountName" value="${escapeHtml(first.name || '')}" placeholder="Your name" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white" /></label>
+        <label class="block text-xs text-slate-300">API key / OAuth token <span class="text-slate-500">(optional)</span><input id="providerTokenInput" type="password" autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
+        <label class="flex items-center justify-between rounded-xl bg-cue-bg border border-cue-border p-3 text-xs text-slate-300"><span>Inject ${escapeHtml(app.name)} context into Nexus AI</span><input id="providerContextToggle" type="checkbox" checked class="accent-emerald-500 w-4 h-4" /></label>
+        <div id="providerConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
+        <button onclick="saveUniversalProviderConnection('${escapeJsAttr(appId)}')" class="w-full py-3 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-extrabold">Connect account</button>
+        ${isAppGenuinelyConnected(appId) ? `<button onclick="disconnectApp('${escapeJsAttr(appId)}')" class="w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold">Disconnect app</button>` : ''}
+      </div>`);
+    }
+    function setProviderStatus(message, kind = 'info') { const el = document.getElementById('providerConnectStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
+    function saveUniversalProviderConnection(appId) {
+      const email = document.getElementById('providerAccountEmail')?.value.trim() || '';
+      const name = document.getElementById('providerAccountName')?.value.trim() || email.split('@')[0] || 'Connected account';
+      const token = document.getElementById('providerTokenInput')?.value.trim() || '';
+      const contextEnabled = document.getElementById('providerContextToggle')?.checked !== false;
+      if (!email) { setProviderStatus('Enter an account email or handle first.', 'error'); return; }
+      const conn = appState.appConnections[appId] || {};
+      const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== email.toLowerCase());
+      accounts.push({ id: `${appId}_${Date.now()}`, email, name, avatar: (name[0] || email[0] || 'U').toUpperCase(), connectedAt: new Date().toISOString() });
+      appState.appConnections[appId] = { ...conn, accounts, mcpEnabled: Boolean(conn.mcpEnabled), contextEnabled, connectedAt: new Date().toISOString(), token: token || conn.token || '' };
+      if (!saveState()) { setProviderStatus('The account was verified in this session, but local state could not be saved.', 'error'); return; }
+      closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} connected ✓`);
+    }
+    function openGoogleAccountChooser(appId) {
+      pendingProviderConnection = { appId, token: '', clientId: '' };
+      const accounts = getConnectionAccounts(appId);
+      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left"><span class="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs">Connected</span></button>`).join('');
+      renderIntegrationModal('Sign in with Google', `<div class="space-y-3" dir="ltr"><div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3"><div class="text-sm font-bold text-white">Choose an account to continue to EG Nexus OS</div><div class="text-xs text-slate-300 mt-1">Gmail, Calendar, and Workspace use the same Google account chooser.</div></div>${rows || '<div class="text-xs text-slate-400 p-2">No Google accounts connected yet.</div>'}<button onclick="openGoogleAccountForm()" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white">+ Use another account</button><button onclick="closeSettingsPanel()" class="w-full py-2.5 text-xs text-slate-400">Cancel</button></div>`);
+    }
+    function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId; const account = getConnectionAccounts(appId)[index]; if (account) showGoogleConsentStep(account, ''); }
+    function openGoogleAccountForm() {
+      const appId = pendingProviderConnection?.appId || 'gmail';
+      renderIntegrationModal('Sign in with Google · Use another account', `<div class="space-y-3" dir="ltr"><p class="text-xs text-slate-300">Enter the account identity below. Add a Google OAuth token for live Gmail/Calendar API sync, or configure a GIS Client ID to launch the native Google Identity Services consent popup.</p><label class="block text-xs text-slate-300">Gmail address<input id="googleAccountEmail" type="email" placeholder="you@gmail.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label><label class="block text-xs text-slate-300">Display name<input id="googleAccountName" placeholder="Your name" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white" /></label><label class="block text-xs text-slate-300">OAuth Access Token <span class="text-slate-500">(optional)</span><input id="googleAccessToken" type="password" autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label><label class="block text-xs text-slate-300">Google OAuth Client ID <span class="text-slate-500">(optional)</span><input id="googleClientId" placeholder="123...apps.googleusercontent.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label><div id="googleIdentityStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div><div class="grid grid-cols-2 gap-2"><button onclick="beginGoogleIdentityFlow()" class="min-h-0 py-2.5 rounded-xl bg-white/10 text-white text-xs">Use Google popup</button><button onclick="continueGoogleManualAccount('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Continue</button></div><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="w-full py-2 text-xs text-slate-400">Back to account chooser</button></div>`);
+    }
+    function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
+    function continueGoogleManualAccount(appId) { const email = document.getElementById('googleAccountEmail')?.value.trim() || ''; const name = document.getElementById('googleAccountName')?.value.trim() || email.split('@')[0] || 'Google account'; const token = document.getElementById('googleAccessToken')?.value.trim() || ''; const clientId = document.getElementById('googleClientId')?.value.trim() || ''; if (!email || !email.includes('@')) { setGoogleIdentityStatus('Enter a valid Google account email.', 'error'); return; } pendingProviderConnection = { appId, token, clientId }; showGoogleConsentStep({ id: `google_${Date.now()}`, email, name, avatar: (name[0] || 'G').toUpperCase() }, token); }
+    function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
+    function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
+    async function beginGoogleIdentityFlow() {
+      const clientId = document.getElementById('googleClientId')?.value.trim() || ''; const emailInput = document.getElementById('googleAccountEmail');
+      if (!clientId) { setGoogleIdentityStatus('A Google OAuth Client ID is required for the native popup.', 'error'); return; }
+      try {
+        if (!window.google?.accounts?.oauth2) { await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.onload = resolve; script.onerror = reject; document.head.appendChild(script); }); }
+        const scopes = pendingProviderConnection?.appId === 'gcal' ? 'https://www.googleapis.com/auth/calendar' : 'https://www.googleapis.com/auth/gmail.modify';
+        const client = google.accounts.oauth2.initTokenClient({ client_id: clientId, scope: scopes, callback: async response => { if (response.error) return setGoogleIdentityStatus(response.error, 'error'); const info = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${response.access_token}` } }).then(r => r.json()); document.getElementById('googleAccountEmail').value = info.email || ''; document.getElementById('googleAccountName').value = info.name || ''; pendingProviderConnection.token = response.access_token; showGoogleConsentStep({ id: `google_${Date.now()}`, email: info.email || '', name: info.name || 'Google account', avatar: (info.name || info.email || 'G')[0].toUpperCase() }, response.access_token); } });
+        client.requestAccessToken();
+      } catch (err) { setGoogleIdentityStatus(`Google Identity Services unavailable: ${err?.message || 'check popup permissions'}`, 'error'); }
+    }
+    function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
+    function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
+    function injectAppContextIntoChat(appId) { const text = accountWorkspaceContext(appId); appState.dreamMemory = `${appState.dreamMemory || ''}\n[Connected app context]\n${text}`.slice(-12000); saveState(); showToast(`${providerLabel(appId)} context injected into Nexus AI Chat`); }
+    function exportCalendarICS() { const title = document.getElementById('calendarEventTitle')?.value.trim() || 'Nexus event'; const start = document.getElementById('calendarEventDate')?.value || ''; const dt = start ? start.replace(/[-:]/g, '').replace('T', 'T') + '00' : ''; const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title.replace(/\n/g, ' ')}\nDTSTART:${dt}\nEND:VEVENT\nEND:VCALENDAR`; const blob = new Blob([ics], { type: 'text/calendar' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'nexus-event.ics'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+    function openCalendarEventComposer() { const title = encodeURIComponent(document.getElementById('calendarEventTitle')?.value.trim() || 'Nexus event'); const date = encodeURIComponent(document.getElementById('calendarEventDate')?.value || ''); window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date.replace('%3A', '')}`, '_blank', 'noopener,noreferrer'); }
+    function sendGmailQuickMail() { const to = document.getElementById('gmailComposeTo')?.value.trim() || ''; const subject = encodeURIComponent(document.getElementById('gmailComposeSubject')?.value.trim() || ''); const body = encodeURIComponent(document.getElementById('gmailComposeBody')?.value || ''); const token = getAppConnectionToken('gmail'); if (token) { const raw = [`To: ${to}`, `Subject: ${decodeURIComponent(subject)}`, 'Content-Type: text/plain; charset=UTF-8', '', decodeURIComponent(body)].join('\r\n'); const encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: encoded }) }).then(r => { if (!r.ok) throw new Error(`Gmail API HTTP ${r.status}`); return r.json(); }).then(() => showToast('Email sent through Gmail API ✓')).catch(err => showToast(`Gmail API failed: ${err.message}`)); return; } window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`; showToast('Opened the device email composer'); }
+    async function syncGmailInbox() { const status = document.getElementById('gmailSyncStatus'); const token = getAppConnectionToken('gmail'); if (!token) { if (status) status.textContent = 'Direct API sync needs an OAuth token; Gmail workspace link is ready.'; return; } try { const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', { headers: { Authorization: `Bearer ${token}` } }); if (!res.ok) throw new Error(`Gmail API HTTP ${res.status}`); const data = await res.json(); if (status) status.textContent = `Live Gmail sync complete · ${data.resultSizeEstimate || data.messages?.length || 0} messages visible`; } catch (err) { if (status) status.textContent = `Gmail sync failed: ${err.message}`; } }
+    function saveHealthMetric(appId) { const metric = document.getElementById('healthMetricType')?.value || 'steps'; const value = document.getElementById('healthMetricValue')?.value.trim() || ''; if (!value) return showToast('Enter a metric value first'); const conn = appState.appConnections[appId] || {}; conn.metrics = Array.isArray(conn.metrics) ? conn.metrics : []; conn.metrics.unshift({ metric, value, at: new Date().toISOString() }); conn.metrics = conn.metrics.slice(0, 30); appState.appConnections[appId] = conn; saveState(); const out = document.getElementById('healthMetricStatus'); if (out) out.textContent = `${metric}: ${value} logged to Nexus Brain`; showToast('Health metric saved ✓'); }
+    function toggleProviderContext(appId, enabled) { if (!appState.appConnections[appId]) return; appState.appConnections[appId].contextEnabled = Boolean(enabled); saveState(); showToast(enabled ? `${providerLabel(appId)} context enabled` : `${providerLabel(appId)} context paused`); }
+    function renderLiveWorkspacePanel(appId) {
+      const panel = document.getElementById('appWorkspacePanel'); if (!panel) return; const app = APPS_CATALOG.find(a => a.id === appId); const accounts = getConnectionAccounts(appId); const first = accounts[0]; const common = `<div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold text-white">Live Workspace</div><div class="text-[10px] text-cue-muted">${escapeHtml(accounts.length ? `${accounts.length} account${accounts.length > 1 ? 's' : ''} connected` : 'Connected')}</div></div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="min-h-0 px-2.5 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-200">Open ${escapeHtml(app.name)}</button></div>`;
+      let body = '';
+      if (appId === 'gmail') body = `<div class="space-y-2"><input id="gmailComposeTo" placeholder="To" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><input id="gmailComposeSubject" placeholder="Subject" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><textarea id="gmailComposeBody" rows="3" placeholder="Write an email…" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"></textarea><div class="grid grid-cols-2 gap-2"><button onclick="sendGmailQuickMail()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Compose / Send</button><button onclick="syncGmailInbox()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Sync inbox</button></div><div id="gmailSyncStatus" class="text-[10px] text-slate-400">${getAppConnectionToken('gmail') ? 'OAuth token available for Gmail API sync.' : 'Connect an OAuth token for live Gmail API sync.'}</div></div>`;
+      else if (appId === 'gcal') body = `<div class="space-y-2"><input id="calendarEventTitle" placeholder="Event title" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><input id="calendarEventDate" type="datetime-local" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><div class="grid grid-cols-2 gap-2"><button onclick="openCalendarEventComposer()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Add to Calendar</button><button onclick="exportCalendarICS()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Export .ics</button></div></div>`;
+      else if (['myfitnesspal','withings','polar','trainingpeaks','fitbit','oura','clue','cronometer'].includes(appId)) body = `<div class="space-y-2"><div class="grid grid-cols-[1fr_1fr] gap-2"><select id="healthMetricType" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-2 py-2 text-xs text-white"><option value="steps">Steps</option><option value="heart_rate">Heart rate</option><option value="calories">Calories</option><option value="sleep">Sleep</option><option value="weight">Weight</option></select><input id="healthMetricValue" placeholder="Value" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /></div><button onclick="saveHealthMetric('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-emerald-600 text-xs text-white font-bold">Sync metric to Nexus Brain</button><div id="healthMetricStatus" class="text-[10px] text-slate-400">Manual sync is available; provider API sync uses an optional token.</div></div>`;
+      else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
+      panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
+    }
+
     function openAppDetailView(appId) {
       const app = APPS_CATALOG.find(a => a.id === appId);
       if (!app) return;
       const connected = isAppGenuinelyConnected(app.id);
       const connData = appState.appConnections[app.id] || {};
       const body = document.getElementById('appDetailBody');
-      // 1. Multi-Account Flow (like Gmail Screenshot 1000030182)
-      const accountsSection = app.type === 'MultiAccount' ? `
+      // 1. Shared multi-account section with provider-specific chooser.
+      const accountItems = getConnectionAccounts(app.id);
+      const accountsSection = (app.type === 'MultiAccount' || accountItems.length > 0) ? `
         <div class="mt-6">
           <div class="text-xs font-semibold text-cue-muted mb-2 px-1">Accounts</div>
           <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden">
-            ${(connData.accounts || []).map((acc, i) => `
-              <div class="px-4 py-3.5 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                  <div class="w-6 h-6 rounded-full bg-pink-600 text-white text-xs font-bold flex items-center justify-center uppercase">${escapeHtml(acc[0] || 'U')}</div>
-                  <span class="text-sm text-white">${escapeHtml(acc)}</span>
+            ${accountItems.map((acc, i) => `
+              <div class="app-account-row px-4 py-3.5 flex items-center justify-between gap-2">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center uppercase shrink-0">${escapeHtml(acc.avatar || 'U')}</div>
+                  <div class="min-w-0"><span class="block text-sm text-white app-account-email">${escapeHtml(acc.name)}</span><span class="block text-[10px] text-cue-muted app-account-email">${escapeHtml(acc.email)}</span></div>
+                  <span class="text-[10px] text-emerald-300 shrink-0">Connected</span>
                 </div>
-                <button onclick="removeAppAccount('${escapeJsAttr(app.id)}', ${i})" class="text-cue-muted hover:text-rose-400 px-2">•••</button>
+                <div class="flex items-center gap-1 shrink-0"><button onclick="openProviderUrl('${escapeJsAttr(app.id)}')" class="min-h-0 px-2 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-300">Open</button><button onclick="removeAppAccount('${escapeJsAttr(app.id)}', ${i})" class="min-h-0 px-2 py-1.5 rounded-lg bg-rose-500/10 text-[10px] text-rose-300">Disconnect</button></div>
               </div>
             `).join('')}
-            <button onclick="connectAppAccountPrompt('${escapeJsAttr(app.id)}')" class="w-full px-4 py-3.5 flex items-center gap-3 text-left text-sm text-white hover:bg-cue-cardHover">
-              <span class="text-lg leading-none">+</span>
-              <span>Connect another account</span>
-            </button>
+            <button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="w-full min-h-0 px-4 py-3.5 flex items-center gap-3 text-left text-sm text-white hover:bg-cue-cardHover"><span class="text-lg leading-none">+</span><span>Connect another account</span></button>
           </div>
         </div>
       ` : '';
@@ -3173,11 +3297,12 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const primaryButtonHtml = app.id === 'github'
         ? `<button onclick="openGitHubConnectModal()" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'Connected ✓ (Manage)' : '+ Add'}</button>`
         : app.type === 'MultiAccount'
-          ? ''
+          ? `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'Connected ✓ (Manage)' : '+ Connect account'}</button>`
           : connected
-            ? `<button onclick="openAppManageModal('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-cue-card border border-white/15 text-sm font-bold text-white hover:bg-cue-cardHover">Manage</button>`
-            : `<button onclick="openAppManageModal('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-white text-black text-sm font-bold hover:bg-slate-200">+ Add</button>`;
+            ? `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-cue-card border border-white/15 text-sm font-bold text-white hover:bg-cue-cardHover">Manage</button>`
+            : `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-white text-black text-sm font-bold hover:bg-slate-200">+ Connect</button>`;
       const githubPanelHtml = app.id === 'github' && connected ? `<div id="githubControlPanel" class="mt-6 w-full text-left"></div>` : '';
+      const workspacePanelHtml = app.id !== 'github' && connected ? `<div id="appWorkspacePanel" class="mt-6 w-full text-left"></div>` : '';
       // 4. Details Card (App Type: MCP vs App, Author, Website, Documentation, Privacy Policy)
       body.innerHTML = `
         <div class="flex flex-col items-center text-center pt-2 px-2">
@@ -3191,6 +3316,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           <p class="mt-2.5 text-xs text-cue-muted leading-relaxed max-w-xs">${escapeHtml(app.desc)}</p>
           ${primaryButtonHtml}
           ${githubPanelHtml}
+          ${workspacePanelHtml}
         </div>
         ${prereqBanner}
         ${accountsSection}
@@ -3217,7 +3343,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
                 <span class="text-cue-muted">↗</span>
               </a>
             ` : ''}
-            <a href="${escapeHtml(app.website || '#')}" target="_blank" rel="noopener noreferrer" class="px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover">
+            <a href="${escapeHtml(getAppPrivacyUrl(app))}" target="_blank" rel="noopener noreferrer" class="px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover">
               <span class="text-slate-200">Privacy Policy</span>
               <span class="text-cue-muted">↗</span>
             </a>
@@ -3230,38 +3356,16 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       `;
       showView('view-app-detail');
       if (app.id === 'github' && connected) loadGitHubControlPanel();
+      if (app.id !== 'github' && connected) renderLiveWorkspacePanel(app.id);
     }
-    function connectAppAccountPrompt(appId) {
-      openNexusDialog({
-        title: '➕ اتصال اکانت جدید',
-        fields: [{ label: 'آدرس اکانت (مثلاً cack417@gmail.com):', placeholder: 'you@gmail.com', ltr: true }],
-        confirmText: 'اتصال اکانت',
-        onConfirm: ([email]) => {
-          if (!email) return;
-          if (!appState.appConnections[appId]) appState.appConnections[appId] = { accounts: [] };
-          if (!Array.isArray(appState.appConnections[appId].accounts)) appState.appConnections[appId].accounts = [];
-          appState.appConnections[appId].accounts.push(email);
-          syncAddedAppIds();
-          saveState();
-          openAppDetailView(appId);
-          showToast('اکانت در پیکربندی محلی ثبت شد؛ احراز هویت سرویس هنوز انجام نشده');
-        }
-      });
-    }
+    function connectAppAccountPrompt(appId) { openProviderConnectSheet(appId); }
     function removeAppAccount(appId, idx) {
-      openNexusDialog({
-        title: 'حذف اتصال اکانت',
-        message: 'آیا مطمئن هستید که این اکانت از برنامه جدا شود؟',
-        confirmText: 'جداسازی اکانت',
-        isDanger: true,
-        onConfirm: () => {
-          appState.appConnections[appId]?.accounts?.splice(idx, 1);
-          syncAddedAppIds();
-          saveState();
-          openAppDetailView(appId);
-          showToast('اکانت جدا شد');
-        }
-      });
+      openNexusDialog({ title: 'Disconnect account', message: 'Disconnect this account from the app?', confirmText: 'Disconnect', isDanger: true, onConfirm: () => {
+        const conn = appState.appConnections[appId] || {};
+        const accounts = getConnectionAccounts(appId); accounts.splice(idx, 1); conn.accounts = accounts;
+        if (!accounts.length && !conn.token && !conn.mcpEnabled) delete appState.appConnections[appId]; else appState.appConnections[appId] = conn;
+        syncAddedAppIds(); saveState(); openAppDetailView(appId); showToast('Account disconnected');
+      }});
     }
     function getGitHubConnection() {
       return appState.appConnections?.github && typeof appState.appConnections.github === 'object'
@@ -10809,7 +10913,16 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         if (c && typeof c === 'object' && !Array.isArray(c)) {
           Object.defineProperty(cleanConns, k, { value: {
             ...c,
-            accounts: Array.isArray(c.accounts) ? c.accounts.filter(a => typeof a === 'string' && a.trim()).map(a => a.trim()) : [],
+            accounts: Array.isArray(c.accounts) ? c.accounts.map((a, accountIdx) => {
+              if (typeof a === 'string' && a.trim()) return a.trim();
+              if (a && typeof a === 'object' && !Array.isArray(a)) {
+                const email = typeof a.email === 'string' ? a.email.trim().slice(0, 320) : '';
+                const name = typeof (a.name || a.displayName) === 'string' ? String(a.name || a.displayName).trim().slice(0, 160) : '';
+                if (!email && !name) return null;
+                return { id: typeof a.id === 'string' ? a.id.slice(0, 160) : `account_${accountIdx}`, email, name: name || email.split('@')[0] || 'Connected account', avatar: typeof a.avatar === 'string' ? a.avatar.slice(0, 2) : (name[0] || email[0] || 'U'), connectedAt: typeof a.connectedAt === 'string' ? a.connectedAt : '' };
+              }
+              return null;
+            }).filter(Boolean) : [],
             token: typeof c.token === 'string' ? c.token.trim() : '',
             mcpEnabled: Boolean(c.mcpEnabled),
             connectedAt: typeof c.connectedAt === 'string' ? c.connectedAt : ''
