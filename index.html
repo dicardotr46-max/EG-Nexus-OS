@@ -17,7 +17,14 @@
 html, body { min-height: 100%; background: #0b0b0e; }
 body { font-family: Inter, Vazirmatn, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; overflow-x: hidden; overscroll-behavior-y: contain; padding-top: var(--sa-top); padding-bottom: var(--sa-bottom); padding-left: var(--sa-left); padding-right: var(--sa-right); }
 button, a, label, [onclick] { touch-action: manipulation; }
-#toastBox { top: calc(1rem + var(--sa-top)); }
+#toastBox { top: calc(4.5rem + var(--sa-top)); max-width: min(92vw, 28rem); text-align: center; line-height: 1.45; pointer-events: none; }
+#phase2ModePillsSlot { display: flex; align-items: center; gap: 8px; overflow-x: auto; white-space: nowrap; padding: 6px 12px; max-width: 100%; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+#phase2ModePillsSlot::-webkit-scrollbar, #appsCategoryBar::-webkit-scrollbar { display: none; }
+#phase2ModePillsSlot > button, #phase2ModePillsSlot > span { flex-shrink: 0; }
+#appsCategoryBar { display: flex; align-items: center; gap: 8px; overflow-x: auto; white-space: nowrap; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+#appsCategoryBar > button { flex-shrink: 0; }
+.app-row-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-beta-badge { white-space: nowrap; flex-shrink: 0; }
 #createAgentModal > div, #changeAvatarModal > div, #createGroupModal > div, #settingsSubModal > div { padding-bottom: calc(1.25rem + var(--sa-bottom)); }
 .dvh-screen { height: 100vh; height: 100dvh; height: var(--mobile-vh, 100dvh); }
 .min-dvh-screen { min-height: 100vh; min-height: 100dvh; min-height: var(--mobile-vh, 100dvh); }
@@ -2961,6 +2968,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     function isAppGenuinelyConnected(appId) {
       const conn = appState.appConnections?.[appId];
       if (!conn) return false;
+      if (appId === 'github' && typeof conn.owner === 'string' && conn.owner.trim() && typeof conn.repo === 'string' && conn.repo.trim()) return true;
       if (Array.isArray(conn.accounts) && conn.accounts.length > 0) return true;
       if (conn.token && String(conn.token).trim().length > 0) return true;
       if (conn.mcpEnabled === true) return true;
@@ -3108,8 +3116,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold text-white truncate">${escapeHtml(app.name)}</span>
-                  ${app.beta ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted">Beta</span>` : ''}
+                  <span class="text-sm font-bold text-white truncate app-row-title">${escapeHtml(app.name)}</span>
+                  ${app.beta ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted app-beta-badge">Beta</span>` : ''}
                 </div>
                 <div class="text-xs text-cue-muted truncate mt-0.5">${escapeHtml(app.desc)}</div>
               </div>
@@ -3162,11 +3170,14 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         </div>
       ` : '';
       // 3. Primary Button (+ Add white pill vs Manage dark pill)
-      const primaryButtonHtml = app.type === 'MultiAccount'
-        ? ''
-        : connected
-          ? `<button onclick="openAppManageModal('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-cue-card border border-white/15 text-sm font-bold text-white hover:bg-cue-cardHover">Manage</button>`
-          : `<button onclick="openAppManageModal('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-white text-black text-sm font-bold hover:bg-slate-200">+ Add</button>`;
+      const primaryButtonHtml = app.id === 'github'
+        ? `<button onclick="openGitHubConnectModal()" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'Connected ✓ (Manage)' : '+ Add'}</button>`
+        : app.type === 'MultiAccount'
+          ? ''
+          : connected
+            ? `<button onclick="openAppManageModal('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-cue-card border border-white/15 text-sm font-bold text-white hover:bg-cue-cardHover">Manage</button>`
+            : `<button onclick="openAppManageModal('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-white text-black text-sm font-bold hover:bg-slate-200">+ Add</button>`;
+      const githubPanelHtml = app.id === 'github' && connected ? `<div id="githubControlPanel" class="mt-6 w-full text-left"></div>` : '';
       // 4. Details Card (App Type: MCP vs App, Author, Website, Documentation, Privacy Policy)
       body.innerHTML = `
         <div class="flex flex-col items-center text-center pt-2 px-2">
@@ -3175,10 +3186,11 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           </div>
           <div class="flex items-center gap-2">
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(app.name)}</h2>
-            ${app.beta ? `<span class="text-xs px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted">Beta</span>` : ''}
+            ${app.beta ? `<span class="text-xs px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted app-beta-badge">Beta</span>` : ''}
           </div>
           <p class="mt-2.5 text-xs text-cue-muted leading-relaxed max-w-xs">${escapeHtml(app.desc)}</p>
           ${primaryButtonHtml}
+          ${githubPanelHtml}
         </div>
         ${prereqBanner}
         ${accountsSection}
@@ -3211,12 +3223,13 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
             </a>
           </div>
         </div>
-        <div class="mt-3.5 bg-cue-card border border-cue-border rounded-3xl px-4 py-3.5 flex items-center justify-between text-sm text-cue-muted">
+        <button type="button" onclick="provideAppFeedback('${escapeJsAttr(app.id)}')" class="mt-3.5 w-full bg-cue-card border border-cue-border rounded-3xl px-4 py-3.5 flex items-center justify-between text-sm text-cue-muted hover:bg-cue-cardHover">
           <span>Provide feedback</span>
           <span>↗</span>
-        </div>
+        </button>
       `;
       showView('view-app-detail');
+      if (app.id === 'github' && connected) loadGitHubControlPanel();
     }
     function connectAppAccountPrompt(appId) {
       openNexusDialog({
@@ -3249,6 +3262,124 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           showToast('اکانت جدا شد');
         }
       });
+    }
+    function getGitHubConnection() {
+      return appState.appConnections?.github && typeof appState.appConnections.github === 'object'
+        ? appState.appConnections.github : {};
+    }
+    function getGitHubToken() {
+      return String(readSessionSecrets()?.connectionTokens?.github || getGitHubConnection().token || '').trim();
+    }
+    function githubApiHeaders() {
+      const token = getGitHubToken();
+      return { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    }
+    async function githubApi(path, options = {}) {
+      const res = await fetch(`https://api.github.com${path}`, { ...options, headers: { ...githubApiHeaders(), ...(options.headers || {}) } });
+      let data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (!res.ok) throw new Error(data?.message || `GitHub API returned HTTP ${res.status}`);
+      return data;
+    }
+    function openGitHubConnectModal() {
+      const conn = getGitHubConnection();
+      const modal = document.getElementById('settingsSubModal');
+      const content = document.getElementById('settingsSubContent');
+      document.getElementById('settingsSubTitle').innerText = 'GitHub Integration';
+      content.innerHTML = `
+        <div class="space-y-3" dir="ltr">
+          <p class="text-xs text-slate-300 leading-relaxed">Connect a public repository without a token, or add a fine-grained PAT to access private repositories and trigger workflows. The PAT is kept in the current session secret store and is never written to the durable app state.</p>
+          <label class="block text-xs text-slate-300">GitHub Owner/Username<input id="githubOwnerInput" value="${escapeHtml(conn.owner || 'dicardotr46-max')}" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
+          <label class="block text-xs text-slate-300">Repository Name<input id="githubRepoInput" value="${escapeHtml(conn.repo || 'EG-Nexus-OS')}" autocomplete="off" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
+          <label class="block text-xs text-slate-300">Personal Access Token <span class="text-slate-500">(optional)</span><input id="githubPatInput" type="password" value="${escapeHtml(getGitHubToken())}" autocomplete="new-password" spellcheck="false" placeholder="github_pat_..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
+          <div id="githubConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
+          <button id="githubConnectBtn" onclick="connectGitHubRepository()" class="w-full py-3 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-extrabold text-sm">Connect</button>
+          ${isAppGenuinelyConnected('github') ? '<button onclick="disconnectApp(\'github\')" class="w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold">Disconnect repository</button>' : ''}
+        </div>`;
+      modal.classList.remove('hidden');
+    }
+    function setGitHubConnectStatus(message, kind = 'info') {
+      const el = document.getElementById('githubConnectStatus');
+      if (!el) return;
+      el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`;
+      el.textContent = message;
+    }
+    async function connectGitHubRepository() {
+      const owner = document.getElementById('githubOwnerInput')?.value.trim() || '';
+      const repo = document.getElementById('githubRepoInput')?.value.trim() || '';
+      const token = document.getElementById('githubPatInput')?.value.trim() || '';
+      const btn = document.getElementById('githubConnectBtn');
+      if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(owner) || !/^[A-Za-z0-9._-]{1,100}$/.test(repo)) {
+        setGitHubConnectStatus('Enter a valid GitHub owner and repository name.', 'error'); return;
+      }
+      if (btn) { btn.disabled = true; btn.textContent = 'Checking repository…'; }
+      try {
+        const headers = { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+        const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { headers });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.message || `GitHub API returned HTTP ${res.status}`);
+        appState.appConnections.github = { ...getGitHubConnection(), owner, repo, token: token || '', accounts: [], mcpEnabled: false, connectedAt: new Date().toISOString() };
+        syncAddedAppIds();
+        if (!saveState()) throw new Error('The repository was verified, but local state could not be saved.');
+        closeSettingsPanel();
+        openAppDetailView('github');
+        showToast(`GitHub connected: ${owner}/${repo} ✓`);
+      } catch (err) {
+        setGitHubConnectStatus(err?.message || 'Could not verify the repository.', 'error');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
+      }
+    }
+    function renderGitHubPanelShell(conn) {
+      const panel = document.getElementById('githubControlPanel');
+      if (!panel) return;
+      panel.innerHTML = `<div class="w-full rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">
+        <div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold text-white">GitHub Control Panel</div><div class="text-[11px] text-cue-muted font-mono truncate">${escapeHtml(conn.owner)}/${escapeHtml(conn.repo)}</div></div><span id="githubPanelState" class="text-[10px] text-blue-300">Loading…</span></div>
+        <div id="githubPanelContent" class="space-y-2 text-xs text-slate-300"><div class="animate-pulse">Loading commits and workflow status…</div></div>
+        <div class="grid grid-cols-2 gap-2"><button onclick="loadGitHubControlPanel()" class="py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white">Refresh</button><button onclick="triggerGitHubWorkflow()" class="py-2.5 rounded-xl bg-blue-600 text-xs text-white font-bold">Build APK</button></div>
+        <button onclick="viewGitHubRepoFiles()" class="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-200">View repository files</button>
+      </div>`;
+    }
+    async function loadGitHubControlPanel() {
+      const conn = getGitHubConnection();
+      if (!conn.owner || !conn.repo) return;
+      renderGitHubPanelShell(conn);
+      const content = document.getElementById('githubPanelContent');
+      const state = document.getElementById('githubPanelState');
+      try {
+        const [commits, runs] = await Promise.all([
+          githubApi(`/repos/${encodeURIComponent(conn.owner)}/${encodeURIComponent(conn.repo)}/commits?per_page=5`),
+          githubApi(`/repos/${encodeURIComponent(conn.owner)}/${encodeURIComponent(conn.repo)}/actions/workflows/nexus-factory.yml/runs?per_page=3`).catch(err => ({ error: err.message, workflow_runs: [] }))
+        ]);
+        const commitHtml = (Array.isArray(commits) ? commits : []).map(c => `<div class="flex items-start gap-2"><span class="text-emerald-400">●</span><div class="min-w-0"><div class="truncate text-white">${escapeHtml(c.commit?.message?.split('\n')[0] || 'Commit')}</div><div class="text-[10px] text-cue-muted font-mono">${escapeHtml(c.sha?.slice(0, 7) || '')} · ${escapeHtml(c.author?.login || c.commit?.author?.name || '')}</div></div></div>`).join('') || '<div class="text-cue-muted">No commits found.</div>';
+        const workflow = runs.workflow_runs?.[0];
+        const workflowHtml = runs.error ? `<div class="text-amber-300">Workflow status unavailable: ${escapeHtml(runs.error)}</div>` : `<div class="flex items-center justify-between"><span>nexus-factory.yml</span><span class="${workflow?.conclusion === 'success' ? 'text-emerald-300' : workflow?.status === 'in_progress' ? 'text-amber-300' : 'text-slate-300'}">${escapeHtml(workflow ? `${workflow.status}${workflow.conclusion ? ` · ${workflow.conclusion}` : ''}` : 'No runs')}</span></div>`;
+        content.innerHTML = `<div class="rounded-2xl bg-black/20 p-3 space-y-2"><div class="text-[10px] uppercase tracking-wider text-slate-400">Latest commits</div>${commitHtml}</div><div class="rounded-2xl bg-black/20 p-3">${workflowHtml}</div>`;
+        state.textContent = 'Live'; state.className = 'text-[10px] text-emerald-300';
+      } catch (err) {
+        content.innerHTML = `<div class="rounded-2xl bg-rose-500/10 border border-rose-500/20 p-3 text-rose-200">${escapeHtml(err?.message || 'GitHub request failed')}</div>`;
+        state.textContent = 'Error'; state.className = 'text-[10px] text-rose-300';
+      }
+    }
+    async function triggerGitHubWorkflow() {
+      const conn = getGitHubConnection();
+      if (!getGitHubToken()) { showToast('A GitHub PAT is required to trigger the APK workflow'); return; }
+      try {
+        await githubApi(`/repos/${encodeURIComponent(conn.owner)}/${encodeURIComponent(conn.repo)}/actions/workflows/nexus-factory.yml/dispatches`, { method: 'POST', body: JSON.stringify({ ref: 'main' }), headers: { 'Content-Type': 'application/json' } });
+        showToast('APK workflow triggered on main ✓');
+        setTimeout(loadGitHubControlPanel, 1200);
+      } catch (err) { showToast(`Workflow trigger failed: ${err?.message || 'check PAT permissions'}`); }
+    }
+    function viewGitHubRepoFiles() {
+      const conn = getGitHubConnection();
+      if (!conn.owner || !conn.repo) return;
+      window.open(`https://github.com/${encodeURIComponent(conn.owner)}/${encodeURIComponent(conn.repo)}`, '_blank', 'noopener,noreferrer');
+    }
+    function provideAppFeedback(appId) {
+      const app = APPS_CATALOG.find(a => a.id === appId);
+      const subject = encodeURIComponent(`EG Nexus feedback: ${app?.name || appId}`);
+      window.location.href = `mailto:feedback@eg-nexus.local?subject=${subject}`;
+      showToast('Feedback composer opened');
     }
     function openAppManageModal(appId) {
       const app = APPS_CATALOG.find(a => a.id === appId);
@@ -4593,18 +4724,18 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const effortLabels = { light: '⚡ Light', standard: '⚡ Standard', high: '🔥 High', ultra: '💎 Ultra' };
       const pendingCount = Array.isArray(appState.pendingMemoryProposals) ? appState.pendingMemoryProposals.length : 0;
       const pendingBadge = pendingCount > 0 ? ` • ⏳${pendingCount}` : '';
-      slot.className = 'flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5';
+      slot.className = 'flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5';
       slot.innerHTML = `
         ${modes.map(m => `
-          <button onclick="setPhase2ChatMode('${escapeJsAttr(m.id)}')" class="px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition ${activeMode === m.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white/5 text-slate-300 hover:bg-white/10'}">${m.label}</button>
+          <button onclick="setPhase2ChatMode('${escapeJsAttr(m.id)}')" class="px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition shrink-0 ${activeMode === m.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white/5 text-slate-300 hover:bg-white/10'}">${m.label}</button>
         `).join('')}
-        <button onclick="openProjectBrainModal()" class="px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[11px] font-bold whitespace-nowrap hover:bg-purple-500/25">
+        <button onclick="openProjectBrainModal()" class="px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[11px] font-bold whitespace-nowrap hover:bg-purple-500/25 shrink-0">
           🧠 Brain (${appState.brainNodes.length}${pendingBadge})
         </button>
-        <button onclick="openChatRuntimeConfigModal()" id="activeEffortBadge" class="px-2 py-0.5 rounded-full bg-white/5 text-slate-300 text-[10px] font-medium whitespace-nowrap">
+        <button onclick="openChatRuntimeConfigModal()" id="activeEffortBadge" class="px-2 py-0.5 rounded-full bg-white/5 text-slate-300 text-[10px] font-medium whitespace-nowrap shrink-0">
           ${effortLabels[appState.effortMode] || '⚡ Standard'}
         </button>
-        <span id="activeDiffBadge" class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-medium whitespace-nowrap">
+        <span id="activeDiffBadge" class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-medium whitespace-nowrap shrink-0">
           ${appState.diffOnlyMode ? 'Diff-Only ON' : 'Full Code'}
         </span>
       `;
