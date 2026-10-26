@@ -1766,18 +1766,41 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const grpInp = document.getElementById('newGroupTitleInput');
       if (grpInp) grpInp.value = '';
       const list = document.getElementById('groupMembersCheckboxList');
-      list.innerHTML = (appState.agentsCatalog || []).filter(Boolean).map(ag => `
-        <label class="flex items-center justify-between p-2.5 rounded-2xl bg-[#1e1e26] border border-white/5 cursor-pointer">
-          <div class="flex items-center gap-3">
-            ${buildAvatarSVG(ag.avatar, 36)}
-            <div>
-              <div class="text-xs font-bold text-white">${escapeHtml(ag.name)}</div>
-              <div class="text-[10px] text-cue-muted font-mono">${escapeHtml(ag.model)}</div>
-            </div>
-          </div>
-          <input type="checkbox" value="${escapeHtml(ag.id)}" checked class="group-agent-chk accent-blue-500 w-4 h-4" />
-        </label>
-      `).join('');
+      list.innerHTML = '';
+      (appState.agentsCatalog || []).filter(Boolean).forEach(ag => {
+        const label = document.createElement('label');
+        label.className = 'flex items-center justify-between p-2.5 rounded-2xl bg-[#1e1e26] border border-white/5 cursor-pointer';
+
+        const leftDiv = document.createElement('div');
+        leftDiv.className = 'flex items-center gap-3';
+
+        const avatarWrapper = document.createElement('div');
+        avatarWrapper.innerHTML = buildAvatarSVG(ag.avatar, 36);
+        leftDiv.appendChild(avatarWrapper.firstElementChild || avatarWrapper);
+
+        const infoDiv = document.createElement('div');
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'text-xs font-bold text-white';
+        nameDiv.textContent = ag.name;
+
+        const modelDiv = document.createElement('div');
+        modelDiv.className = 'text-[10px] text-cue-muted font-mono';
+        modelDiv.textContent = ag.model;
+
+        infoDiv.appendChild(nameDiv);
+        infoDiv.appendChild(modelDiv);
+        leftDiv.appendChild(infoDiv);
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = ag.id;
+        checkbox.checked = true;
+        checkbox.className = 'group-agent-chk accent-blue-500 w-4 h-4';
+
+        label.appendChild(leftDiv);
+        label.appendChild(checkbox);
+        list.appendChild(label);
+      });
       document.getElementById('createGroupModal').classList.remove('hidden');
     }
     function confirmCreateGroupChat() {
