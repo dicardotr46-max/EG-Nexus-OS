@@ -66,8 +66,15 @@ def main():
         markers.append({'line': line, 'text': src[max(0, m.start() - 100):m.start() + 180].replace('\n', ' ')})
     target_hits = {k: {label: bool(re.search(re.escape(label), src, re.I)) for label in vals} for k, vals in TARGETS.items()}
     function_flags = []
+    func_pattern = re.compile(r'function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{')
+    func_match_dict = {}
+    for match in func_pattern.finditer(js):
+        func_name = match.group(1)
+        if func_name not in func_match_dict:
+            func_match_dict[func_name] = match
+
     for name in sorted(fn):
-        m = re.search(r'function\s+' + re.escape(name) + r'\s*\([^)]*\)\s*\{', js)
+        m = func_match_dict.get(name)
         if not m:
             continue
         body = js[m.end():m.end() + 1200]
