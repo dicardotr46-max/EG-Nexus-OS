@@ -3955,7 +3955,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       closeSettingsPanel();
       openNexusDialog({
         title: '🧹 پاک کردن تاریخچه پیام‌ها',
-        message: `آیا تمام پیام‌های داخل «${chat.title}» پاک شوند؟ (ایجنت‌ها و تنظیمات حفظ می‌شوند)`,
+        message: `آیا تمام پیام‌های داخل «${escapeHtml(chat.title)}» پاک شوند؟ (ایجنت‌ها و تنظیمات حفظ می‌شوند)`,
         confirmText: 'بله، پاک کن',
         isDanger: true,
         onConfirm: () => {
@@ -3976,7 +3976,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       closeSettingsPanel();
       openNexusDialog({
         title: '🗑️ حذف گفتگو / گروه',
-        message: `آیا گفتگوی «${chat.title}» از لیست صفحه اصلی حذف شود؟`,
+        message: `آیا گفتگوی «${escapeHtml(chat.title)}» از لیست صفحه اصلی حذف شود؟`,
         confirmText: 'حذف گفتگو',
         isDanger: true,
         onConfirm: () => {
