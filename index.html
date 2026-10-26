@@ -7253,7 +7253,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
       // If code exceeds maxChars, preserve <script> blocks in full and compact <style>/<body>
       const scriptMatch = withoutB64.match(/<script\b[\s\S]*<\/script\s*>/i);
-      if (scriptMatch && scriptMatch[0].length < maxChars - 1200) {
+      if (scriptMatch) {
         const scriptPart = scriptMatch[0];
         const headAndBodyBudget = Math.max(1000, maxChars - scriptPart.length - 120);
         const beforeScript = withoutB64.slice(0, scriptMatch.index).slice(0, headAndBodyBudget);
