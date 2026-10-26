@@ -6772,10 +6772,17 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           let lastPartnerTail = '';
           let lastPartnerName = '';
           let accumulatedGroupOptions = [];
+
+          const validCatalogMap = new Map();
+          for (const a of validCatalog) {
+            validCatalogMap.set(a.id, a);
+          }
+
           for (let t = 0; t < turns; t++) {
             if (!isCurrentPhase2Run()) break;
             const liveChatTurn = resolveLiveChatInstance(targetChatId) || chat;
-            const agent = validCatalog.find(a => a.id === memberIds[t % memberIds.length]) || {
+            const currentMemberId = memberIds[t % memberIds.length];
+            const agent = validCatalogMap.get(currentMemberId) || {
               id: 'ag_default',
               name: liveChatTurn.title || 'Nexus Agent',
               model: 'gemini-3.8-flash',
