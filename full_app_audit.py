@@ -50,10 +50,13 @@ def main():
         line=src.count('\n',0,m.start())+1; markers.append({'line':line,'text':src[max(0,m.start()-100):m.start()+180].replace('\n',' ')})
     target_hits={k:{label: bool(re.search(re.escape(label), src, re.I)) for label in vals} for k,vals in TARGETS.items()}
     function_flags=[]
+    func_bodies={}
+    for m in re.finditer(r'function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{', js):
+        name=m.group(1)
+        if name not in func_bodies: func_bodies[name]=js[m.end():m.end()+1200]
     for name in sorted(fn):
-        m=re.search(r'function\s+'+re.escape(name)+r'\s*\([^)]*\)\s*\{', js)
-        if not m: continue
-        body=js[m.end():m.end()+1200]
+        body=func_bodies.get(name)
+        if not body: continue
         if 'showToast' in body and not any(x in body for x in ['innerHTML','classList','fetch(','localStorage','saveState','window.open','speechSynthesis','canvas','navigator.clipboard','appState']):
             function_flags.append({'function':name,'reason':'toast-heavy first 1200 chars; manual review required'})
     report={'file':str(p),'lines':src.count('\n')+1,'script_bytes':len(js),'function_count':len(fn),'interactive_element_count':len(buttons),'target_hits':target_hits,'missing_handlers':sum(len(x['missing_handlers']) for x in buttons),'stub_markers':markers,'toast_heavy_candidates':function_flags,'elements':buttons}
