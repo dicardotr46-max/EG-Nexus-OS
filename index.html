@@ -7034,16 +7034,23 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         // Reuse the approved Phase-1 keyed reconciler, including its stable node map.
         // Open details only change attribute order; DOM equality avoids replacement.
         const previousNodes = box._nexusMessageNodes;
+        const templateChildren = messageTemplate.content.children;
         if (previousNodes) messageHtmlList.forEach((html, index) => {
           const key = `${chat.id}:${index}:${validMessages[index]?.id || ''}`;
           const entry = previousNodes.get(key);
           if (entry) {
             // Compare content only; Phase-4 controls belong to the live DOM.
-            const comparisonNode = entry.node.cloneNode(true);
-            comparisonNode.querySelectorAll('[data-phase4-action]').forEach(button => button.remove());
-            comparisonNode.removeAttribute('data-phase4-injected');
-            comparisonNode.querySelectorAll('[data-phase4-injected]').forEach(node => node.removeAttribute('data-phase4-injected'));
-            if (comparisonNode.isEqualNode(messageTemplate.content.children[index])) entry.html = html;
+            let comparisonNode = entry.node;
+
+            // Fast check: Avoid unconditional cloning and slow NodeList operations
+            const hasPhase4 = comparisonNode.hasAttribute('data-phase4-injected') || comparisonNode.querySelector('[data-phase4-action], [data-phase4-injected]');
+            if (hasPhase4) {
+              comparisonNode = comparisonNode.cloneNode(true);
+              comparisonNode.querySelectorAll('[data-phase4-action]').forEach(button => button.remove());
+              comparisonNode.removeAttribute('data-phase4-injected');
+              comparisonNode.querySelectorAll('[data-phase4-injected]').forEach(node => node.removeAttribute('data-phase4-injected'));
+            }
+            if (comparisonNode.isEqualNode(templateChildren[index])) entry.html = html;
           }
         });
         reconcileChatMessageNodes(box, chat, validMessages, messageHtmlList);
