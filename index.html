@@ -878,7 +878,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     function isSafeConnectionId(id) {
-      return typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id) && !['__proto__', 'constructor', 'prototype'].includes(id);
+      return typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
     }
 
 
@@ -17053,7 +17053,7 @@ if (typeof document !== 'undefined') {
 
 
     const VALID_PHASE5_POLICIES = ['auto', 'if_requested', 'ask', 'manual'];
-    const VALID_PHASE5_STEP_TYPES = ['GOTO_URL', 'CLICK_ELEMENT', 'TYPE_INPUT', 'EXTRACT_DOM', 'VERIFY_RULE'];
+    const VALID_PHASE5_STEP_TYPES = new Set(['GOTO_URL', 'CLICK_ELEMENT', 'TYPE_INPUT', 'EXTRACT_DOM', 'VERIFY_RULE']);
     const PHASE5_DEFAULT_EXTRACTED_HINT = 'برای استخراج اطلاعات سایت‌ها یا پر کردن فرم‌ها، آدرس را وارد کرده و دکمه «🚀 اجرا» را بزنید.';
     const PHASE5_MAX_BRAIN_NODES = (typeof MAX_BRAIN_NODES === 'number' && MAX_BRAIN_NODES > 0) ? MAX_BRAIN_NODES : 120;
     const PHASE5_MAX_SKILLS_COUNT = (typeof MAX_SKILLS_COUNT === 'number' && MAX_SKILLS_COUNT > 0) ? MAX_SKILLS_COUNT : 80;
@@ -17363,7 +17363,7 @@ if (typeof document !== 'undefined') {
 
     function normalizeStepTypeInput(rawType, fallback = 'CLICK_ELEMENT') {
       const upper = String(rawType || '').trim().toUpperCase();
-      return VALID_PHASE5_STEP_TYPES.includes(upper) ? upper : fallback;
+      return VALID_PHASE5_STEP_TYPES.has(upper) ? upper : fallback;
     }
 
 
@@ -19237,7 +19237,7 @@ if (typeof document !== 'undefined') {
       capturePhase5DraftInputs();
       const rawType = type || (typeof document !== 'undefined' ? document.getElementById('teachStepType')?.value : '') || phase5DraftCache.teachStepType || 'CLICK_ELEMENT';
       const upperType = String(rawType || '').trim().toUpperCase();
-      if (!VALID_PHASE5_STEP_TYPES.includes(upperType)) {
+      if (!VALID_PHASE5_STEP_TYPES.has(upperType)) {
         showToast(`⚠️ نوع گام نامعتبر است: ${rawType}`);
         return false;
       }
@@ -19359,7 +19359,7 @@ if (typeof document !== 'undefined') {
             const st = rawSteps[i];
             if (!st || typeof st !== 'object') continue;
             const rawTypeStr = String(st.type || '').trim().toUpperCase();
-            if (!VALID_PHASE5_STEP_TYPES.includes(rawTypeStr)) {
+            if (!VALID_PHASE5_STEP_TYPES.has(rawTypeStr)) {
               showToast(`⚠️ نوع گام نامعتبر در گام ${i + 1}: ${st.type || 'خالی'}`);
               return false;
             }
@@ -19462,7 +19462,7 @@ if (typeof document !== 'undefined') {
         const stepNum = idx + 1;
         const normType = String(st?.type || '').trim().toUpperCase();
         const cleanTarget = String(st?.target || '').trim();
-        if (!st || !cleanTarget || !VALID_PHASE5_STEP_TYPES.includes(normType)) {
+        if (!st || !cleanTarget || !VALID_PHASE5_STEP_TYPES.has(normType)) {
           issues.push(`گام ${stepNum}: نوع یا هدف گام نامعتبر است`);
           if (st) st.verified = false;
           return;
