@@ -2578,6 +2578,10 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const stopBtn = document.getElementById('stopOrchestratorBtn');
       if (stopBtn) stopBtn.classList.remove('hidden');
       const validCatalog = (appState.agentsCatalog || []).filter(Boolean);
+      const validCatalogMap = new Map();
+      for (const a of validCatalog) {
+        if (a && a.id) validCatalogMap.set(a.id, a);
+      }
       const memberIds = (Array.isArray(chat.memberIds) && chat.memberIds.length)
         ? chat.memberIds
         : (validCatalog[0] ? [validCatalog[0].id] : []);
@@ -2585,7 +2589,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       try {
         for (let t = 0; t < turns; t++) {
           if (stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
-          const agent = validCatalog.find(a => a.id === memberIds[t % memberIds.length]) || {
+          const agent = validCatalogMap.get(memberIds[t % memberIds.length]) || {
             id: 'ag_default',
             name: chat.title || 'Nexus Agent',
             model: 'gemini-3.8-flash',
@@ -2608,7 +2612,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
             }
           }
           const nextPartnerObj = (chat.isGroup && turns > 1 && t < turns - 1)
-            ? validCatalog.find(a => a.id === memberIds[(t + 1) % memberIds.length])
+            ? validCatalogMap.get(memberIds[(t + 1) % memberIds.length])
             : null;
           const nowStamp = formatChatTimestamp();
           if (!Array.isArray(chat.messages)) chat.messages = [];
@@ -6765,6 +6769,10 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           }
           const ragContext = buildPhase2RAGContext(userPrompt, { includeTagInstructions: true });
           const validCatalog = (appState.agentsCatalog || []).filter(Boolean);
+          const validCatalogMap = new Map();
+          for (const a of validCatalog) {
+            if (a && a.id) validCatalogMap.set(a.id, a);
+          }
           const memberIds = chat.memberIds?.length
             ? chat.memberIds
             : (validCatalog[0] ? [validCatalog[0].id] : []);
@@ -6775,7 +6783,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           for (let t = 0; t < turns; t++) {
             if (!isCurrentPhase2Run()) break;
             const liveChatTurn = resolveLiveChatInstance(targetChatId) || chat;
-            const agent = validCatalog.find(a => a.id === memberIds[t % memberIds.length]) || {
+            const agent = validCatalogMap.get(memberIds[t % memberIds.length]) || {
               id: 'ag_default',
               name: liveChatTurn.title || 'Nexus Agent',
               model: 'gemini-3.8-flash',
@@ -6804,7 +6812,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
             }
             const isFinalTurn = (t === turns - 1);
             const nextPartnerObj = (postAwaitChat.isGroup && turns > 1 && !isFinalTurn)
-              ? validCatalog.find(a => a.id === memberIds[(t + 1) % memberIds.length])
+              ? validCatalogMap.get(memberIds[(t + 1) % memberIds.length])
               : null;
             const nowTimeStr = typeof formatChatTimestamp === 'function'
               ? formatChatTimestamp()
