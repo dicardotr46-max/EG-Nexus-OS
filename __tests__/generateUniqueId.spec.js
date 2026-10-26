@@ -90,4 +90,30 @@ describe('generateUniqueId', () => {
 
     expect(counter2).toBe((counter1 + 1) % 1000000);
   });
+
+  it('should generate absolutely unique IDs over a large number of calls', () => {
+    const ids = new Set();
+    const numberOfCalls = 10000;
+
+    for (let i = 0; i < numberOfCalls; i++) {
+      ids.add(context.generateUniqueId('bulk'));
+    }
+
+    expect(ids.size).toBe(numberOfCalls);
+  });
+
+  it('should correctly handle different prefixes in rapid succession', () => {
+    const prefixes = ['user', 'msg', 'post', 'comment', 'like'];
+    const generatedIds = [];
+
+    for (let i = 0; i < 50; i++) {
+      const prefix = prefixes[i % prefixes.length];
+      generatedIds.push(context.generateUniqueId(prefix));
+    }
+
+    for (let i = 0; i < 50; i++) {
+      const expectedPrefix = prefixes[i % prefixes.length];
+      expect(generatedIds[i].startsWith(expectedPrefix + '_')).toBe(true);
+    }
+  });
 });
