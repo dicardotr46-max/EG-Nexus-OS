@@ -619,28 +619,12 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
 </script>
+<script src="avatar-config.js"></script>
 <script>
     var STORAGE_KEY = 'eg_nexus_os_v5_master_state';
     window.STORAGE_KEY = STORAGE_KEY;
     const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
     const API_KEY_NAMES = ['gemini', 'deepseek', 'kimi', 'grok', 'openrouter', 'tavily'];
-    const AVATAR_COLORS = [
-      { id: 'gray', hex: '#8e8e98' },
-      { id: 'blue', hex: '#1d8cf8' },
-      { id: 'red', hex: '#ef5350' },
-      { id: 'yellow', hex: '#f5b800' },
-      { id: 'brown', hex: '#a9744f' },
-      { id: 'green', hex: '#10b981' },
-      { id: 'purple', hex: '#8b5cf6' }
-    ];
-    const AVATAR_SHAPES = [
-      'roundedSquare', 'speechBubble', 'heart', 'star', 'briefcase',
-      'triangle', 'flameDrop', 'burstBadge', 'bell', 'circle'
-    ];
-    const AVATAR_FACES = [
-      'classic', 'unibrow', 'wink', 'skeptic', 'happy',
-      'smirk', 'visor', 'glasses', 'focused', 'angry'
-    ];
     // 60+ Authentic Apps Catalog from User Screenshots (Zero Fake Checkmarks)
     const APPS_CATALOG = [
       { id: 'github', name: 'GitHub', category: 'Dev & AI', type: 'App', author: 'GitHub', website: 'https://github.com', desc: 'Access, search, and organize repos, track issues, review pull requests, and automate workflows directly in Nexus.' },
