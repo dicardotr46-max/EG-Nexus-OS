@@ -9,24 +9,20 @@ const CORE_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(CORE_ASSETS);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-          return null;
-        })
-      )
-    ).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    const oldCaches = keys.filter(key => key !== CACHE_NAME);
+    await Promise.all(oldCaches.map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
@@ -39,31 +35,36 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation requests: Network-first with instant fallback to cached index.html
   if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
-          return res;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
+    event.respondWith((async () => {
+      try {
+        const res = await fetch(req);
+        const cache = await caches.open(CACHE_NAME);
+        cache.put('./index.html', res.clone());
+        return res;
+      } catch (error) {
+        return await caches.match('./index.html');
+      }
+    })());
     return;
   }
 
   // Static same-origin assets: Stale-While-Revalidate
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const netFetch = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || netFetch;
-    })
-  );
+  event.respondWith((async () => {
+    const cached = await caches.match(req);
+
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch(req);
+        if (res && res.status === 200) {
+          const cache = await caches.open(CACHE_NAME);
+          cache.put(req, res.clone());
+        }
+        return res;
+      } catch (error) {
+        return cached;
+      }
+    })();
+
+    return cached || fetchPromise;
+  })());
 });
