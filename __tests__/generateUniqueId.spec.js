@@ -73,12 +73,29 @@ describe('generateUniqueId', () => {
     expect(id1).not.toBe(id2);
   });
 
+  it('should generate completely unique IDs at scale', () => {
+    const ids = new Set();
+    for (let i = 0; i < 10000; i++) {
+      ids.add(context.generateUniqueId('test'));
+    }
+    expect(ids.size).toBe(10000);
+  });
+
   it('should start with the correct prefix', () => {
     const id1 = context.generateUniqueId('test');
     expect(id1.startsWith('test_')).toBe(true);
 
     const id2 = context.generateUniqueId();
     expect(id2.startsWith('id_')).toBe(true);
+  });
+
+  it('should match the expected format structure', () => {
+    const id1 = context.generateUniqueId('test');
+    // Format: prefix_timestamp_counter_randomString
+    expect(id1).toMatch(/^test_\d+_\d+_[a-z0-9]{4}$/);
+
+    const id2 = context.generateUniqueId();
+    expect(id2).toMatch(/^id_\d+_\d+_[a-z0-9]{4}$/);
   });
 
   it('should increment the counter starting from initial value', () => {
