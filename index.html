@@ -3138,37 +3138,86 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         list = list.filter(a => a.name.toLowerCase().includes(q) || a.desc.toLowerCase().includes(q));
       }
       const container = document.getElementById('appsCatalogContainer');
+      container.innerHTML = '';
       if (list.length === 0) {
-        container.innerHTML = `<div class="p-8 text-center text-xs text-cue-muted">${activeAppsViewMode === 'added' ? 'هنوز هیچ برنامه‌ای را متصل نکرده‌اید (بدون تیک فیک). از لیست اصلی روی هر برنامه بزنید و آن را متصل کنید.' : 'No matching apps found.'}</div>`;
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'p-8 text-center text-xs text-cue-muted';
+        emptyDiv.textContent = activeAppsViewMode === 'added' ? 'هنوز هیچ برنامه‌ای را متصل نکرده‌اید (بدون تیک فیک). از لیست اصلی روی هر برنامه بزنید و آن را متصل کنید.' : 'No matching apps found.';
+        container.appendChild(emptyDiv);
         return;
       }
-      container.innerHTML = list.map(app => {
+
+      const df = document.createDocumentFragment();
+      list.forEach(app => {
         const connected = isAppGenuinelyConnected(app.id);
-        return `
-          <div onclick="openAppDetailView('${escapeJsAttr(app.id)}')" class="px-4 py-3.5 flex items-center justify-between gap-3 cursor-pointer hover:bg-cue-cardHover transition">
-            <div class="flex items-center gap-3.5 min-w-0 flex-1">
-              <div class="w-11 h-11 rounded-2xl bg-[#1f1f29] border border-white/10 flex items-center justify-center shrink-0">
-                ${getAppIconSVG(app.id)}
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold text-white truncate app-row-title">${escapeHtml(app.name)}</span>
-                  ${app.beta ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted app-beta-badge">Beta</span>` : ''}
-                </div>
-                <div class="text-xs text-cue-muted truncate mt-0.5">${escapeHtml(app.desc)}</div>
-              </div>
-            </div>
-            <div class="shrink-0">
-              ${activeAppsViewMode === 'added'
-                ? `<span class="text-slate-400 text-lg">›</span>`
-                : connected
-                  ? `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Manage ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold">✓</button>`
-                  : `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Connect ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-white/5 text-slate-300 text-xl font-light">+</button>`
-              }
-            </div>
-          </div>
-        `;
-      }).join('');
+
+        const row = document.createElement('div');
+        row.className = 'px-4 py-3.5 flex items-center justify-between gap-3 cursor-pointer hover:bg-cue-cardHover transition';
+        row.onclick = () => openAppDetailView(app.id);
+
+        const leftSec = document.createElement('div');
+        leftSec.className = 'flex items-center gap-3.5 min-w-0 flex-1';
+
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'w-11 h-11 rounded-2xl bg-[#1f1f29] border border-white/10 flex items-center justify-center shrink-0';
+        iconDiv.innerHTML = getAppIconSVG(app.id); // Intentionally keeping SVG icon insertion as requested by rendering logic
+        leftSec.appendChild(iconDiv);
+
+        const textSec = document.createElement('div');
+        textSec.className = 'min-w-0 flex-1';
+
+        const nameRow = document.createElement('div');
+        nameRow.className = 'flex items-center gap-2';
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'text-sm font-bold text-white truncate app-row-title';
+        nameSpan.textContent = app.name;
+        nameRow.appendChild(nameSpan);
+
+        if (app.beta) {
+          const betaSpan = document.createElement('span');
+          betaSpan.className = 'text-[10px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted app-beta-badge';
+          betaSpan.textContent = 'Beta';
+          nameRow.appendChild(betaSpan);
+        }
+        textSec.appendChild(nameRow);
+
+        const descDiv = document.createElement('div');
+        descDiv.className = 'text-xs text-cue-muted truncate mt-0.5';
+        descDiv.textContent = app.desc;
+        textSec.appendChild(descDiv);
+
+        leftSec.appendChild(textSec);
+        row.appendChild(leftSec);
+
+        const rightSec = document.createElement('div');
+        rightSec.className = 'shrink-0';
+
+        if (activeAppsViewMode === 'added') {
+          const arr = document.createElement('span');
+          arr.className = 'text-slate-400 text-lg';
+          arr.textContent = '›';
+          rightSec.appendChild(arr);
+        } else if (connected) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'w-7 h-7 min-h-0 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold';
+          btn.setAttribute('aria-label', 'Manage ' + app.name);
+          btn.textContent = '✓';
+          btn.onclick = (e) => { e.stopPropagation(); openProviderConnectSheet(app.id); };
+          rightSec.appendChild(btn);
+        } else {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'w-7 h-7 min-h-0 rounded-full bg-white/5 text-slate-300 text-xl font-light';
+          btn.setAttribute('aria-label', 'Connect ' + app.name);
+          btn.textContent = '+';
+          btn.onclick = (e) => { e.stopPropagation(); openProviderConnectSheet(app.id); };
+          rightSec.appendChild(btn);
+        }
+        row.appendChild(rightSec);
+        df.appendChild(row);
+      });
+      container.appendChild(df);
     }
     // REA Reverse-Engineered Detail View (Exact Screenshots 1000030180 - 1000030183)
     const GOOGLE_APP_IDS = new Set(['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit']);
@@ -3413,16 +3462,78 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const modal = document.getElementById('settingsSubModal');
       const content = document.getElementById('settingsSubContent');
       document.getElementById('settingsSubTitle').innerText = 'GitHub Integration';
-      content.innerHTML = `
-        <div class="space-y-3" dir="ltr">
-          <p class="text-xs text-slate-300 leading-relaxed">Connect a public repository without a token, or add a fine-grained PAT to access private repositories and trigger workflows. The PAT is kept in the current session secret store and is never written to the durable app state.</p>
-          <label class="block text-xs text-slate-300">GitHub Owner/Username<input id="githubOwnerInput" value="${escapeHtml(conn.owner || 'dicardotr46-max')}" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-          <label class="block text-xs text-slate-300">Repository Name<input id="githubRepoInput" value="${escapeHtml(conn.repo || 'EG-Nexus-OS')}" autocomplete="off" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-          <label class="block text-xs text-slate-300">Personal Access Token <span class="text-slate-500">(optional)</span><input id="githubPatInput" type="password" value="${escapeHtml(getGitHubToken())}" autocomplete="new-password" spellcheck="false" placeholder="github_pat_..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
-          <div id="githubConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
-          <button id="githubConnectBtn" onclick="connectGitHubRepository()" class="w-full py-3 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-extrabold text-sm">Connect</button>
-          ${isAppGenuinelyConnected('github') ? '<button onclick="disconnectApp(\'github\')" class="w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold">Disconnect repository</button>' : ''}
-        </div>`;
+      content.innerHTML = '';
+
+      const divContainer = document.createElement('div');
+      divContainer.className = 'space-y-3';
+      divContainer.dir = 'ltr';
+
+      const p = document.createElement('p');
+      p.className = 'text-xs text-slate-300 leading-relaxed';
+      p.textContent = 'Connect a public repository without a token, or add a fine-grained PAT to access private repositories and trigger workflows. The PAT is kept in the current session secret store and is never written to the durable app state.';
+      divContainer.appendChild(p);
+
+      const ownerLabel = document.createElement('label');
+      ownerLabel.className = 'block text-xs text-slate-300';
+      ownerLabel.textContent = 'GitHub Owner/Username';
+      const ownerInput = document.createElement('input');
+      ownerInput.id = 'githubOwnerInput';
+      ownerInput.value = conn.owner || 'dicardotr46-max';
+      ownerInput.autocomplete = 'username';
+      ownerInput.className = 'mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir';
+      ownerLabel.appendChild(ownerInput);
+      divContainer.appendChild(ownerLabel);
+
+      const repoLabel = document.createElement('label');
+      repoLabel.className = 'block text-xs text-slate-300';
+      repoLabel.textContent = 'Repository Name';
+      const repoInput = document.createElement('input');
+      repoInput.id = 'githubRepoInput';
+      repoInput.value = conn.repo || 'EG-Nexus-OS';
+      repoInput.autocomplete = 'off';
+      repoInput.className = 'mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir';
+      repoLabel.appendChild(repoInput);
+      divContainer.appendChild(repoLabel);
+
+      const patLabel = document.createElement('label');
+      patLabel.className = 'block text-xs text-slate-300';
+      patLabel.textContent = 'Personal Access Token ';
+      const optSpan = document.createElement('span');
+      optSpan.className = 'text-slate-500';
+      optSpan.textContent = '(optional)';
+      patLabel.appendChild(optSpan);
+      const patInput = document.createElement('input');
+      patInput.id = 'githubPatInput';
+      patInput.type = 'password';
+      patInput.value = getGitHubToken();
+      patInput.autocomplete = 'new-password';
+      patInput.spellcheck = false;
+      patInput.placeholder = 'github_pat_...';
+      patInput.className = 'mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono';
+      patLabel.appendChild(patInput);
+      divContainer.appendChild(patLabel);
+
+      const statusDiv = document.createElement('div');
+      statusDiv.id = 'githubConnectStatus';
+      statusDiv.className = 'hidden rounded-xl px-3 py-2 text-xs';
+      divContainer.appendChild(statusDiv);
+
+      const connectBtn = document.createElement('button');
+      connectBtn.id = 'githubConnectBtn';
+      connectBtn.onclick = connectGitHubRepository;
+      connectBtn.className = 'w-full py-3 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-extrabold text-sm';
+      connectBtn.textContent = 'Connect';
+      divContainer.appendChild(connectBtn);
+
+      if (isAppGenuinelyConnected('github')) {
+          const disconnectBtn = document.createElement('button');
+          disconnectBtn.onclick = () => disconnectApp('github');
+          disconnectBtn.className = 'w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold mt-3';
+          disconnectBtn.textContent = 'Disconnect repository';
+          divContainer.appendChild(disconnectBtn);
+      }
+
+      content.appendChild(divContainer);
       modal.classList.remove('hidden');
     }
     function setGitHubConnectStatus(message, kind = 'info') {
@@ -3460,12 +3571,61 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     function renderGitHubPanelShell(conn) {
       const panel = document.getElementById('githubControlPanel');
       if (!panel) return;
-      panel.innerHTML = `<div class="w-full rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">
-        <div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold text-white">GitHub Control Panel</div><div class="text-[11px] text-cue-muted font-mono truncate">${escapeHtml(conn.owner)}/${escapeHtml(conn.repo)}</div></div><span id="githubPanelState" class="text-[10px] text-blue-300">Loading…</span></div>
-        <div id="githubPanelContent" class="space-y-2 text-xs text-slate-300"><div class="animate-pulse">Loading commits and workflow status…</div></div>
-        <div class="grid grid-cols-2 gap-2"><button onclick="loadGitHubControlPanel()" class="py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white">Refresh</button><button onclick="triggerGitHubWorkflow()" class="py-2.5 rounded-xl bg-blue-600 text-xs text-white font-bold">Build APK</button></div>
-        <button onclick="viewGitHubRepoFiles()" class="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-200">View repository files</button>
-      </div>`;
+      panel.innerHTML = '';
+      const shellDiv = document.createElement('div');
+      shellDiv.className = 'w-full rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3';
+      shellDiv.dir = 'ltr';
+
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'flex items-center justify-between gap-2';
+      const titleWrapper = document.createElement('div');
+      const titleDiv = document.createElement('div');
+      titleDiv.className = 'text-xs font-extrabold text-white';
+      titleDiv.textContent = 'GitHub Control Panel';
+      const repoDiv = document.createElement('div');
+      repoDiv.className = 'text-[11px] text-cue-muted font-mono truncate';
+      repoDiv.textContent = conn.owner + '/' + conn.repo;
+      titleWrapper.appendChild(titleDiv);
+      titleWrapper.appendChild(repoDiv);
+      headerDiv.appendChild(titleWrapper);
+
+      const stateSpan = document.createElement('span');
+      stateSpan.id = 'githubPanelState';
+      stateSpan.className = 'text-[10px] text-blue-300';
+      stateSpan.textContent = 'Loading…';
+      headerDiv.appendChild(stateSpan);
+      shellDiv.appendChild(headerDiv);
+
+      const contentDiv = document.createElement('div');
+      contentDiv.id = 'githubPanelContent';
+      contentDiv.className = 'space-y-2 text-xs text-slate-300';
+      const pulseDiv = document.createElement('div');
+      pulseDiv.className = 'animate-pulse';
+      pulseDiv.textContent = 'Loading commits and workflow status…';
+      contentDiv.appendChild(pulseDiv);
+      shellDiv.appendChild(contentDiv);
+
+      const gridDiv = document.createElement('div');
+      gridDiv.className = 'grid grid-cols-2 gap-2';
+      const refreshBtn = document.createElement('button');
+      refreshBtn.onclick = loadGitHubControlPanel;
+      refreshBtn.className = 'py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white';
+      refreshBtn.textContent = 'Refresh';
+      gridDiv.appendChild(refreshBtn);
+      const buildBtn = document.createElement('button');
+      buildBtn.onclick = triggerGitHubWorkflow;
+      buildBtn.className = 'py-2.5 rounded-xl bg-blue-600 text-xs text-white font-bold';
+      buildBtn.textContent = 'Build APK';
+      gridDiv.appendChild(buildBtn);
+      shellDiv.appendChild(gridDiv);
+
+      const viewBtn = document.createElement('button');
+      viewBtn.onclick = viewGitHubRepoFiles;
+      viewBtn.className = 'w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-200';
+      viewBtn.textContent = 'View repository files';
+      shellDiv.appendChild(viewBtn);
+
+      panel.appendChild(shellDiv);
     }
     async function loadGitHubControlPanel() {
       const conn = getGitHubConnection();
@@ -3481,10 +3641,32 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         const commitHtml = (Array.isArray(commits) ? commits : []).map(c => `<div class="flex items-start gap-2"><span class="text-emerald-400">●</span><div class="min-w-0"><div class="truncate text-white">${escapeHtml(c.commit?.message?.split('\n')[0] || 'Commit')}</div><div class="text-[10px] text-cue-muted font-mono">${escapeHtml(c.sha?.slice(0, 7) || '')} · ${escapeHtml(c.author?.login || c.commit?.author?.name || '')}</div></div></div>`).join('') || '<div class="text-cue-muted">No commits found.</div>';
         const workflow = runs.workflow_runs?.[0];
         const workflowHtml = runs.error ? `<div class="text-amber-300">Workflow status unavailable: ${escapeHtml(runs.error)}</div>` : `<div class="flex items-center justify-between"><span>nexus-factory.yml</span><span class="${workflow?.conclusion === 'success' ? 'text-emerald-300' : workflow?.status === 'in_progress' ? 'text-amber-300' : 'text-slate-300'}">${escapeHtml(workflow ? `${workflow.status}${workflow.conclusion ? ` · ${workflow.conclusion}` : ''}` : 'No runs')}</span></div>`;
-        content.innerHTML = `<div class="rounded-2xl bg-black/20 p-3 space-y-2"><div class="text-[10px] uppercase tracking-wider text-slate-400">Latest commits</div>${commitHtml}</div><div class="rounded-2xl bg-black/20 p-3">${workflowHtml}</div>`;
+
+        content.innerHTML = '';
+        const commitWrap = document.createElement('div');
+        commitWrap.className = 'rounded-2xl bg-black/20 p-3 space-y-2';
+        const commitHead = document.createElement('div');
+        commitHead.className = 'text-[10px] uppercase tracking-wider text-slate-400';
+        commitHead.textContent = 'Latest commits';
+        commitWrap.appendChild(commitHead);
+        // Using innerHTML here for complex generated list of commits which is trusted API data escaped manually in template
+        const commitListDiv = document.createElement('div');
+        commitListDiv.innerHTML = commitHtml;
+        commitWrap.appendChild(commitListDiv);
+        content.appendChild(commitWrap);
+
+        const workflowWrap = document.createElement('div');
+        workflowWrap.className = 'rounded-2xl bg-black/20 p-3';
+        workflowWrap.innerHTML = workflowHtml;
+        content.appendChild(workflowWrap);
+
         state.textContent = 'Live'; state.className = 'text-[10px] text-emerald-300';
       } catch (err) {
-        content.innerHTML = `<div class="rounded-2xl bg-rose-500/10 border border-rose-500/20 p-3 text-rose-200">${escapeHtml(err?.message || 'GitHub request failed')}</div>`;
+        content.innerHTML = '';
+        const errDiv = document.createElement('div');
+        errDiv.className = 'rounded-2xl bg-rose-500/10 border border-rose-500/20 p-3 text-rose-200';
+        errDiv.textContent = err?.message || 'GitHub request failed';
+        content.appendChild(errDiv);
         state.textContent = 'Error'; state.className = 'text-[10px] text-rose-300';
       }
     }
@@ -4019,47 +4201,82 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       modal.classList.remove('hidden');
       if (panel === 'dream') {
         document.getElementById('settingsSubTitle').innerText = '👤 پروفایل و حافظه بلندمدت شخصی (Dream Memory)';
-        content.innerHTML = `
-          <div class="space-y-3" dir="rtl">
-            <input id="dreamNameInp" type="text" value="${escapeHtml(appState.profileName)}" placeholder="نام شما" class="w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white" />
-            <textarea id="dreamBioInp" rows="4" class="w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white">${escapeHtml(appState.dreamMemory)}</textarea>
-            <button onclick="saveDreamProfile()" class="w-full py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">ذخیره</button>
-          </div>
-        `;
+        content.innerHTML = '';
+
+        const container = document.createElement('div');
+        container.className = 'space-y-3';
+        container.dir = 'rtl';
+
+        const nameInp = document.createElement('input');
+        nameInp.id = 'dreamNameInp';
+        nameInp.type = 'text';
+        nameInp.value = appState.profileName || '';
+        nameInp.placeholder = 'نام شما';
+        nameInp.className = 'w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white';
+
+        const bioInp = document.createElement('textarea');
+        bioInp.id = 'dreamBioInp';
+        bioInp.rows = 4;
+        bioInp.className = 'w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white';
+        bioInp.value = appState.dreamMemory || '';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'w-full py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold';
+        saveBtn.textContent = 'ذخیره';
+        saveBtn.onclick = () => saveDreamProfile();
+
+        container.appendChild(nameInp);
+        container.appendChild(bioInp);
+        container.appendChild(saveBtn);
+
+        content.appendChild(container);
         return;
       }
       if (panel === 'wallet') {
         document.getElementById('settingsSubTitle').innerText = '💳 کلیدهای API و کیف پول (BYOK Router)';
-        content.innerHTML = `
-          <div class="space-y-2.5" dir="rtl">
-            <p class="text-[11px] text-slate-300">کلیدها فقط در نشست فعلی (sessionStorage) نگه داشته می‌شوند و بعد از پایان نشست باید دوباره وارد شوند. این مخزن رمزنگاری‌شده یا مصون از XSS نیست. درخواست‌ها مستقیم با HTTPS به ارائه‌دهنده ارسال می‌شوند؛ بکاپ کامل عمداً شامل کلیدهاست:</p>
-            <div>
-              <label class="text-[11px] text-emerald-400">Google AI Studio (Gemini 3.8 / 2.5 Flash):</label>
-              <input id="keyGemini" type="password" value="${escapeHtml(appState.apiKeys.gemini)}" placeholder="AIzaSy..." class="code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white" />
-            </div>
-            <div>
-              <label class="text-[11px] text-blue-400">DeepSeek API Key (deepseek-flash / v4-pro):</label>
-              <input id="keyDeepseek" type="password" value="${escapeHtml(appState.apiKeys.deepseek)}" placeholder="sk-..." class="code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white" />
-            </div>
-            <div>
-              <label class="text-[11px] text-purple-400">Moonshot Kimi API Key (K2.7 / K3):</label>
-              <input id="keyKimi" type="password" value="${escapeHtml(appState.apiKeys.kimi)}" placeholder="sk-..." class="code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white" />
-            </div>
-            <div>
-              <label class="text-[11px] text-amber-400">xAI Grok 4.7 API Key:</label>
-              <input id="keyGrok" type="password" value="${escapeHtml(appState.apiKeys.grok)}" placeholder="xai-..." class="code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white" />
-            </div>
-            <div>
-              <label class="text-[11px] text-cyan-400">OpenRouter API Key (فالبک جامع):</label>
-              <input id="keyOpenrouter" type="password" value="${escapeHtml(appState.apiKeys.openrouter)}" placeholder="sk-or-..." class="code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white" />
-            </div>
-            <div>
-              <label class="text-[11px] text-teal-400">Tavily AI Search Key (برای تحقیق عمیق وب فاز ۲):</label>
-              <input id="keyTavily" type="password" value="${escapeHtml(appState.apiKeys.tavily || '')}" placeholder="tvly-..." class="code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white" />
-            </div>
-            <button onclick="saveAllApiKeys()" class="w-full py-2.5 rounded-xl bg-emerald-500 text-black font-extrabold text-xs mt-2">ذخیره کلیدهای API</button>
-          </div>
-        `;
+        content.innerHTML = '';
+
+        const container = document.createElement('div');
+        container.className = 'space-y-2.5';
+        container.dir = 'rtl';
+
+        const p = document.createElement('p');
+        p.className = 'text-[11px] text-slate-300';
+        p.textContent = 'کلیدها فقط در نشست فعلی (sessionStorage) نگه داشته می‌شوند و بعد از پایان نشست باید دوباره وارد شوند. این مخزن رمزنگاری‌شده یا مصون از XSS نیست. درخواست‌ها مستقیم با HTTPS به ارائه‌دهنده ارسال می‌شوند؛ بکاپ کامل عمداً شامل کلیدهاست:';
+        container.appendChild(p);
+
+        const keys = [
+          { id: 'keyGemini', label: 'Google AI Studio (Gemini 3.8 / 2.5 Flash):', val: appState.apiKeys.gemini, ph: 'AIzaSy...', color: 'text-emerald-400' },
+          { id: 'keyDeepseek', label: 'DeepSeek API Key (deepseek-flash / v4-pro):', val: appState.apiKeys.deepseek, ph: 'sk-...', color: 'text-blue-400' },
+          { id: 'keyKimi', label: 'Moonshot Kimi API Key (K2.7 / K3):', val: appState.apiKeys.kimi, ph: 'sk-...', color: 'text-purple-400' },
+          { id: 'keyGrok', label: 'xAI Grok 4.7 API Key:', val: appState.apiKeys.grok, ph: 'xai-...', color: 'text-amber-400' },
+          { id: 'keyOpenrouter', label: 'OpenRouter API Key (فالبک جامع):', val: appState.apiKeys.openrouter, ph: 'sk-or-...', color: 'text-cyan-400' },
+          { id: 'keyTavily', label: 'Tavily AI Search Key (برای تحقیق عمیق وب فاز ۲):', val: (appState.apiKeys.tavily || ''), ph: 'tvly-...', color: 'text-teal-400' }
+        ];
+
+        keys.forEach(k => {
+          const div = document.createElement('div');
+          const lbl = document.createElement('label');
+          lbl.className = 'text-[11px] ' + k.color;
+          lbl.textContent = k.label;
+          const inp = document.createElement('input');
+          inp.id = k.id;
+          inp.type = 'password';
+          inp.value = k.val || '';
+          inp.placeholder = k.ph;
+          inp.className = 'code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white';
+          div.appendChild(lbl);
+          div.appendChild(inp);
+          container.appendChild(div);
+        });
+
+        const btn = document.createElement('button');
+        btn.onclick = saveAllApiKeys;
+        btn.className = 'w-full py-2.5 rounded-xl bg-emerald-500 text-black font-extrabold text-xs mt-2';
+        btn.textContent = 'ذخیره کلیدهای API';
+        container.appendChild(btn);
+
+        content.appendChild(container);
         return;
       }
       if (panel === 'diagnostics') {
@@ -4076,50 +4293,119 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           (typeof window.renderPhase3DocsTab === 'function' ? 1 : 0) +
           (typeof window.syncStateWithCloudWorker === 'function' ? 1 : 0) +
           (typeof window.renderPhase5OperatorStudio === 'function' ? 1 : 0);
-        content.innerHTML = `
-          <div class="space-y-3" dir="rtl">
-            <div class="p-3 rounded-2xl bg-cue-bg border border-cue-border space-y-1.5 text-[11px]">
-              <div class="flex items-center justify-between"><span class="text-slate-300">۱. حافظه LocalStorage و اعتبارسنجی Schema:</span><span class="text-emerald-400 font-bold">✓ سالم (${(storageBytes / 1024).toFixed(1)} KB)</span></div>
-              <div class="flex items-center justify-between"><span class="text-slate-300">۲. ماتریس آواتارهای برداری (۱۰×۱۰):</span><span class="text-emerald-400 font-bold">✓ ${AVATAR_SHAPES.length} شکل × ${AVATAR_FACES.length} چهره</span></div>
-              <div class="flex items-center justify-between"><span class="text-slate-300">۳. کاتالوگ اپ‌ها و اسکیل‌ها:</span><span class="text-emerald-400 font-bold">✓ ${APPS_CATALOG.length} اپ / ${skillsList.length} اسکیل</span></div>
-              <div class="flex items-center justify-between"><span class="text-slate-300">۴. ایزولاسیون امنیتی Studio Iframe:</span><span class="${sandboxSafe ? 'text-emerald-400' : 'text-rose-400'} font-bold">${sandboxSafe ? '✓ ایمن (allow-scripts ایزوله)' : '⚠️ نیاز به بررسی'}</span></div>
-              <div class="flex items-center justify-between"><span class="text-slate-300">۵. روتر مدل‌های ۲۰۲۶ (BYOK):</span><span class="text-blue-400 font-bold">${configuredKeysCount > 0 ? (configuredKeysCount + ' کلید فعال + Failover') : 'حالت دمو آفلاین (۰ کلید)'}</span></div>
-              <div class="flex items-center justify-between"><span class="text-slate-300">۶. جایگاه و وضعیت ماژول‌های ۵ فاز:</span><span class="${slotsReady ? 'text-emerald-400' : 'text-rose-400'} font-bold">${slotsReady ? ('✓ اسلات‌ها آماده (' + activeModulesCount + '/5 فاز بارگذاری‌شده)') : '⚠️ ناقص'}</span></div>
-            </div>
-            <div class="text-xs text-emerald-400 font-bold">✓ پیش‌نمایش زنده ۱۰ حالت چهره برداری و ۱۰ شکل بدنه:</div>
-            <div class="grid grid-cols-5 gap-2 justify-items-center bg-cue-bg p-3 rounded-2xl">
-              ${AVATAR_FACES.map((f, i) => buildAvatarSVG({ color: AVATAR_COLORS[i % AVATAR_COLORS.length].hex, shape: AVATAR_SHAPES[i], face: f }, 44)).join('')}
-            </div>
-          </div>
-        `;
+
+        content.innerHTML = '';
+
+        const container = document.createElement('div');
+        container.className = 'space-y-3';
+        container.dir = 'rtl';
+
+        const listDiv = document.createElement('div');
+        listDiv.className = 'p-3 rounded-2xl bg-cue-bg border border-cue-border space-y-1.5 text-[11px]';
+
+        const items = [
+          { label: '۱. حافظه LocalStorage و اعتبارسنجی Schema:', val: '✓ سالم (' + (storageBytes / 1024).toFixed(1) + ' KB)', cls: 'text-emerald-400 font-bold' },
+          { label: '۲. ماتریس آواتارهای برداری (۱۰×۱۰):', val: '✓ ' + AVATAR_SHAPES.length + ' شکل × ' + AVATAR_FACES.length + ' چهره', cls: 'text-emerald-400 font-bold' },
+          { label: '۳. کاتالوگ اپ‌ها و اسکیل‌ها:', val: '✓ ' + APPS_CATALOG.length + ' اپ / ' + skillsList.length + ' اسکیل', cls: 'text-emerald-400 font-bold' },
+          { label: '۴. ایزولاسیون امنیتی Studio Iframe:', val: sandboxSafe ? '✓ ایمن (allow-scripts ایزوله)' : '⚠️ نیاز به بررسی', cls: (sandboxSafe ? 'text-emerald-400' : 'text-rose-400') + ' font-bold' },
+          { label: '۵. روتر مدل‌های ۲۰۲۶ (BYOK):', val: configuredKeysCount > 0 ? (configuredKeysCount + ' کلید فعال + Failover') : 'حالت دمو آفلاین (۰ کلید)', cls: 'text-blue-400 font-bold' },
+          { label: '۶. جایگاه و وضعیت ماژول‌های ۵ فاز:', val: slotsReady ? ('✓ اسلات‌ها آماده (' + activeModulesCount + '/5 فاز بارگذاری‌شده)') : '⚠️ ناقص', cls: (slotsReady ? 'text-emerald-400' : 'text-rose-400') + ' font-bold' }
+        ];
+
+        items.forEach(item => {
+          const row = document.createElement('div');
+          row.className = 'flex items-center justify-between';
+          const lbl = document.createElement('span');
+          lbl.className = 'text-slate-300';
+          lbl.textContent = item.label;
+          const val = document.createElement('span');
+          val.className = item.cls;
+          val.textContent = item.val;
+          row.appendChild(lbl);
+          row.appendChild(val);
+          listDiv.appendChild(row);
+        });
+
+        container.appendChild(listDiv);
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'text-xs text-emerald-400 font-bold';
+        subtitle.textContent = '✓ پیش‌نمایش زنده ۱۰ حالت چهره برداری و ۱۰ شکل بدنه:';
+        container.appendChild(subtitle);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-5 gap-2 justify-items-center bg-cue-bg p-3 rounded-2xl';
+        grid.innerHTML = AVATAR_FACES.map((f, i) => buildAvatarSVG({ color: AVATAR_COLORS[i % AVATAR_COLORS.length].hex, shape: AVATAR_SHAPES[i], face: f }, 44)).join(''); // Leaving this innerHTML since it builds complex inline SVGs which is safe to render
+        container.appendChild(grid);
+
+        content.appendChild(container);
         return;
       }
       if (panel === 'backup') {
         document.getElementById('settingsSubTitle').innerText = '💾 پشتیبان‌گیری ۱ ثانیه‌ای و نقشه راه ۵ فاز';
-        content.innerHTML = `
-          <div class="space-y-3" dir="rtl">
-            <div class="p-3 rounded-2xl bg-cue-bg border border-cue-border text-xs space-y-1.5">
-              <div>✅ <b>فاز ۱:</b> ظاهر Cue، آواتارهای برداری، چت گروهی، ۶۰+ برنامه واقعی و BYOK (تکمیل در این بخش)</div>
-              <div class="text-slate-400">⏳ <b>فاز ۲:</b> موتور K3 Swarm موازی، تحقیق عمیق وب ۵ منبعی و حافظه Brain</div>
-              <div class="text-slate-400">⏳ <b>فاز ۳:</b> استودیوی تولید فایل‌های آفیس، تصویرساز FLUX 3 و کارخانه ویدیوی کلش رویال</div>
-              <div class="text-slate-400">⏳ <b>فاز ۴:</b> کامپیوتر ابری ۲۴ ساعته با گوشی خاموش، زمان‌بندی Routines و پل تلگرام/صوت</div>
-              <div class="text-slate-400">⏳ <b>فاز ۵:</b> مرورگر خودکار (Browser Operator)، رد کردن کپچا، Teach a Task و اسکریپت APK</div>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <button onclick="exportFullBackup(true)" class="py-2.5 px-2 rounded-xl bg-blue-600 text-white text-xs font-bold">📤 بکاپ کامل (شامل کلیدها)</button>
-              <button onclick="exportFullBackup(false)" class="py-2.5 px-2 rounded-xl bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold">🛡️ بکاپ امن (بدون کلید API)</button>
-            </div>
-            <label class="block w-full py-2.5 rounded-xl bg-white/10 text-center text-white text-xs font-bold cursor-pointer">
-              📥 بازیابی فایل پشتیبان (JSON)
-              <input type="file" accept=".json" class="hidden" onchange="importFullBackup(event)" />
-            </label>
-          </div>
-        `;
+        content.innerHTML = '';
+
+        const container = document.createElement('div');
+        container.className = 'space-y-3';
+        container.dir = 'rtl';
+
+        const listDiv = document.createElement('div');
+        listDiv.className = 'p-3 rounded-2xl bg-cue-bg border border-cue-border text-xs space-y-1.5';
+
+        const phaseItems = [
+          { html: '✅ <b>فاز ۱:</b> ظاهر Cue، آواتارهای برداری، چت گروهی، ۶۰+ برنامه واقعی و BYOK (تکمیل در این بخش)' },
+          { html: '⏳ <b>فاز ۲:</b> موتور K3 Swarm موازی، تحقیق عمیق وب ۵ منبعی و حافظه Brain', cls: 'text-slate-400' },
+          { html: '⏳ <b>فاز ۳:</b> استودیوی تولید فایل‌های آفیس، تصویرساز FLUX 3 و کارخانه ویدیوی کلش رویال', cls: 'text-slate-400' },
+          { html: '⏳ <b>فاز ۴:</b> کامپیوتر ابری ۲۴ ساعته با گوشی خاموش، زمان‌بندی Routines و پل تلگرام/صوت', cls: 'text-slate-400' },
+          { html: '⏳ <b>فاز ۵:</b> مرورگر خودکار (Browser Operator)، رد کردن کپچا، Teach a Task و اسکریپت APK', cls: 'text-slate-400' }
+        ];
+
+        phaseItems.forEach(item => {
+          const div = document.createElement('div');
+          if (item.cls) div.className = item.cls;
+          div.innerHTML = item.html;
+          listDiv.appendChild(div);
+        });
+        container.appendChild(listDiv);
+
+        const btnGrid = document.createElement('div');
+        btnGrid.className = 'grid grid-cols-2 gap-2';
+
+        const btn1 = document.createElement('button');
+        btn1.onclick = () => exportFullBackup(true);
+        btn1.className = 'py-2.5 px-2 rounded-xl bg-blue-600 text-white text-xs font-bold';
+        btn1.textContent = '📤 بکاپ کامل (شامل کلیدها)';
+        btnGrid.appendChild(btn1);
+
+        const btn2 = document.createElement('button');
+        btn2.onclick = () => exportFullBackup(false);
+        btn2.className = 'py-2.5 px-2 rounded-xl bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold';
+        btn2.textContent = '🛡️ بکاپ امن (بدون کلید API)';
+        btnGrid.appendChild(btn2);
+        container.appendChild(btnGrid);
+
+        const label = document.createElement('label');
+        label.className = 'block w-full py-2.5 rounded-xl bg-white/10 text-center text-white text-xs font-bold cursor-pointer';
+        label.appendChild(document.createTextNode('📥 بازیابی فایل پشتیبان (JSON)'));
+        const fileInp = document.createElement('input');
+        fileInp.type = 'file';
+        fileInp.accept = '.json';
+        fileInp.className = 'hidden';
+        fileInp.onchange = (e) => importFullBackup(e);
+        label.appendChild(fileInp);
+        container.appendChild(label);
+
+        content.appendChild(container);
         return;
       }
       // Default fallback for email/phone/computer before Phase 4 module mounts
       document.getElementById('settingsSubTitle').innerText = panel.toUpperCase();
-      content.innerHTML = `<div class="text-xs text-slate-300 leading-relaxed" dir="rtl">این پنل در هسته فاز ۱ آماده شده است و با قرار دادن کدهای فازهای بعدی در انتهای اسکریپت، امکانات کامل ابری و تلگرام آن نیز فعال می‌شود.</div>`;
+      content.innerHTML = '';
+      const fallbackDiv = document.createElement('div');
+      fallbackDiv.className = 'text-xs text-slate-300 leading-relaxed';
+      fallbackDiv.dir = 'rtl';
+      fallbackDiv.textContent = 'این پنل در هسته فاز ۱ آماده شده است و با قرار دادن کدهای فازهای بعدی در انتهای اسکریپت، امکانات کامل ابری و تلگرام آن نیز فعال می‌شود.';
+      content.appendChild(fallbackDiv);
     }
     function saveAllApiKeys() {
       appState.apiKeys.gemini = document.getElementById('keyGemini')?.value.trim() || '';
