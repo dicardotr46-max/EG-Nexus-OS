@@ -90,4 +90,21 @@ describe('generateUniqueId', () => {
 
     expect(counter2).toBe((counter1 + 1) % 1000000);
   });
+
+  it('should generate 10000 unique IDs without collision', () => {
+    const ids = new Set();
+    const count = 10000;
+    for (let i = 0; i < count; i++) {
+      ids.add(context.generateUniqueId());
+    }
+    expect(ids.size).toBe(count);
+  });
+
+  it('should handle edge cases for prefixes', () => {
+    expect(context.generateUniqueId('').startsWith('_')).toBe(true);
+    expect(context.generateUniqueId(null).startsWith('null_')).toBe(true);
+    expect(context.generateUniqueId(undefined).startsWith('id_')).toBe(true);
+    expect(context.generateUniqueId(123).startsWith('123_')).toBe(true);
+    expect(context.generateUniqueId('a!@#').startsWith('a!@#_')).toBe(true);
+  });
 });
