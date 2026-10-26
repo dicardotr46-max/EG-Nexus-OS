@@ -8,6 +8,9 @@ on:
     # اجرای خودکار هر ۶ ساعت یک‌بار برای بررسی سلامت کد
     - cron: '0 */6 * * *'
 
+permissions:
+  contents: write
+
 jobs:
   audit-and-build-apk:
     runs-on: ubuntu-latest
@@ -89,3 +92,12 @@ jobs:
           name: EG-Nexus-OS-v5.1-Debug-APK
           path: build_workspace/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+      - name: 9. Copy APK for Release
+        run: cp build_workspace/android/app/build/outputs/apk/debug/app-debug.apk EG-Nexus-OS-v5.1.apk
+
+      - name: 10. Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-apk
+          files: EG-Nexus-OS-v5.1.apk

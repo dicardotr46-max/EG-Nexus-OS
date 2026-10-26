@@ -1097,27 +1097,45 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     // ============================================================================
+
+    // TODO: Improve memory cleanup during background sync.
+    // TODO: Add offline mode fallback for AI chat.
+    // TODO: Expand supported Google API scopes securely.
+    // TODO: Implement advanced Swarm dynamic sub-agent spawning.
+    // TODO: Enhance visual feedback for long-running Deep Research tasks.
+    // TODO: Refine RTL/LTR transitions in complex data tables.
+
     // INITIALIZATION & PERSISTENCE
     // ============================================================================
     function loadState() {
       let raw = null;
+      let parsed = null;
       try {
         raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) {
+        if (raw) {
+            parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                parsed = null;
+            }
+        }
+      } catch (e) {
+        console.warn('localStorage read or parse failed, starting fresh', e);
+      }
+
+      try {
+        if (!parsed) {
           appState.skillsCatalog = appState.skills;
           applySessionSecrets(appState);
           window.appState = appState;
           return;
         }
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          throw new Error('Malformed root state in localStorage');
-        }
+
         const mergedKeys = { ...appState.apiKeys, ...((parsed.apiKeys && typeof parsed.apiKeys === 'object' && !Array.isArray(parsed.apiKeys)) ? parsed.apiKeys : {}) };
         const mergedConns = { ...appState.appConnections, ...((parsed.appConnections && typeof parsed.appConnections === 'object' && !Array.isArray(parsed.appConnections)) ? parsed.appConnections : {}) };
         appState = sanitizeLoadedState({ ...appState, ...parsed, apiKeys: mergedKeys, appConnections: mergedConns }, appState);
         applySessionSecrets(appState);
         window.appState = appState;
+
         const hasLegacySecrets = Object.values(parsed.apiKeys || {}).some(v => typeof v === 'string' && v.trim()) || Object.values(parsed.appConnections || {}).some(c => c && typeof c.token === 'string' && c.token.trim());
         if (hasLegacySecrets) {
           // Never erase the last durable legacy copy before the session write succeeds.
@@ -1128,16 +1146,12 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
             setTimeout(() => showToast('کلیدها در حافظه نشست ذخیره نشد؛ نسخه قدیمی دیسکی حفظ شد. پیش از بستن صفحه بکاپ بگیرید و دوباره تلاش کنید'), 500);
           }
         }
-      } catch (e) {
-        if (raw) window.egNexusCorruptStateBackup = raw;
-        appState = sanitizeLoadedState(appState, appState);
-        applySessionSecrets(appState);
-        window.appState = appState;
-        setTimeout(() => showToast('⚠️ داده ذخیره‌شده آسیب دیده بود؛ وضعیت پیش‌فرض بارگذاری شد؛ نسخه خام تا بستن صفحه برای بازیابی در حافظه است'), 450);
+      } catch(e) {
+          console.error('State merging crashed, falling back', e);
+          appState.skillsCatalog = appState.skills;
+          window.appState = appState;
       }
     }
-
-
     function saveState() {
       appState.skillsCatalog = appState.skills;
       window.appState = appState;
@@ -1165,12 +1179,12 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               (c?.messages || []).slice(0, -4).forEach(m => { if (m) m.attachmentImage = ''; });
             });
             try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate));
+              try { localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
             } catch (retryError) {
               const retryIsQuota = retryError && (retryError.name === 'QuotaExceededError' || retryError.name === 'NS_ERROR_DOM_QUOTA_REACHED' || retryError.code === 22 || retryError.code === 1014);
               if (!retryIsQuota) throw retryError;
               (candidate.chats || []).forEach(c => { (c?.messages || []).forEach(m => { if (m) m.attachmentImage = ''; }); });
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate));
+              try { localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
             }
             savedOk = true;
             showToast('ظرفیت ذخیره پر بود؛ نسخه دیسکی تصاویر سبک شد. نسخه کامل تا بستن صفحه برای بکاپ در حافظه است');
@@ -1294,10 +1308,12 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
             }
           }
           try {
-            if (prevDepth <= 1 && existingIdx === -1) {
+            if (!fromPopState) {
+              if (prevDepth <= 1 && existingIdx === -1) {
               history.pushState({ viewId }, '', '#' + viewId);
             } else {
               history.replaceState({ viewId }, '', '#' + viewId);
+            }
             }
           } catch (e) {}
         }
@@ -3245,28 +3261,41 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     function openGoogleAccountChooser(appId) {
       pendingProviderConnection = { appId, token: '', clientId: '' };
       const accounts = getConnectionAccounts(appId);
-      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left"><span class="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs">Connected</span></button>`).join('');
-      renderIntegrationModal('Sign in with Google', `<div class="space-y-3" dir="ltr"><div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3"><div class="text-sm font-bold text-white">Choose an account to continue to EG Nexus OS</div><div class="text-xs text-slate-300 mt-1">Gmail, Calendar, and Workspace use the same Google account chooser.</div></div>${rows || '<div class="text-xs text-slate-400 p-2">No Google accounts connected yet.</div>'}<button onclick="openGoogleAccountForm()" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white">+ Use another account</button><button onclick="closeSettingsPanel()" class="w-full py-2.5 text-xs text-slate-400">Cancel</button></div>`);
+      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left shrink-0"><span class="w-9 h-9 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs shrink-0">Connected</span></button>`).join('');
+      renderIntegrationModal('Sign in with Google', `<div class="space-y-3" dir="ltr">
+        <div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3">
+          <div class="text-sm font-bold text-white">Choose an account to continue to EG Nexus OS</div>
+          <div class="text-xs text-slate-300 mt-1">Gmail, Calendar, and Workspace use the same Google account chooser.</div>
+        </div>
+        ${rows || '<div class="text-xs text-slate-400 p-2">No Google accounts connected yet.</div>'}
+        <button onclick="openGoogleAccountForm()" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white shrink-0">+ Use another account</button>
+        <button onclick="closeSettingsPanel()" class="w-full py-2.5 text-xs text-slate-400 shrink-0">Cancel</button>
+      </div>`);
     }
     function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId; const account = getConnectionAccounts(appId)[index]; if (account) showGoogleConsentStep(account, ''); }
     function openGoogleAccountForm() {
       const appId = pendingProviderConnection?.appId || 'gmail';
-      renderIntegrationModal('Sign in with Google · Use another account', `<div class="space-y-3" dir="ltr"><p class="text-xs text-slate-300">Enter the account identity below. Add a Google OAuth token for live Gmail/Calendar API sync, or configure a GIS Client ID to launch the native Google Identity Services consent popup.</p><label class="block text-xs text-slate-300">Gmail address<input id="googleAccountEmail" type="email" placeholder="you@gmail.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label><label class="block text-xs text-slate-300">Display name<input id="googleAccountName" placeholder="Your name" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white" /></label><label class="block text-xs text-slate-300">OAuth Access Token <span class="text-slate-500">(optional)</span><input id="googleAccessToken" type="password" autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label><label class="block text-xs text-slate-300">Google OAuth Client ID <span class="text-slate-500">(optional)</span><input id="googleClientId" placeholder="123...apps.googleusercontent.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label><div id="googleIdentityStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div><div class="grid grid-cols-2 gap-2"><button onclick="beginGoogleIdentityFlow()" class="min-h-0 py-2.5 rounded-xl bg-white/10 text-white text-xs">Use Google popup</button><button onclick="continueGoogleManualAccount('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Continue</button></div><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="w-full py-2 text-xs text-slate-400">Back to account chooser</button></div>`);
+      renderIntegrationModal('Sign in with Google · Use another account', `<div class="space-y-3" dir="ltr">
+        <p class="text-xs text-slate-300">Enter your Google account details to connect it with EG Nexus OS securely without popups.</p>
+        <label class="block text-xs text-slate-300">Gmail address
+          <input id="googleAccountEmail" type="email" placeholder="you@gmail.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" />
+        </label>
+        <label class="block text-xs text-slate-300">Display name
+          <input id="googleAccountName" placeholder="Your name" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white" />
+        </label>
+        <label class="block text-xs text-slate-300">OAuth Access Token <span class="text-slate-500">(required for API sync)</span>
+          <input id="googleAccessToken" type="password" autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" />
+        </label>
+        <div id="googleIdentityStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
+        <button onclick="continueGoogleManualAccount('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold shrink-0">Continue</button>
+        <button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="w-full py-2 text-xs text-slate-400 shrink-0">Back to account chooser</button>
+      </div>`);
     }
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function continueGoogleManualAccount(appId) { const email = document.getElementById('googleAccountEmail')?.value.trim() || ''; const name = document.getElementById('googleAccountName')?.value.trim() || email.split('@')[0] || 'Google account'; const token = document.getElementById('googleAccessToken')?.value.trim() || ''; const clientId = document.getElementById('googleClientId')?.value.trim() || ''; if (!email || !email.includes('@')) { setGoogleIdentityStatus('Enter a valid Google account email.', 'error'); return; } pendingProviderConnection = { appId, token, clientId }; showGoogleConsentStep({ id: `google_${Date.now()}`, email, name, avatar: (name[0] || 'G').toUpperCase() }, token); }
     function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
     function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
-    async function beginGoogleIdentityFlow() {
-      const clientId = document.getElementById('googleClientId')?.value.trim() || ''; const emailInput = document.getElementById('googleAccountEmail');
-      if (!clientId) { setGoogleIdentityStatus('A Google OAuth Client ID is required for the native popup.', 'error'); return; }
-      try {
-        if (!window.google?.accounts?.oauth2) { await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.onload = resolve; script.onerror = reject; document.head.appendChild(script); }); }
-        const scopes = pendingProviderConnection?.appId === 'gcal' ? 'https://www.googleapis.com/auth/calendar' : 'https://www.googleapis.com/auth/gmail.modify';
-        const client = google.accounts.oauth2.initTokenClient({ client_id: clientId, scope: scopes, callback: async response => { if (response.error) return setGoogleIdentityStatus(response.error, 'error'); const info = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${response.access_token}` } }).then(r => r.json()); document.getElementById('googleAccountEmail').value = info.email || ''; document.getElementById('googleAccountName').value = info.name || ''; pendingProviderConnection.token = response.access_token; showGoogleConsentStep({ id: `google_${Date.now()}`, email: info.email || '', name: info.name || 'Google account', avatar: (info.name || info.email || 'G')[0].toUpperCase() }, response.access_token); } });
-        client.requestAccessToken();
-      } catch (err) { setGoogleIdentityStatus(`Google Identity Services unavailable: ${err?.message || 'check popup permissions'}`, 'error'); }
-    }
+
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
     function injectAppContextIntoChat(appId) { const text = accountWorkspaceContext(appId); appState.dreamMemory = `${appState.dreamMemory || ''}\n[Connected app context]\n${text}`.slice(-12000); saveState(); showToast(`${providerLabel(appId)} context injected into Nexus AI Chat`); }
@@ -3905,7 +3934,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const cacheLbl = document.getElementById('cacheSizeLabel');
       if (cacheLbl) {
         try {
-          const rawBytes = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size;
+          let rawBytes = 0; try { rawBytes = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size; } catch (e) { rawBytes = 0; }
           cacheLbl.innerText = (rawBytes / 1024).toFixed(1) + ' KB ›';
         } catch (e) {}
       }
@@ -4067,7 +4096,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       }
       if (panel === 'diagnostics') {
         document.getElementById('settingsSubTitle').innerText = '🛡️ عیب‌یابی خودکار ۶ مرحله‌ای (Gold Master v1.7)';
-        const storageBytes = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size;
+        let storageBytes = 0; try { storageBytes = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size; } catch (e) { storageBytes = 0; }
         const sandboxAttr = document.getElementById('studioPreviewFrame')?.getAttribute('sandbox') || '';
         const sandboxSafe = sandboxAttr === 'allow-scripts' && !sandboxAttr.includes('allow-same-origin');
         const configuredKeysCount = Object.values(appState.apiKeys || {}).filter(v => String(v || '').trim().length > 5).length;
@@ -22099,7 +22128,7 @@ jobs:
 
       function loadBlackBoxLogsFromStorage() {
         try {
-          const raw = localStorage.getItem(BLACKBOX_STORAGE_KEY);
+          let raw = null; try { raw = localStorage.getItem(BLACKBOX_STORAGE_KEY); } catch(e) {}
           if (!raw) return [];
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
@@ -22114,7 +22143,7 @@ jobs:
           if (blackBoxLogs.length > MAX_BLACKBOX_LOGS) {
             blackBoxLogs.length = MAX_BLACKBOX_LOGS;
           }
-          localStorage.setItem(BLACKBOX_STORAGE_KEY, JSON.stringify(blackBoxLogs));
+          try { localStorage.setItem(BLACKBOX_STORAGE_KEY, JSON.stringify(blackBoxLogs)); } catch(e) {}
           return true;
         } catch (e) {
           return false;
