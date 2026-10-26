@@ -771,23 +771,26 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 </body>
 </html>`
     };
-    // Temporary state for Avatar Customizer
-    var avatarPickerState = {
-      mode: 'create', // 'create' | 'edit'
-      color: '#1d8cf8',
-      shape: 'roundedSquare',
-      face: 'wink'
+    // UI state object consolidating previously scattered globals
+    var uiState = {
+      // Temporary state for Avatar Customizer
+      avatarPickerState: {
+        mode: 'create', // 'create' | 'edit'
+        color: '#1d8cf8',
+        shape: 'roundedSquare',
+        face: 'wink'
+      },
+      pendingAttachment: null,
+      stopOrchestrationFlag: false,
+      pendingApprovalCallback: null,
+      activeAppsViewMode: 'catalog', // 'catalog' | 'added'
+      activeAppsCategory: 'All',
+      lastStudioErrorText: '',
+      isOrchestratorRunning: false,
+      activeAbortController: null,
+      activeThinkingAgent: null,
+      activeViewHistoryStack: ['view-home']
     };
-    var pendingAttachment = null;
-    var stopOrchestrationFlag = false;
-    var pendingApprovalCallback = null;
-    var activeAppsViewMode = 'catalog'; // 'catalog' | 'added'
-    var activeAppsCategory = 'All';
-    var lastStudioErrorText = '';
-    var isOrchestratorRunning = false;
-    var activeAbortController = null;
-    var activeThinkingAgent = null;
-    var activeViewHistoryStack = ['view-home'];
     const DEFAULT_WORKOUT_STUDIO_TEMPLATE = appState.studioCode;
     appState.skillsCatalog = appState.skills;
     window.appState = appState;
@@ -799,8 +802,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     // Request ownership is deliberately separate from UI state: a stopped request
     // must never resume its fallback/demo path after a newer run has started.
     function isCurrentApiRequest(controller, runId) {
-      return Boolean(controller && !controller.signal.aborted && !stopOrchestrationFlag
-        && _orchestratorRunSeq === runId && activeAbortController === controller);
+      return Boolean(controller && !controller.signal.aborted && !uiState.stopOrchestrationFlag
+        && _orchestratorRunSeq === runId && uiState.activeAbortController === controller);
     }
 
 
@@ -1277,17 +1280,17 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       document.getElementById('colorPalettePopover')?.classList.add('hidden');
       if (!fromPopState) {
         if (viewId === 'view-home') {
-          activeViewHistoryStack = ['view-home'];
+          uiState.activeViewHistoryStack = ['view-home'];
           try { history.replaceState({ viewId: 'view-home' }, '', '#view-home'); } catch (e) {}
         } else {
-          const existingIdx = activeViewHistoryStack.indexOf(viewId);
-          const prevDepth = activeViewHistoryStack.length;
+          const existingIdx = uiState.activeViewHistoryStack.indexOf(viewId);
+          const prevDepth = uiState.activeViewHistoryStack.length;
           if (existingIdx !== -1) {
-            activeViewHistoryStack = activeViewHistoryStack.slice(0, existingIdx + 1);
+            uiState.activeViewHistoryStack = uiState.activeViewHistoryStack.slice(0, existingIdx + 1);
           } else {
-            activeViewHistoryStack.push(viewId);
-            if (activeViewHistoryStack.length > 8) {
-              activeViewHistoryStack = ['view-home', ...activeViewHistoryStack.slice(-7)];
+            uiState.activeViewHistoryStack.push(viewId);
+            if (uiState.activeViewHistoryStack.length > 8) {
+              uiState.activeViewHistoryStack = ['view-home', ...uiState.activeViewHistoryStack.slice(-7)];
             }
           }
           try {
@@ -1618,10 +1621,10 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     }
     function openCreateAgentModal() {
       document.getElementById('plusFloatingMenu')?.classList.add('hidden');
-      avatarPickerState = { mode: 'create', color: '#1d8cf8', shape: 'roundedSquare', face: 'wink' };
+      uiState.avatarPickerState = { mode: 'create', color: '#1d8cf8', shape: 'roundedSquare', face: 'wink' };
       document.getElementById('newAgentNameInput').value = '';
       document.getElementById('newAgentPromptInput').value = '';
-      document.getElementById('createAgentAvatarPreview').innerHTML = buildAvatarSVG(avatarPickerState, 96);
+      document.getElementById('createAgentAvatarPreview').innerHTML = buildAvatarSVG(uiState.avatarPickerState, 96);
       document.getElementById('createAgentModal').classList.remove('hidden');
     }
     function closeCreateAgentModal() {
@@ -1642,7 +1645,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         systemPrompt: prompt || `تو ایجنت تخصصی «${name}» هستی و با بالاترین استاندارد مهندسی و مرحله‌به‌مرحله پاسخ می‌دهی.`,
         memory: '',
         files: [],
-        avatar: sanitizeAvatarSpec(avatarPickerState)
+        avatar: sanitizeAvatarSpec(uiState.avatarPickerState)
       };
       appState.agentsCatalog.unshift(newAgent);
       const nowStamp = formatChatTimestamp();
@@ -1672,13 +1675,13 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       showToast(`ایجنت «${name}» ساخته شد ✓`);
     }
     function openChangeAvatarModal(mode = 'create') {
-      avatarPickerState.mode = mode;
+      uiState.avatarPickerState.mode = mode;
       if (mode === 'edit') {
         const ag = getActiveAgentForProfile();
         if (ag && ag.avatar) {
-          avatarPickerState.color = ag.avatar.color;
-          avatarPickerState.shape = ag.avatar.shape;
-          avatarPickerState.face = ag.avatar.face;
+          uiState.avatarPickerState.color = ag.avatar.color;
+          uiState.avatarPickerState.shape = ag.avatar.shape;
+          uiState.avatarPickerState.face = ag.avatar.face;
         }
       }
       renderAvatarCustomizerUI();
@@ -1692,21 +1695,21 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       document.getElementById('colorPalettePopover')?.classList.toggle('hidden');
     }
     function renderAvatarCustomizerUI() {
-      document.getElementById('avatarModalLivePreview').innerHTML = buildAvatarSVG(avatarPickerState, 96);
+      document.getElementById('avatarModalLivePreview').innerHTML = buildAvatarSVG(uiState.avatarPickerState, 96);
       const circle = document.getElementById('activeColorCircle');
-      if (circle) circle.style.backgroundColor = avatarPickerState.color;
+      if (circle) circle.style.backgroundColor = uiState.avatarPickerState.color;
       // Render 7 Colors in Popover
       const pop = document.getElementById('colorPalettePopover');
       if (pop) {
         pop.innerHTML = AVATAR_COLORS.map(c => `
-          <button onclick="selectAvatarColor('${c.hex}')" class="w-7 h-7 rounded-full transition transform ${avatarPickerState.color === c.hex ? 'ring-2 ring-blue-400 scale-110' : ''}" style="background:${c.hex}"></button>
+          <button onclick="selectAvatarColor('${c.hex}')" class="w-7 h-7 rounded-full transition transform ${uiState.avatarPickerState.color === c.hex ? 'ring-2 ring-blue-400 scale-110' : ''}" style="background:${c.hex}"></button>
         `).join('');
       }
       // Render 10 Faces
       const facesGrid = document.getElementById('avatarFacesGrid');
       if (facesGrid) {
         facesGrid.innerHTML = AVATAR_FACES.map(f => `
-          <button onclick="selectAvatarFace('${f}')" class="w-12 h-12 rounded-2xl flex items-center justify-center transition ${avatarPickerState.face === f ? 'bg-[#262632] ring-1 ring-white/20' : 'bg-[#1b1b23] hover:bg-[#22222c]'}">
+          <button onclick="selectAvatarFace('${f}')" class="w-12 h-12 rounded-2xl flex items-center justify-center transition ${uiState.avatarPickerState.face === f ? 'bg-[#262632] ring-1 ring-white/20' : 'bg-[#1b1b23] hover:bg-[#22222c]'}">
             <svg width="34" height="34" viewBox="0 0 100 100">${getFaceFeaturesSVG(f, true)}</svg>
           </button>
         `).join('');
@@ -1715,35 +1718,35 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const shapesGrid = document.getElementById('avatarShapesGrid');
       if (shapesGrid) {
         shapesGrid.innerHTML = AVATAR_SHAPES.map(sh => `
-          <button onclick="selectAvatarShape('${sh}')" class="w-12 h-12 rounded-2xl flex items-center justify-center transition ${avatarPickerState.shape === sh ? 'bg-[#262632] ring-1 ring-white/20' : 'hover:bg-[#1b1b23]'}">
-            <svg width="36" height="36" viewBox="0 0 100 100"><g fill="${sanitizeAvatarHexColor(avatarPickerState.color)}">${getBodyShapePath(sh)}</g></svg>
+          <button onclick="selectAvatarShape('${sh}')" class="w-12 h-12 rounded-2xl flex items-center justify-center transition ${uiState.avatarPickerState.shape === sh ? 'bg-[#262632] ring-1 ring-white/20' : 'hover:bg-[#1b1b23]'}">
+            <svg width="36" height="36" viewBox="0 0 100 100"><g fill="${sanitizeAvatarHexColor(uiState.avatarPickerState.color)}">${getBodyShapePath(sh)}</g></svg>
           </button>
         `).join('');
       }
     }
     function selectAvatarColor(hex) {
-      avatarPickerState.color = sanitizeAvatarHexColor(hex);
+      uiState.avatarPickerState.color = sanitizeAvatarHexColor(hex);
       document.getElementById('colorPalettePopover')?.classList.add('hidden');
       renderAvatarCustomizerUI();
     }
     function selectAvatarFace(face) {
-      avatarPickerState.face = face;
+      uiState.avatarPickerState.face = face;
       renderAvatarCustomizerUI();
     }
     function selectAvatarShape(shape) {
-      avatarPickerState.shape = shape;
+      uiState.avatarPickerState.shape = shape;
       renderAvatarCustomizerUI();
     }
     function applyAvatarChanges() {
-      if (avatarPickerState.mode === 'create') {
-        document.getElementById('createAgentAvatarPreview').innerHTML = buildAvatarSVG(avatarPickerState, 96);
+      if (uiState.avatarPickerState.mode === 'create') {
+        document.getElementById('createAgentAvatarPreview').innerHTML = buildAvatarSVG(uiState.avatarPickerState, 96);
       } else {
         const ag = getActiveAgentForProfile();
         if (ag) {
           ag.avatar = {
-            color: avatarPickerState.color,
-            shape: avatarPickerState.shape,
-            face: avatarPickerState.face
+            color: uiState.avatarPickerState.color,
+            shape: uiState.avatarPickerState.shape,
+            face: uiState.avatarPickerState.face
           };
           saveState();
           renderAgentProfileView();
@@ -2321,11 +2324,11 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       });
       reconcileChatMessageNodes(box, chat, validMessages, messageHtmlList);
       const thinkingBubble = box.querySelector('#liveAgentThinkingBubble');
-      if (isOrchestratorRunning && activeThinkingAgent) {
+      if (uiState.isOrchestratorRunning && uiState.activeThinkingAgent) {
         const thinkingHtml = `
           <div id="liveAgentThinkingBubble" class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-3xl bg-[#1a1a22]/90 border border-blue-500/30 w-fit animate-pulse">
-            ${buildAvatarSVG(activeThinkingAgent.avatar, 22)}
-            <span class="text-xs font-bold text-blue-300">${escapeHtml(activeThinkingAgent.name)} در حال پردازش و نگارش...</span>
+            ${buildAvatarSVG(uiState.activeThinkingAgent.avatar, 22)}
+            <span class="text-xs font-bold text-blue-300">${escapeHtml(uiState.activeThinkingAgent.name)} در حال پردازش و نگارش...</span>
           </div>
         `;
         // Keep the bubble (and its animation) when only message content changes.
@@ -2372,7 +2375,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     function selectQuickOption(optionText) {
-      if (isOrchestratorRunning) {
+      if (uiState.isOrchestratorRunning) {
         showToast('ایجنت در حال پردازش پیام قبلی است...');
         return;
       }
@@ -2453,7 +2456,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           truncatedNote = ' [۱۶,۰۰۰ کاراکتر اول]';
           showToast('فایل متنی بزرگ است؛ ۱۶,۰۰۰ کاراکتر اول برای ایجنت ارسال می‌شود 📎');
         }
-        pendingAttachment = {
+        uiState.pendingAttachment = {
           name: file.name,
           mimeType: finalMime,
           isImage,
@@ -2470,7 +2473,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     function clearPendingAttachment() {
-      pendingAttachment = null;
+      uiState.pendingAttachment = null;
       document.getElementById('chatAttachmentPreview')?.classList.add('hidden');
       const fileInp = document.getElementById('chatFileInput');
       if (fileInp) fileInp.value = '';
@@ -2478,16 +2481,16 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     async function sendUserMessage() {
-      if (isOrchestratorRunning) {
+      if (uiState.isOrchestratorRunning) {
         showToast('⏳ لطفاً صبر کنید تا پاسخ ایجنت کامل شود یا Stop را بزنید');
         return;
       }
       const inp = document.getElementById('chatInput');
       const text = (inp?.value || '').trim();
-      if (!text && !pendingAttachment) return;
+      if (!text && !uiState.pendingAttachment) return;
       const chat = getActiveChat();
       if (!chat) return;
-      const attachedSnapshot = pendingAttachment ? Object.assign({}, pendingAttachment) : null;
+      const attachedSnapshot = uiState.pendingAttachment ? Object.assign({}, uiState.pendingAttachment) : null;
       const hasImg = Boolean(attachedSnapshot?.isImage);
       const reactionType = detectContextualReaction(text, hasImg);
       let fullPrompt = text || (attachedSnapshot ? `لطفاً فایل پیوست‌شده (${attachedSnapshot.name}) را بررسی کن.` : '');
@@ -2536,7 +2539,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     function triggerApprovalGate(reason, onApprove) {
-      pendingApprovalCallback = onApprove;
+      uiState.pendingApprovalCallback = onApprove;
       const txtEl = document.getElementById('approvalGateText');
       if (txtEl) txtEl.innerText = reason;
       document.getElementById('approvalGateBanner')?.classList.remove('hidden');
@@ -2545,8 +2548,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
     function resolveApprovalGate(approved) {
       document.getElementById('approvalGateBanner')?.classList.add('hidden');
-      const cb = pendingApprovalCallback;
-      pendingApprovalCallback = null;
+      const cb = uiState.pendingApprovalCallback;
+      uiState.pendingApprovalCallback = null;
       if (approved && typeof cb === 'function') {
         cb();
       } else {
@@ -2556,18 +2559,18 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     function stopActiveOrchestration() {
-      stopOrchestrationFlag = true;
+      uiState.stopOrchestrationFlag = true;
       _orchestratorRunSeq++;
-      if (activeAbortController) {
-        try { activeAbortController.abort(); } catch (e) {}
-        activeAbortController = null;
+      if (uiState.activeAbortController) {
+        try { uiState.activeAbortController.abort(); } catch (e) {}
+        uiState.activeAbortController = null;
       }
       activeApiControllers.forEach(ctrl => {
         try { ctrl.abort(); } catch (e) {}
       });
       activeApiControllers.clear();
-      isOrchestratorRunning = false;
-      activeThinkingAgent = null;
+      uiState.isOrchestratorRunning = false;
+      uiState.activeThinkingAgent = null;
       document.getElementById('stopOrchestratorBtn')?.classList.add('hidden');
       renderChatMessages();
       showToast('چرخش نوبت و درخواست شبکه متوقف شد ⏹');
@@ -2594,10 +2597,10 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     async function runChatOrchestrator(chat, userPrompt) {
-      if (isOrchestratorRunning || !chat) return;
+      if (uiState.isOrchestratorRunning || !chat) return;
       const currentRunId = ++_orchestratorRunSeq;
-      isOrchestratorRunning = true;
-      stopOrchestrationFlag = false;
+      uiState.isOrchestratorRunning = true;
+      uiState.stopOrchestrationFlag = false;
       const stopBtn = document.getElementById('stopOrchestratorBtn');
       if (stopBtn) stopBtn.classList.remove('hidden');
       const validCatalog = (appState.agentsCatalog || []).filter(Boolean);
@@ -2607,17 +2610,17 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const turns = chat.isGroup ? Math.min(Math.max(1, memberIds.length), appState.maxGroupTurns || 3) : 1;
       try {
         for (let t = 0; t < turns; t++) {
-          if (stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
+          if (uiState.stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
           const agent = validCatalog.find(a => a.id === memberIds[t % memberIds.length]) || {
             id: 'ag_default',
             name: chat.title || 'Nexus Agent',
             model: 'gemini-3.8-flash',
             systemPrompt: 'تو ایجنت هوشمند EG Nexus OS هستی.'
           };
-          activeThinkingAgent = agent;
+          uiState.activeThinkingAgent = agent;
           renderChatMessages();
           const rawReply = await callAgentAPI(agent, chat, userPrompt, t, turns);
-          if (stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
+          if (uiState.stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
           const reviewedReply = performAutomaticSelfReview(rawReply);
           const isSimReply = reviewedReply.startsWith('🧪 **[حالت شبیه‌ساز آفلاین');
           const isErrorReply = reviewedReply.startsWith('⚠️ **[خطای') || reviewedReply.startsWith('⚠️ **[مهلت زمانی');
@@ -2663,9 +2666,9 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         }
       } finally {
         if (_orchestratorRunSeq === currentRunId) {
-          activeThinkingAgent = null;
-          activeAbortController = null;
-          isOrchestratorRunning = false;
+          uiState.activeThinkingAgent = null;
+          uiState.activeAbortController = null;
+          uiState.isOrchestratorRunning = false;
           if (stopBtn) stopBtn.classList.add('hidden');
           renderChatMessages();
         }
@@ -2755,7 +2758,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
       const requestRunId = _orchestratorRunSeq;
       const reqController = new AbortController();
-      activeAbortController = reqController;
+      uiState.activeAbortController = reqController;
       activeApiControllers.add(reqController);
       let timedOut = false;
       const timeoutId = setTimeout(() => {
@@ -2974,8 +2977,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       return demoHeader + `پاسخ آزمایشی برای «${userPrompt.slice(0, 80)}» توسط **${agent.name}** (${agent.model}):\n\n1. این پیام در **حالت دمو (بدون کلید API)** تولید شده است.\n2. برای دریافت پاسخ واقعی هوش مصنوعی، کلید خود را در \`Settings -> Wallet & API Keys\` وارد کنید یا کدهای موجود را در **«⚡ اجرا در بوم زنده»** آزمایش نمایید.`;
       } catch (err) {
         if (err?.name === 'AbortError') {
-          if (stopOrchestrationFlag || requestRunId !== _orchestratorRunSeq || activeAbortController !== reqController) throw err;
-          if (timedOut && !stopOrchestrationFlag) {
+          if (uiState.stopOrchestrationFlag || requestRunId !== _orchestratorRunSeq || uiState.activeAbortController !== reqController) throw err;
+          if (timedOut && !uiState.stopOrchestrationFlag) {
             showToast('⚠️ مهلت زمانی پاسخ سرور (45s Timeout) به پایان رسید');
             return `⚠️ **[مهلت زمانی درخواست (Timeout 45s) به پایان رسید]:**\nپاسخی از سرور مدل \`${model}\` دریافت نشد. لطفاً وضعیت اینترنت یا کلید API را بررسی کرده و دوباره تلاش کنید.`;
           }
@@ -2989,8 +2992,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       } finally {
         clearTimeout(timeoutId);
         activeApiControllers.delete(reqController);
-        if (activeAbortController === reqController) {
-          activeAbortController = null;
+        if (uiState.activeAbortController === reqController) {
+          uiState.activeAbortController = null;
         }
       }
 
@@ -3085,23 +3088,23 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     }
     function openAppsView(source = 'settings') {
       window._appsViewReturnTo = source === 'agent' ? 'view-agent-profile' : 'view-settings';
-      activeAppsViewMode = 'catalog';
-      activeAppsCategory = 'All';
+      uiState.activeAppsViewMode = 'catalog';
+      uiState.activeAppsCategory = 'All';
       syncAddedAppIds();
       showView('view-apps');
       renderAppsCategories();
       renderAppsCatalog();
     }
     function closeAppsView() {
-      if (activeAppsViewMode === 'added') {
-        activeAppsViewMode = 'catalog';
+      if (uiState.activeAppsViewMode === 'added') {
+        uiState.activeAppsViewMode = 'catalog';
         renderAppsCatalog();
         return;
       }
       showView(window._appsViewReturnTo || 'view-settings');
     }
     function openAddedAppsList() {
-      activeAppsViewMode = 'added';
+      uiState.activeAppsViewMode = 'added';
       renderAppsCatalog();
     }
     function renderAppsCategories() {
@@ -3109,7 +3112,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const bar = document.getElementById('appsCategoryBar');
       if (!bar) return;
       bar.innerHTML = cats.map(c => `
-        <button onclick="activeAppsCategory='${c}';renderAppsCategories();renderAppsCatalog()" class="px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${activeAppsCategory === c ? 'bg-[#262632] text-white' : 'text-cue-muted hover:text-white'}">${c}</button>
+        <button onclick="uiState.activeAppsCategory='${c}';renderAppsCategories();renderAppsCatalog()" class="px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${uiState.activeAppsCategory === c ? 'bg-[#262632] text-white' : 'text-cue-muted hover:text-white'}">${c}</button>
       `).join('');
     }
     function renderAppsCatalog() {
@@ -3121,7 +3124,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const countSub = document.getElementById('addedAppsCountSubtitle');
       if (countSub) countSub.innerText = `${appState.addedAppIds.length} apps`;
       let list = APPS_CATALOG;
-      if (activeAppsViewMode === 'added') {
+      if (uiState.activeAppsViewMode === 'added') {
         headerTitle.innerText = 'Added apps';
         addedCard.classList.add('hidden');
         catBar.classList.add('hidden');
@@ -3130,8 +3133,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         headerTitle.innerText = 'Apps';
         addedCard.classList.remove('hidden');
         catBar.classList.remove('hidden');
-        if (activeAppsCategory !== 'All') {
-          list = list.filter(a => a.category === activeAppsCategory);
+        if (uiState.activeAppsCategory !== 'All') {
+          list = list.filter(a => a.category === uiState.activeAppsCategory);
         }
       }
       if (q) {
@@ -3139,7 +3142,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       }
       const container = document.getElementById('appsCatalogContainer');
       if (list.length === 0) {
-        container.innerHTML = `<div class="p-8 text-center text-xs text-cue-muted">${activeAppsViewMode === 'added' ? 'هنوز هیچ برنامه‌ای را متصل نکرده‌اید (بدون تیک فیک). از لیست اصلی روی هر برنامه بزنید و آن را متصل کنید.' : 'No matching apps found.'}</div>`;
+        container.innerHTML = `<div class="p-8 text-center text-xs text-cue-muted">${uiState.activeAppsViewMode === 'added' ? 'هنوز هیچ برنامه‌ای را متصل نکرده‌اید (بدون تیک فیک). از لیست اصلی روی هر برنامه بزنید و آن را متصل کنید.' : 'No matching apps found.'}</div>`;
         return;
       }
       container.innerHTML = list.map(app => {
@@ -3159,7 +3162,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               </div>
             </div>
             <div class="shrink-0">
-              ${activeAppsViewMode === 'added'
+              ${uiState.activeAppsViewMode === 'added'
                 ? `<span class="text-slate-400 text-lg">›</span>`
                 : connected
                   ? `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Manage ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-xs font-bold">✓</button>`
@@ -3755,7 +3758,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const frame = document.getElementById('studioPreviewFrame');
       if (!frame) return;
       // Reset previous error state before running fresh preview
-      lastStudioErrorText = '';
+      uiState.lastStudioErrorText = '';
       const st = document.getElementById('studioErrorStatus');
       if (st) st.innerText = '🛡️ مانیتورینگ خودکار خطا (Auto-QA) فعال است';
       document.getElementById('studioBugFixBtn')?.classList.add('hidden');
@@ -3798,9 +3801,9 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const frame = document.getElementById('studioPreviewFrame');
       if (!frame || !ev.source || ev.source !== frame.contentWindow) return;
       if (ev.data && typeof ev.data === 'object' && ev.data.type === 'STUDIO_RUNTIME_ERROR') {
-        lastStudioErrorText = String(ev.data.error || 'Runtime Error').slice(0, 260);
+        uiState.lastStudioErrorText = String(ev.data.error || 'Runtime Error').slice(0, 260);
         const st = document.getElementById('studioErrorStatus');
-        if (st) st.innerText = '⚠️ باگ در کد تشخیص داده شد: ' + lastStudioErrorText;
+        if (st) st.innerText = '⚠️ باگ در کد تشخیص داده شد: ' + uiState.lastStudioErrorText;
         document.getElementById('studioBugFixBtn')?.classList.remove('hidden');
       }
     });
@@ -3816,7 +3819,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       }
       openChat(chat.id);
       const inp = document.getElementById('chatInput');
-      const errTxt = lastStudioErrorText || 'Runtime Error';
+      const errTxt = uiState.lastStudioErrorText || 'Runtime Error';
       const codeSnippet = String(appState.studioCode || '').trim().slice(0, 3200);
       if (inp) {
         inp.value = `در اجرای کد داخل بوم زنده این خطا رخ داد: "${errTxt}". لطفاً باگ را در کد زیر بررسی و اصلاح کن:` +
@@ -4226,9 +4229,9 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           return true;
         }
       }
-      if (activeViewHistoryStack.length > 1) {
-        activeViewHistoryStack.pop();
-        const prevView = activeViewHistoryStack[activeViewHistoryStack.length - 1] || 'view-home';
+      if (uiState.activeViewHistoryStack.length > 1) {
+        uiState.activeViewHistoryStack.pop();
+        const prevView = uiState.activeViewHistoryStack[uiState.activeViewHistoryStack.length - 1] || 'view-home';
         showView(prevView, true);
         return true;
       }
@@ -4757,7 +4760,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
     // Abort-aware & Deadline-aware fetch helper (Fixes Audit #6: fallback fetch running after Stop or deadline)
     async function fetchWithResearchTimeout(url, options = {}, timeoutMs = 8000, deadlineTs = 0) {
-      const stopped = () => typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag;
+      const stopped = () => typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag;
       const makeAbortError = () => {
         const err = new Error('Orchestration stopped by user');
         err.name = 'AbortError';
@@ -5790,7 +5793,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       // منبع ۲: Tavily AI Search (فقط با هدر Authorization: Bearer بدون ارسال کلید در body — Fixes P2-C10 & Audit #11, #24)
       tasks.push(
         (async () => {
-          if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) return;
+          if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
           let tavilySucceeded = false;
           const tavilyKey = typeof appState.apiKeys?.tavily === 'string' ? appState.apiKeys.tavily.trim() : '';
           if (tavilyKey) {
@@ -5834,10 +5837,10 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
                 }
               }
             } catch (e) {
-              if (e?.isUserStop || e?.isDeadlineExpired || (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) return;
+              if (e?.isUserStop || e?.isDeadlineExpired || (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) return;
             }
           }
-          if (!tavilySucceeded && !(typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+          if (!tavilySucceeded && !(typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
             try {
               const hnRes = await fetchWithResearchTimeout(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(englishTechQuery)}&tags=story&hitsPerPage=2`, {}, 6000, researchDeadlineTs);
               if (hnRes.ok) {
@@ -5872,13 +5875,13 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       // منبع ۳: ویکی‌پدیای فارسی و انگلیسی با کوئری متمرکز و متادیتای تاریخ آپدیت مقاله
       tasks.push(
         (async () => {
-          if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) return;
+          if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
           let wikiAdded = false;
           try {
             let faRes = await fetchWithResearchTimeout(`https://fa.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(condensedPersianWikiQuery)}&srprop=snippet|timestamp|wordcount&utf8=&format=json&origin=*`, {}, 6500, researchDeadlineTs);
             let faData = faRes.ok ? await faRes.json() : {};
             let hits = (faData?.query?.search || []).slice(0, 2);
-            if (hits.length === 0 && condensedPersianWikiQuery !== cleanSearchQuery && !(typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+            if (hits.length === 0 && condensedPersianWikiQuery !== cleanSearchQuery && !(typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
               faRes = await fetchWithResearchTimeout(`https://fa.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanSearchQuery.slice(0, 50))}&srprop=snippet|timestamp|wordcount&utf8=&format=json&origin=*`, {}, 5000, researchDeadlineTs);
               faData = faRes.ok ? await faRes.json() : {};
               hits = (faData?.query?.search || []).slice(0, 2);
@@ -5896,7 +5899,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           } catch (e) {
             if (e?.isUserStop || e?.isDeadlineExpired) return;
           }
-          if (/[a-zA-Z]{2,}/.test(enWikiFocusedQuery) && !(typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+          if (/[a-zA-Z]{2,}/.test(enWikiFocusedQuery) && !(typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
             try {
               const enRes = await fetchWithResearchTimeout(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(enWikiFocusedQuery)}&srprop=snippet|timestamp|wordcount&utf8=&format=json&origin=*`, {}, 6500, researchDeadlineTs);
               const enData = enRes.ok ? await enRes.json() : {};
@@ -5925,7 +5928,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       // منبع ۴: مخازن گیت‌هاب با کوئری متمرکز ۳-۴ کلمه‌ای و فیلتر مخازن به‌روز + فالبک خودکار به رجیستری NPM (Fixes Audit #9 & #13)
       tasks.push(
         (async () => {
-          if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) return;
+          if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
           let githubFound = false;
           try {
             const wantsFresh2026 = /جدیدترین|امروز|روز|2026|نسخه|نسل|latest|new|recent/i.test(cleanSearchQuery);
@@ -5952,9 +5955,9 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               }
             }
           } catch (e) {
-            if (e?.isUserStop || e?.isDeadlineExpired || (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) return;
+            if (e?.isUserStop || e?.isDeadlineExpired || (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) return;
           }
-          if (!githubFound && !(typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+          if (!githubFound && !(typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
             try {
               const npmRes = await fetchWithResearchTimeout(`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(enWikiFocusedQuery)}&size=2`, {}, 6000, researchDeadlineTs);
               if (npmRes.ok) {
@@ -5991,7 +5994,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       // منبع ۵: انجمن‌های مهندسی StackOverflow + مقالات Dev.to / Reddit (Fixes Audit #5: Primary StackOverflow + Dev.to/Reddit without failing on 403 unauthenticated .json)
       tasks.push(
         (async () => {
-          if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) return;
+          if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
           let communityFound = false;
           try {
             const soRes = await fetchWithResearchTimeout(`https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(githubFocusedQuery)}&pagesize=2&site=stackoverflow`, {}, 6500, researchDeadlineTs);
@@ -6013,9 +6016,9 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               }
             }
           } catch (e) {
-            if (e?.isUserStop || e?.isDeadlineExpired || (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) return;
+            if (e?.isUserStop || e?.isDeadlineExpired || (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) return;
           }
-          if (!communityFound && !(typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+          if (!communityFound && !(typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
             try {
               const devRes = await fetchWithResearchTimeout(`https://dev.to/api/articles?per_page=2&top=30&tag=${encodeURIComponent((enTokens[0] || 'javascript').toLowerCase().replace(/[^a-z0-9]/g, ''))}`, {}, 5500, researchDeadlineTs);
               if (devRes.ok) {
@@ -6072,7 +6075,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       };
 
 
-      if ((citations.length > 0 || snippets.length > 0) && !(typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+      if ((citations.length > 0 || snippets.length > 0) && !(typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
         if (webResearchMemoryCache.size >= 15) {
           const oldestKey = webResearchMemoryCache.keys().next().value;
           if (oldestKey) webResearchMemoryCache.delete(oldestKey);
@@ -6260,7 +6263,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
     // Per-Call Closure-Scoped Timeout Wrapper for callAgentAPI (Fixes Audit #3, P2-C7, P2-C8)
     async function callAgentAPIWithDeadline(agent, chat, userPrompt, turnIndex, totalTurns, extraContext, callTimeoutMs = 30000, workflowDeadlineTs = 0) {
-      if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) {
+      if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) {
         return '⏹ اجرا توسط کاربر متوقف شد.';
       }
       const now = Date.now();
@@ -6288,7 +6291,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         markProviderUnhealthyIfAuthOrQuotaError(agent?.model, result);
         return result;
       } catch (err) {
-        if (err?.name === 'AbortError' || (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag)) {
+        if (err?.name === 'AbortError' || (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag)) {
           return '⏹ اجرا توسط کاربر متوقف شد.';
         }
         return `⚠️ **[خطای ارتباط با مدل (\`${agent?.model || 'model'}\`)]:** \`${err?.message || 'Network Error'}\``;
@@ -6312,7 +6315,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
     async function runParallelSwarmExecution(chat, userPrompt, webContext, citations) {
       const swarmRunId = _orchestratorRunSeq;
-      const isCurrentSwarmRun = () => _orchestratorRunSeq === swarmRunId && !stopOrchestrationFlag;
+      const isCurrentSwarmRun = () => _orchestratorRunSeq === swarmRunId && !uiState.stopOrchestrationFlag;
       const swarmStartTs = Date.now();
       const swarmDeadlineTs = swarmStartTs + SWARM_TOTAL_DEADLINE_MS;
       const targetChatId = chat?.id;
@@ -6355,7 +6358,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
       activeThinkingChatId = targetChatId;
-      activeThinkingAgent = {
+      uiState.activeThinkingAgent = {
         name: `🐝 تیم ۴ نفره K3 Swarm (${baseAgent.name})`,
         avatar: baseAgent.avatar
       };
@@ -6433,7 +6436,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
       const liveChat = resolveLiveChatInstance(targetChatId) || chat;
       activeThinkingChatId = targetChatId;
-      activeThinkingAgent = {
+      uiState.activeThinkingAgent = {
         name: `🐝 جمع‌بندی نهایی فرمانده Swarm (${baseAgent.name})`,
         avatar: baseAgent.avatar
       };
@@ -6613,7 +6616,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       // Phase 1's compatibility pointer is not exclusive ownership in a swarm.
       // Keep the original function in the approved baseline; override additively.
       window.isCurrentApiRequest = function(controller, runId) {
-        return Boolean(controller && !controller.signal.aborted && !stopOrchestrationFlag
+        return Boolean(controller && !controller.signal.aborted && !uiState.stopOrchestrationFlag
           && _orchestratorRunSeq === runId && activeApiControllers.has(controller));
       };
       const origCallAgentAPI = window.callAgentAPI;
@@ -6621,8 +6624,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         window.callAgentAPI = async function() {
           const requestController = arguments[6];
           const p = origCallAgentAPI.apply(this, arguments);
-          const capturedCtrl = (typeof activeAbortController === 'object' && activeAbortController)
-            ? activeAbortController
+          const capturedCtrl = (typeof uiState.activeAbortController === 'object' && uiState.activeAbortController)
+            ? uiState.activeAbortController
             : null;
           const relayAbort = () => { if (capturedCtrl) { try { capturedCtrl.abort(); } catch (e) {} } };
           if (capturedCtrl) phase2ActiveControllers.add(capturedCtrl);
@@ -6711,7 +6714,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       // dispatched this run. Rejected/no-chat sends never mutate permanent memory.
       function captureApprovedExplicitUserRule(userPrompt, chat) {
         if (!chat || !resolveLiveChatInstance(chat.id)) return;
-        if (!isOrchestratorRunning) {
+        if (!uiState.isOrchestratorRunning) {
           const rawText = normalizePersianText(stripAttachedFilePayload(userPrompt || '')).trim();
           const explicitRuleMatch = rawText.match(/^(?:قانون(?:\s+پروژه|\s+کدنویسی)?\s*:|یادت باشه همیشه\s*:?|همیشه در نظر بگیر\s*:?)\s*(.+)$/is);
           if (explicitRuleMatch && explicitRuleMatch[1]) {
@@ -6745,15 +6748,15 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         return origSendUser.apply(this, arguments);
       };
       window.runChatOrchestrator = async function(chat, userPrompt) {
-        if (isOrchestratorRunning || !chat) return;
+        if (uiState.isOrchestratorRunning || !chat) return;
         ensurePhase2State();
         captureApprovedExplicitUserRule(userPrompt, chat);
         const targetChatId = chat.id;
         const phase2RunId = (_orchestratorRunSeq || 0) + 1;
         _orchestratorRunSeq = phase2RunId;
-        const isCurrentPhase2Run = () => _orchestratorRunSeq === phase2RunId && !stopOrchestrationFlag;
-        isOrchestratorRunning = true;
-        stopOrchestrationFlag = false;
+        const isCurrentPhase2Run = () => _orchestratorRunSeq === phase2RunId && !uiState.stopOrchestrationFlag;
+        uiState.isOrchestratorRunning = true;
+        uiState.stopOrchestrationFlag = false;
         activeThinkingChatId = targetChatId;
         const stopBtn = document.getElementById('stopOrchestratorBtn');
         if (stopBtn) stopBtn.classList.remove('hidden');
@@ -6769,7 +6772,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
             const validCatalog = (appState.agentsCatalog || []).filter(Boolean);
             const leadAg = validCatalog.find(a => a.id === chat.memberIds?.[0]) || validCatalog[0];
             activeThinkingChatId = targetChatId;
-            activeThinkingAgent = {
+            uiState.activeThinkingAgent = {
               name: '🌐 در حال تحقیق زنده در ۵ منبع وب (Jina, Tavily/HN, Wiki, GitHub/NPM, StackOverflow)',
               avatar: leadAg?.avatar || { color: '#06b6d4', shape: 'circle', face: 'focused' }
             };
@@ -6813,7 +6816,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               files: []
             };
             activeThinkingChatId = targetChatId;
-            activeThinkingAgent = agent;
+            uiState.activeThinkingAgent = agent;
             refreshChatAndHomeViewsIfVisible(targetChatId);
             const groupTurnDirective = (liveChatTurn.isGroup && turns > 1 && t > 0)
               ? `\n[دستور هماهنگی گروهی (نوبت ${t + 1} از ${turns})]: همکار قبلی تو («${lastPartnerName}») تحلیل خود را با این جمع‌بندی به پایان رساند:\n«${lastPartnerTail}»\nبدون تکرار بخش‌های گفته‌شده، ادامه کار و تحلیل تخصصی خودت را ارائه بده.`
@@ -6871,8 +6874,8 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               try { await requestAndroidWakeLock(false); } catch (e) {}
             }
             if (_orchestratorRunSeq === phase2RunId) {
-              isOrchestratorRunning = false;
-              activeThinkingAgent = null;
+              uiState.isOrchestratorRunning = false;
+              uiState.activeThinkingAgent = null;
               activeThinkingChatId = null;
               if (stopBtn) stopBtn.classList.add('hidden');
               refreshChatAndHomeViewsIfVisible(targetChatId);
@@ -7023,11 +7026,11 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         }).join('');
 
 
-        const thinkingBubbleHtml = (isOrchestratorRunning && activeThinkingAgent && (!activeThinkingChatId || activeThinkingChatId === chat.id))
+        const thinkingBubbleHtml = (uiState.isOrchestratorRunning && uiState.activeThinkingAgent && (!activeThinkingChatId || activeThinkingChatId === chat.id))
           ? `
             <div id="liveAgentThinkingBubble" class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-3xl bg-[#1a1a22]/90 border border-blue-500/30 w-fit animate-pulse">
-              ${buildAvatarSVG(activeThinkingAgent.avatar, 22)}
-              <span class="text-xs font-bold text-blue-300">${escapeHtml(activeThinkingAgent.name)} در حال پردازش و نگارش...</span>
+              ${buildAvatarSVG(uiState.activeThinkingAgent.avatar, 22)}
+              <span class="text-xs font-bold text-blue-300">${escapeHtml(uiState.activeThinkingAgent.name)} در حال پردازش و نگارش...</span>
             </div>
           `
           : '';
@@ -8457,7 +8460,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
           }
           const inp = document.getElementById('chatInput');
           if (inp) {
-            const errTxt = (typeof lastStudioErrorText !== 'undefined' && lastStudioErrorText) ? lastStudioErrorText : 'Runtime Error';
+            const errTxt = (typeof uiState.lastStudioErrorText !== 'undefined' && uiState.lastStudioErrorText) ? uiState.lastStudioErrorText : 'Runtime Error';
             const compactCode = buildCompactStudioCodeForPrompt(12000);
             inp.value = draftPrefix + `در اجرای کد داخل بوم زنده این خطا رخ داد: "${errTxt}". لطفاً باگ را در کد کامل زیر بررسی و اصلاح کن:` +
               (compactCode ? `\n\n\`\`\`html\n${compactCode}\n\`\`\`` : '');
@@ -11160,7 +11163,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const frame = document.getElementById('studioPreviewFrame');
       if (!frame) return;
       // Reset previous error state before running fresh preview
-      lastStudioErrorText = '';
+      uiState.lastStudioErrorText = '';
       const st = document.getElementById('studioErrorStatus');
       if (st) st.innerText = '🛡️ مانیتورینگ خودکار خطا (Auto-QA) فعال است';
       document.getElementById('studioBugFixBtn')?.classList.add('hidden');
@@ -12092,8 +12095,8 @@ function renderPhase4SettingsRowBadges() {
 function drainPhase4PendingTasksQueue() {
   if (phase4PendingTasksQueue.length === 0) return;
   if (isRoutineExecutionBusy) return;
-  if (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning) return;
-  if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) return;
+  if (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) return;
+  if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
 
 
 
@@ -12103,8 +12106,8 @@ function drainPhase4PendingTasksQueue() {
   phase4PendingDrainTimer = setTimeout(() => {
     phase4PendingDrainTimer = null;
     if (drainGeneration !== activeRoutineAbortSeq) return;
-    if (isRoutineExecutionBusy || (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning)) return;
-    if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) return;
+    if (isRoutineExecutionBusy || (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning)) return;
+    if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
     const nextTask = phase4PendingTasksQueue.shift();
     if (!nextTask) return;
     if (nextTask.type === 'telegram') {
@@ -13420,7 +13423,7 @@ async function handleIncomingTelegramCommand(text, replyChatId, bypassSlashComma
 
 
 
-  if (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning) {
+  if (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) {
     if (phase4PendingTasksQueue.length < 15) {
       phase4PendingTasksQueue.push({
         type: 'telegram',
@@ -13761,7 +13764,7 @@ async function executeRoutineNow(routineId, isBackground = false) {
 
 
 
-  if (isRoutineExecutionBusy || (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning)) {
+  if (isRoutineExecutionBusy || (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning)) {
     if (activePhase4RoutineId !== routineId && phase4PendingTasksQueue.length < 15 && !phase4PendingTasksQueue.some(t => t.type === 'routine' && t.routineId === routineId)) {
       phase4PendingTasksQueue.push({ type: 'routine', routineId, isBackground });
       rt.lastRunStatus = 'queued';
@@ -13833,7 +13836,7 @@ async function executeRoutineNow(routineId, isBackground = false) {
 
 
     if (myRunAbortSeq !== activeRoutineAbortSeq) return false;
-    if (typeof stopOrchestrationFlag !== 'undefined' && stopOrchestrationFlag) {
+    if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) {
       rt.lastRunStatus = 'failed';
       rt.lastRun = `⏹ متوقف شد (${formatTehranTimeLabel()})`;
       saveState();
@@ -13893,7 +13896,7 @@ async function executeRoutineNow(routineId, isBackground = false) {
 function checkDueRoutinesInBackground() {
   ensurePhase4State();
   if (!appState.cloudConfig.proactiveDotsEnabled) return;
-  if (isRoutineExecutionBusy || (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning)) return;
+  if (isRoutineExecutionBusy || (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning)) return;
 
 
 
@@ -16341,7 +16344,7 @@ async function simulateInboundAgentEmail(customPayload = null) {
 
 
 
-  if (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning) {
+  if (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) {
     if (phase4PendingTasksQueue.length < 15) {
       phase4PendingTasksQueue.push({
         type: 'email',
@@ -16539,7 +16542,7 @@ function ensurePhase4ChatHooksAlive() {
           }
           if (newAgentIndexes.length > 0) {
             const lastAgentIdx = newAgentIndexes[newAgentIndexes.length - 1];
-            if (appState.voiceConfig.autoSpeakReplies && !activeSpeechRecognition && !isStartingVoiceRecognition && !isRecordingVoice && !phase4VoiceIsInactive() && (typeof stopOrchestrationFlag === 'undefined' || !stopOrchestrationFlag)) {
+            if (appState.voiceConfig.autoSpeakReplies && !activeSpeechRecognition && !isStartingVoiceRecognition && !isRecordingVoice && !phase4VoiceIsInactive() && (typeof uiState.stopOrchestrationFlag === 'undefined' || !uiState.stopOrchestrationFlag)) {
               speakAgentMessage(lastAgentIdx, resolvedChat);
             }
             if (!isHandlingTelegramOriginTurn && appState.telegramConfig.autoForwardAgentReplies && appState.telegramConfig.botToken && appState.telegramConfig.chatId) {
@@ -18107,7 +18110,7 @@ if (typeof document !== 'undefined') {
             }
           };
           try {
-            const isOrchestratorBusyNow = (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning) ||
+            const isOrchestratorBusyNow = (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) ||
               (typeof isRoutineExecutionBusy !== 'undefined' && isRoutineExecutionBusy);
             if (rt && !isBrowserOperatorBusy && !isOrchestratorBusyNow) {
               const parsedSteps = (Array.isArray(rt.taughtSteps) && rt.taughtSteps.length > 0)
@@ -19109,7 +19112,7 @@ if (typeof document !== 'undefined') {
 
     function sendBrowserResultToGroupChat() {
       ensurePhase5State();
-      if (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning) {
+      if (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) {
         showToast('⏳ ایجنت‌ها هم‌اکنون در حال پردازش پیام قبلی هستند؛ چند لحظه صبر کنید');
         return;
       }
@@ -22166,9 +22169,9 @@ jobs:
           }
           // 3. Reset stuck orchestrator / busy flags if an unhandled async rejection aborted a turn
           if (entry?.type === 'unhandledrejection') {
-            if (typeof isOrchestratorRunning !== 'undefined' && isOrchestratorRunning) {
-              isOrchestratorRunning = false;
-              actions.push('Reset stuck isOrchestratorRunning lock');
+            if (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) {
+              uiState.isOrchestratorRunning = false;
+              actions.push('Reset stuck uiState.isOrchestratorRunning lock');
             }
           }
         } catch (e) {}
