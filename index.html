@@ -16792,12 +16792,15 @@ function ensurePhase4SettingsPanelHookAlive() {
   if (typeof window === 'undefined') return;
   if (window.openSettingsPanel && window.openSettingsPanel._isPhase4Wrapped) return;
   const origOpenSettings = window.openSettingsPanel;
+  let modal = null, content = null, titleEl = null;
   const wrappedOpenSettings = function(panel) {
     ensurePhase4State();
     ensurePhase4ChatHooksAlive();
-    const modal = typeof document !== 'undefined' ? document.getElementById('settingsSubModal') : null;
-    const content = typeof document !== 'undefined' ? document.getElementById('settingsSubContent') : null;
-    const titleEl = typeof document !== 'undefined' ? document.getElementById('settingsSubTitle') : null;
+    if (typeof document !== 'undefined') {
+      if (!modal) modal = document.getElementById('settingsSubModal');
+      if (!content) content = document.getElementById('settingsSubContent');
+      if (!titleEl) titleEl = document.getElementById('settingsSubTitle');
+    }
 
 
 
