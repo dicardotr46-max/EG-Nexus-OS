@@ -14991,7 +14991,7 @@ function generateCloudflareWorkerScript() {
 // crons = ["*/5 * * * *"]
 //
 // [REQUIRED SECRET]:
-// NEXUS_SECRET (Must be at least 8 characters; Worker is Fail-Closed if missing!)
+// NEXUS_SECRET (Must be at least 32 characters with high entropy; Worker is Fail-Closed if missing or weak!)
 //
 // [OPTIONAL AI & BRIDGE SECRETS]:
 // GEMINI_API_KEY, DEEPSEEK_API_KEY, KIMI_API_KEY, GROK_API_KEY, OPENROUTER_API_KEY
@@ -15024,8 +15024,31 @@ return fallback;
 
 
 
+function checkSecretComplexity(secret) {
+  if (!secret || typeof secret !== "string") return false;
+  const s = secret.trim();
+  if (s.length < 32) return false;
+
+  const freq = {};
+  for (let i = 0; i < s.length; i++) {
+freq[s[i]] = (freq[s[i]] || 0) + 1;
+  }
+
+  let entropy = 0;
+  for (const key in freq) {
+const p = freq[key] / s.length;
+entropy -= p * Math.log2(p);
+  }
+
+  const totalEntropy = entropy * s.length;
+  return totalEntropy >= 80;
+}
+
+
+
+
 function verifyWorkerSecretTimingSafe(provided, expected) {
-  if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 8) {
+  if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 32) {
 return false;
   }
   const enc = new TextEncoder();
@@ -15706,10 +15729,10 @@ if (request.method === "OPTIONS") {
 
 
 const expectedSecret = String(env.NEXUS_SECRET || "").trim();
-if (expectedSecret.length < 8) {
+if (!checkSecretComplexity(expectedSecret)) {
   return new Response(JSON.stringify({
     ok: false,
-    error: "Fail-Closed Security: NEXUS_SECRET (min 8 chars) is not configured in Cloudflare Worker environment."
+    error: "Fail-Closed Security: NEXUS_SECRET is too weak. Must be at least 32 characters with sufficient entropy."
   }), {
     status: 503,
     headers: { ...cors, "Content-Type": "application/json" }
