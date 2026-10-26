@@ -19585,6 +19585,8 @@ if (typeof document !== 'undefined') {
       let depth = 0;
       let inQuote = '';
       let lastIdx = 0;
+      const symbolMatch = opType === 'OR' ? '||' : '&&';
+      const wordMatch = opType === 'OR' ? /^\s+\bOR\b\s+/i : /^\s+\bAND\b\s+/i;
       for (let i = 0; i < s.length; i++) {
         const ch = s[i];
         if (inQuote) {
@@ -19605,34 +19607,16 @@ if (typeof document !== 'undefined') {
           continue;
         }
         if (depth === 0) {
-          if (opType === 'OR') {
-            if (s.slice(i, i + 2) === '||') {
-              parts.push(s.slice(lastIdx, i).trim());
-              i += 1;
-              lastIdx = i + 1;
-              continue;
-            }
-            const mOr = s.slice(i).match(/^\s+\bOR\b\s+/i);
-            if (mOr) {
-              parts.push(s.slice(lastIdx, i).trim());
-              i += mOr[0].length - 1;
-              lastIdx = i + 1;
-              continue;
-            }
-          } else if (opType === 'AND') {
-            if (s.slice(i, i + 2) === '&&') {
-              parts.push(s.slice(lastIdx, i).trim());
-              i += 1;
-              lastIdx = i + 1;
-              continue;
-            }
-            const mAnd = s.slice(i).match(/^\s+\bAND\b\s+/i);
-            if (mAnd) {
-              parts.push(s.slice(lastIdx, i).trim());
-              i += mAnd[0].length - 1;
-              lastIdx = i + 1;
-              continue;
-            }
+          const isSymbol = s.slice(i, i + 2) === symbolMatch;
+          const mWord = !isSymbol && s.slice(i).match(wordMatch);
+          if (isSymbol) {
+            parts.push(s.slice(lastIdx, i).trim());
+            i += 1;
+            lastIdx = i + 1;
+          } else if (mWord) {
+            parts.push(s.slice(lastIdx, i).trim());
+            i += mWord[0].length - 1;
+            lastIdx = i + 1;
           }
         }
       }
