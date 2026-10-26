@@ -20758,22 +20758,22 @@ const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|find|grep|rg|stat|du|df|
 const WORKSPACE_ESCAPE_REGEX = /(?:^|[\\s;&|])cd\\s+(?:\\/|~|\\$HOME|\\.\\.(?:\\/|$))|(?:^|[\\s"'=<>])\\/(?:etc|proc|sys|dev|data\\/data|system)\\b/i;
 const activeChildProcs = new Set();
 const usedNonces = new Map();
-let rateWindowHits = [];
-let rateWindowHead = 0;
+let rateHitsArray = new Float64Array(100);
+let rateHead = 0;
+let rateTail = 0;
+let rateCount = 0;
 
 function checkRateLimit(maxPerMin = 30) {
   const now = Date.now();
-  while (rateWindowHits.length > rateWindowHead && now - rateWindowHits[rateWindowHead] > 60000) {
-    rateWindowHead++;
+  while (rateCount > 0 && now - rateHitsArray[rateHead] > 60000) {
+    rateHead = (rateHead + 1) % 100;
+    rateCount--;
   }
 
-  if (rateWindowHead >= 64) {
-    rateWindowHits = rateWindowHits.slice(rateWindowHead);
-    rateWindowHead = 0;
-  }
-
-  if (rateWindowHits.length - rateWindowHead >= maxPerMin) return false;
-  rateWindowHits.push(now);
+  if (rateCount >= maxPerMin) return false;
+  rateHitsArray[rateTail] = now;
+  rateTail = (rateTail + 1) % 100;
+  rateCount++;
   return true;
 }
 
