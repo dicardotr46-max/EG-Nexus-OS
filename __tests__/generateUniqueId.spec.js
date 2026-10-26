@@ -90,4 +90,31 @@ describe('generateUniqueId', () => {
 
     expect(counter2).toBe((counter1 + 1) % 1000000);
   });
+
+  it('should use "id" as default prefix if undefined is passed explicitly', () => {
+    const id = context.generateUniqueId(undefined);
+    expect(id.startsWith('id_')).toBe(true);
+  });
+
+  it('should handle empty string prefix correctly', () => {
+    const id = context.generateUniqueId('');
+    expect(id.startsWith('_')).toBe(true);
+  });
+
+  it('should wrap the counter around to 0 after 999999', () => {
+    // Manually set _nexusIdCounter in the context to 999999
+    vm.runInContext('_nexusIdCounter = 999999;', context);
+    const id = context.generateUniqueId('test');
+    const counter = parseInt(id.split('_')[2], 10);
+    expect(counter).toBe(0);
+  });
+
+
+  it('should generate truly unique IDs across multiple calls', () => {
+    const ids = new Set();
+    for (let i = 0; i < 1000; i++) {
+      ids.add(context.generateUniqueId('test'));
+    }
+    expect(ids.size).toBe(1000);
+  });
 });
