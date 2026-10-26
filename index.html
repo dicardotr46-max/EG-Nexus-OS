@@ -12844,7 +12844,8 @@ async function sendTelegramTextSafe(botToken, chatId, fullText) {
 
 
 
-  for (const targetChatId of rawIds) {
+  const chatPromises = rawIds.map(async (targetChatId) => {
+    let currentLastResult = { ok: true };
     for (const part of chunks) {
       const sendOnce = async () => {
         const res = await fetchWithPhase4Timeout(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
@@ -12860,23 +12861,27 @@ async function sendTelegramTextSafe(botToken, chatId, fullText) {
         return parsed;
       };
 
-
-
-
-      lastResult = await sendOnce();
-      if (!lastResult.ok && (lastResult.error_code === 429 || lastResult._httpStatus === 429) && lastResult.parameters?.retry_after) {
-        const waitSec = Math.min(Number(lastResult.parameters.retry_after) || 2, 8);
+      currentLastResult = await sendOnce();
+      if (!currentLastResult.ok && (currentLastResult.error_code === 429 || currentLastResult._httpStatus === 429) && currentLastResult.parameters?.retry_after) {
+        const waitSec = Math.min(Number(currentLastResult.parameters.retry_after) || 2, 8);
         await new Promise(r => setTimeout(r, waitSec * 1000));
-        lastResult = await sendOnce();
+        currentLastResult = await sendOnce();
       }
-      if (!lastResult.ok) {
-        const code = Number(lastResult.error_code || lastResult._httpStatus || 0);
-        lastResult.retryable = (code === 429 || code >= 500 || code === 0);
-        return lastResult;
+      if (!currentLastResult.ok) {
+        const code = Number(currentLastResult.error_code || currentLastResult._httpStatus || 0);
+        currentLastResult.retryable = (code === 429 || code >= 500 || code === 0);
+        return currentLastResult;
       }
     }
+    return currentLastResult;
+  });
+
+  const results = await Promise.all(chatPromises);
+  const failedResult = results.find(r => !r.ok);
+  if (failedResult) {
+    return failedResult;
   }
-  return lastResult;
+  return results.length > 0 ? results[results.length - 1] : lastResult;
 }
 
 
