@@ -73,12 +73,36 @@ describe('generateUniqueId', () => {
     expect(id1).not.toBe(id2);
   });
 
+  it('should generate unique IDs at scale without collisions', () => {
+    const ids = new Set();
+    const NUM_IDS = 10000;
+
+    for (let i = 0; i < NUM_IDS; i++) {
+      ids.add(context.generateUniqueId('scale'));
+    }
+
+    expect(ids.size).toBe(NUM_IDS);
+  });
+
   it('should start with the correct prefix', () => {
     const id1 = context.generateUniqueId('test');
     expect(id1.startsWith('test_')).toBe(true);
 
     const id2 = context.generateUniqueId();
     expect(id2.startsWith('id_')).toBe(true);
+  });
+
+  it('should handle edge cases in prefix correctly', () => {
+    const emptyPrefixId = context.generateUniqueId('');
+    expect(emptyPrefixId.startsWith('_')).toBe(true);
+
+    // Explicit undefined should fallback to default parameter
+    const undefinedPrefixId = context.generateUniqueId(undefined);
+    expect(undefinedPrefixId.startsWith('id_')).toBe(true);
+
+    // Null behaves literally as "null_" string in template literal
+    const nullPrefixId = context.generateUniqueId(null);
+    expect(nullPrefixId.startsWith('null_')).toBe(true);
   });
 
   it('should increment the counter starting from initial value', () => {
