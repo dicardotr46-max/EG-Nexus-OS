@@ -66,13 +66,17 @@ def main():
         markers.append({'line': line, 'text': src[max(0, m.start() - 100):m.start() + 180].replace('\n', ' ')})
     target_hits = {k: {label: bool(re.search(re.escape(label), src, re.I)) for label in vals} for k, vals in TARGETS.items()}
     function_flags = []
-    for name in sorted(fn):
-        m = re.search(r'function\s+' + re.escape(name) + r'\s*\([^)]*\)\s*\{', js)
-        if not m:
+    found_flags = {}
+    for m in re.finditer(r'function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{', js):
+        name = m.group(1)
+        if name not in fn or name in found_flags:
             continue
         body = js[m.end():m.end() + 1200]
         if 'showToast' in body and not any(x in body for x in ['innerHTML', 'classList', 'fetch(', 'localStorage', 'saveState', 'window.open', 'speechSynthesis', 'canvas', 'navigator.clipboard', 'appState']):
-            function_flags.append({'function': name, 'reason': 'toast-heavy first 1200 chars; manual review required'})
+            found_flags[name] = {'function': name, 'reason': 'toast-heavy first 1200 chars; manual review required'}
+    for name in sorted(fn):
+        if name in found_flags:
+            function_flags.append(found_flags[name])
     report = {'file': str(p), 'lines': src.count('\n') + 1, 'script_bytes': len(js), 'function_count': len(fn), 'interactive_element_count': len(buttons), 'target_hits': target_hits, 'missing_handlers': sum(len(x['missing_handlers']) for x in buttons), 'stub_markers': markers, 'toast_heavy_candidates': function_flags, 'elements': buttons}
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2))
     print(json.dumps({k: report[k] for k in ['file', 'lines', 'function_count', 'interactive_element_count', 'missing_handlers', 'stub_markers', 'toast_heavy_candidates']}, ensure_ascii=False, indent=2))
