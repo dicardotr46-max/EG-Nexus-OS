@@ -90,4 +90,18 @@ describe('generateUniqueId', () => {
 
     expect(counter2).toBe((counter1 + 1) % 1000000);
   });
+
+  it('should generate 10000 unique IDs without collision', () => {
+    const ids = new Set();
+    let allStartWithBulk = true;
+    for (let i = 0; i < 10000; i++) {
+      const id = context.generateUniqueId('bulk');
+      if (!id.startsWith('bulk_')) {
+        allStartWithBulk = false;
+      }
+      ids.add(id);
+    }
+    expect(ids.size).toBe(10000);
+    expect(allStartWithBulk).toBe(true);
+  });
 });
