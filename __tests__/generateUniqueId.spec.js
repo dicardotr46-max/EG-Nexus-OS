@@ -96,6 +96,18 @@ describe('generateUniqueId', () => {
     // Empty prefix
     const emptyPrefixId = context.generateUniqueId('');
     expect(emptyPrefixId.startsWith('_')).toBe(true);
+
+    // Null prefix
+    const nullPrefixId = context.generateUniqueId(null);
+    expect(nullPrefixId.startsWith('null_')).toBe(true);
+
+    // Undefined prefix
+    const undefinedPrefixId = context.generateUniqueId(undefined);
+    expect(undefinedPrefixId.startsWith('id_')).toBe(true);
+
+    // Special characters
+    const specialPrefixId = context.generateUniqueId('@#$');
+    expect(specialPrefixId.startsWith('@#$_')).toBe(true);
   });
 
   it('should match the expected format structure', () => {
