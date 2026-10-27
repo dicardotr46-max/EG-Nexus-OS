@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>EG Nexus OS v5.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
@@ -72,6 +72,40 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 .app-reduced-motion .live-eye-pupil { animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .live-eye-pupil { animation: none !important; } }
   </style>
+
+<style id="nexus-android-safe-area">
+:root {
+  --safe-area-inset-top: 0px;
+  --safe-area-inset-bottom: 0px;
+  --safe-top: max(var(--safe-area-inset-top, 0px), env(safe-area-inset-top, 0px), 32px);
+  --safe-bottom: max(var(--safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px), 44px);
+  --keyboard-offset: 0px;
+}
+html, body { min-height: 100%; overscroll-behavior-y: none; }
+body { padding-bottom: var(--safe-bottom); }
+body > header,
+[id^="view-"] > header { padding-top: calc(0.75rem + var(--safe-top)) !important; }
+#toastBox { top: calc(1rem + var(--safe-top)) !important; }
+#view-apps, #view-app-detail, #view-skills, #view-settings { padding-bottom: var(--safe-bottom) !important; }
+#view-chat { height: var(--mobile-vh, 100dvh); min-height: 0 !important; }
+#chatMessagesBox { min-height: 0; padding-bottom: calc(7rem + var(--safe-bottom)); }
+#chatModeToolbar { padding-bottom: calc(0.25rem + var(--safe-bottom)) !important; }
+#chatInputBar { padding-bottom: calc(0.75rem + var(--safe-bottom)) !important; transform: translateY(calc(-1 * var(--keyboard-offset))); }
+#view-apps .overflow-y-auto, #view-app-detail .overflow-y-auto, #view-settings .overflow-y-auto { padding-bottom: var(--safe-bottom); }
+#settingsSubModal { padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); }
+#settingsSubModal > div { max-height: calc(var(--mobile-vh, 100dvh) - var(--safe-top) - var(--safe-bottom)); }
+@media (min-width: 640px) {
+  body { padding-bottom: 0; }
+  body > header, [id^="view-"] > header { padding-top: 0.75rem !important; }
+  #toastBox { top: 1rem !important; }
+}
+
+@media (max-width: 639px) {
+  #chatModeToolbar { flex-wrap: wrap; align-items: flex-start; }
+  #phase2ModePillsSlot { flex: 1 1 100%; min-width: 0; flex-wrap: wrap !important; overflow: visible !important; white-space: normal; row-gap: 0.35rem; }
+  #phase2ModePillsSlot > * { flex: 0 0 auto; }
+}
+</style>
 </head>
 <body class="bg-cue-bg text-slate-100 min-h-screen flex flex-col select-none">
   <!-- Toast Notification -->
@@ -177,7 +211,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       <button id="stopOrchestratorBtn" onclick="stopActiveOrchestration()" class="hidden px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold">⏹ Stop</button>
     </div>
     <!-- Bottom Input Pill (Screenshots 1000030152 & 1000030153) -->
-    <div class="p-3 bg-cue-bg" dir="ltr">
+    <div id="chatInputBar" class="p-3 bg-cue-bg" dir="ltr">
       <div class="flex items-center gap-2 bg-[#181820] border border-white/10 rounded-full px-3.5 py-2">
         <label class="cursor-pointer text-slate-300 hover:text-white p-1">
           <input id="chatFileInput" type="file" multiple class="hidden" onchange="handleChatFileUpload(event)" />
@@ -1107,11 +1141,23 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
     // INITIALIZATION & PERSISTENCE
     // ============================================================================
+    // Android WebView storage can throw SecurityError, QuotaExceededError, or return
+    // malformed legacy JSON after an APK upgrade. Keep storage failures non-fatal.
+    function nexusStorageGet(key) {
+      try { return window.localStorage?.getItem(String(key)) || null; } catch (e) { return null; }
+    }
+    function nexusStorageSet(key, value) {
+      try { window.localStorage?.setItem(String(key), String(value)); return true; } catch (e) { return false; }
+    }
+    function nexusStorageRemove(key) {
+      try { window.localStorage?.removeItem(String(key)); return true; } catch (e) { return false; }
+    }
+
     function loadState() {
       let raw = null;
       let parsed = null;
       try {
-        raw = localStorage.getItem(STORAGE_KEY);
+        raw = nexusStorageGet(STORAGE_KEY);
         if (raw) {
             parsed = JSON.parse(raw);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -1120,6 +1166,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         }
       } catch (e) {
         console.warn('localStorage read or parse failed, starting fresh', e);
+        nexusStorageRemove(STORAGE_KEY);
       }
 
       try {
@@ -1140,7 +1187,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         if (hasLegacySecrets) {
           // Never erase the last durable legacy copy before the session write succeeds.
           if (writeSessionSecrets(appState)) {
-            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildPersistedState(appState))); }
+            try { nexusStorageSet(STORAGE_KEY, JSON.stringify(buildPersistedState(appState))); }
             catch (migrationError) { setTimeout(() => showToast('حذف کلیدهای قدیمی از ذخیره دیسکی انجام نشد؛ از داده‌ها بکاپ بگیرید و حافظه برنامه را بررسی کنید'), 500); }
           } else {
             setTimeout(() => showToast('کلیدها در حافظه نشست ذخیره نشد؛ نسخه قدیمی دیسکی حفظ شد. پیش از بستن صفحه بکاپ بگیرید و دوباره تلاش کنید'), 500);
@@ -1162,7 +1209,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       }
       let savedOk = false;
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(buildPersistedState(appState)));
+        nexusStorageSet(STORAGE_KEY, JSON.stringify(buildPersistedState(appState)));
         savedOk = true;
       } catch (e) {
         const isQuota = Boolean(e && (
@@ -1179,12 +1226,12 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
               (c?.messages || []).slice(0, -4).forEach(m => { if (m) m.attachmentImage = ''; });
             });
             try {
-              try { localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
+              try { nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
             } catch (retryError) {
               const retryIsQuota = retryError && (retryError.name === 'QuotaExceededError' || retryError.name === 'NS_ERROR_DOM_QUOTA_REACHED' || retryError.code === 22 || retryError.code === 1014);
               if (!retryIsQuota) throw retryError;
               (candidate.chats || []).forEach(c => { (c?.messages || []).forEach(m => { if (m) m.attachmentImage = ''; }); });
-              try { localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
+              try { nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
             }
             savedOk = true;
             showToast('ظرفیت ذخیره پر بود؛ نسخه دیسکی تصاویر سبک شد. نسخه کامل تا بستن صفحه برای بکاپ در حافظه است');
@@ -1319,6 +1366,11 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         }
       }
       if (viewId === 'view-home') renderHomeChatList();
+      if (viewId === 'view-chat') {
+        renderChatHeader();
+        renderChatMessages();
+        requestAnimationFrame(() => { const box = document.getElementById('chatMessagesBox'); if (box) box.scrollTop = box.scrollHeight; });
+      }
       if (viewId === 'view-settings') updateSettingsBadges();
     }
     // Native Android WebView Safe In-App Modal Prompt & Confirm (Fallback when window.prompt/confirm are blocked in APK)
@@ -2390,11 +2442,47 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
     }
 
 
+    function generateClashStudioOption(optionText) {
+      const text = String(optionText || '').trim();
+      const optionMap = {
+        'شورتس ضدحمله الکترو جاینت': {
+          key: 'counterpush', title: 'Electro Giant Counter-Push Shorts',
+          prompt: 'یک سناریوی کامل شورتس ۶۰ ثانیه‌ای برای ضدحمله Electro Giant بساز: هوک ثانیه ۰ تا ۳، شات‌لیست ثانیه‌به‌ثانیه، متن گویندگی، زوم و افکت، نقطه لوپ و CTA.'
+        },
+        'تحلیل متا دک‌های سایکل': {
+          key: 'cyclemeta', title: 'Cycle Meta Deck Analysis',
+          prompt: 'تحلیل ساختاریافته متای دک‌های Cycle کلش رویال بده: دک پیشنهادی، میانگین اکسیر، چرخه ۴ کارت، matchupها، win condition، اشتباهات رایج و نسخه شورتس ۴۵ ثانیه‌ای.'
+        },
+        'ساخت تامنیل و کپشن ۵ پلتفرم': {
+          key: 'fiveplatform', title: 'Five-Platform Thumbnail & Caption Pack',
+          prompt: 'پکیج تولید محتوا برای YouTube Shorts، TikTok، Instagram Reels، X و Reddit بساز: ۵ کپشن، هشتگ، عنوان، پرامپت تامنیل 16:9 و 9:16 و برنامه تست CTR.'
+        },
+        'بررسی لاگ بتل‌ها': {
+          key: 'battlelog', title: 'Battle Log Review',
+          prompt: 'یک فرم تعاملی بررسی Battle Log بساز: استخراج روند برد و باخت، تشخیص خطای چرخه و اکسیر، matchupهای مشکل‌ساز، سه اقدام اصلاحی و برنامه تمرین ۷ روزه.'
+        }
+      };
+      const plan = optionMap[text];
+      if (!plan) return false;
+      appState.clashStudio = appState.clashStudio || {};
+      appState.clashStudio.focusKey = plan.key;
+      appState.clashStudio.focusTitle = plan.title;
+      appState.clashStudio.lastBattleAnalysis = `Focus: ${plan.title} | ${new Date().toISOString()}`;
+      saveState();
+      if (typeof renderPhase3ClashTab === 'function') renderPhase3ClashTab();
+      if (typeof openStudioView === 'function') openStudioView();
+      const inp = document.getElementById('chatInput');
+      if (inp) { inp.value = `${plan.prompt}\n\nخروجی باید فارسی، عملیاتی و آماده اجرا در Clash Viral Studio باشد.`; sendUserMessage(); }
+      showToast(`🎬 ${plan.title} در Clash Viral Studio آماده شد`);
+      return true;
+    }
+
     function selectQuickOption(optionText) {
       if (uiState.isOrchestratorRunning) {
         showToast('ایجنت در حال پردازش پیام قبلی است...');
         return;
       }
+      if (generateClashStudioOption(optionText)) return;
       const inp = document.getElementById('chatInput');
       if (inp) {
         inp.value = optionText;
@@ -2732,11 +2820,18 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
 
 
     async function callAgentAPI(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1, extraContext = '') {
-      const connectedAppsNames = (appState.addedAppIds || [])
-        .filter(id => isAppGenuinelyConnected(id))
+      const connectedAppIds = (appState.addedAppIds || []).filter(id => isAppGenuinelyConnected(id));
+      const connectedAppsNames = connectedAppIds
         .map(id => APPS_CATALOG.find(a => a.id === id)?.name)
         .filter(Boolean)
         .join(', ');
+      const connectedAppsContext = connectedAppIds.map(id => {
+        const app = APPS_CATALOG.find(a => a.id === id);
+        const conn = appState.appConnections?.[id] || {};
+        const accounts = getConnectionAccounts(id).map(a => `${a.name} <${a.email}>`).join(', ') || 'account connected';
+        const metrics = Array.isArray(conn.metrics) ? conn.metrics.slice(0, 3).map(m => `${m.metric}: ${m.value}`).join('; ') : '';
+        return `- ${app?.name || id}: ${accounts}; context=${conn.contextEnabled === false ? 'off' : 'on'}${metrics ? `; recent metrics=${metrics}` : ''}`;
+      }).join('\n');
       const diffInstruction = appState.diffOnlyMode && chat?.isGroup && turnIndex < totalTurns - 1
         ? 'قانون Diff-Only: در طول بحث گروهی کل کد را تکرار نکن؛ فقط بخش‌های نیازمند اصلاح را بنویس.'
         : 'در صورت نیاز به کد، نسخه کامل و آماده اجرا را ارائه بده.';
@@ -2764,7 +2859,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         .join('\n---\n');
 
 
-      const sysPrompt = `${agent.systemPrompt || 'تو ایجنت هوشمند EG Nexus OS هستی.'}\nحافظه کاربر (Dream): ${appState.dreamMemory || ''}\nحافظه اختصاصی تو: ${agent.memory || 'ندارد'}\nسطح پردازش (${String(appState.effortMode || 'standard').toUpperCase()}): ${effortSpec.directive}\nمهارت‌های فعال (Active Skills):\n${activeSkillsSnippet || 'ندارد'}\nبرنامه‌های متصل واقعی: ${connectedAppsNames || 'هیچ‌کدام'}\n${diffInstruction}\n${extraContext || ''}`;
+      const sysPrompt = `${agent.systemPrompt || 'تو ایجنت هوشمند EG Nexus OS هستی.'}\nحافظه کاربر (Dream): ${appState.dreamMemory || ''}\nحافظه اختصاصی تو: ${agent.memory || 'ندارد'}\nسطح پردازش (${String(appState.effortMode || 'standard').toUpperCase()}): ${effortSpec.directive}\nمهارت‌های فعال (Active Skills):\n${activeSkillsSnippet || 'ندارد'}\nبرنامه‌های متصل واقعی: ${connectedAppsNames || 'هیچ‌کدام'}\nجزئیات پل برنامه‌های متصل:\n${connectedAppsContext || 'هیچ جزئیات حسابی ثبت نشده است'}\n${diffInstruction}\n${extraContext || ''}`;
       const model = agent.model || 'gemini-3.8-flash';
 
 
@@ -3934,7 +4029,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       const cacheLbl = document.getElementById('cacheSizeLabel');
       if (cacheLbl) {
         try {
-          let rawBytes = 0; try { rawBytes = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size; } catch (e) { rawBytes = 0; }
+          let rawBytes = 0; try { rawBytes = new Blob([nexusStorageGet(STORAGE_KEY) || '']).size; } catch (e) { rawBytes = 0; }
           cacheLbl.innerText = (rawBytes / 1024).toFixed(1) + ' KB ›';
         } catch (e) {}
       }
@@ -4096,7 +4191,7 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
       }
       if (panel === 'diagnostics') {
         document.getElementById('settingsSubTitle').innerText = '🛡️ عیب‌یابی خودکار ۶ مرحله‌ای (Gold Master v1.7)';
-        let storageBytes = 0; try { storageBytes = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size; } catch (e) { storageBytes = 0; }
+        let storageBytes = 0; try { storageBytes = new Blob([nexusStorageGet(STORAGE_KEY) || '']).size; } catch (e) { storageBytes = 0; }
         const sandboxAttr = document.getElementById('studioPreviewFrame')?.getAttribute('sandbox') || '';
         const sandboxSafe = sandboxAttr === 'allow-scripts' && !sandboxAttr.includes('allow-same-origin');
         const configuredKeysCount = Object.values(appState.apiKeys || {}).filter(v => String(v || '').trim().length > 5).length;
@@ -4292,9 +4387,16 @@ button, a, label, [role="button"], [onclick] { min-width: 44px; min-height: 44px
         // Do not collapse the app under the user's zoom or force chat scrolling.
         if (vv && Math.abs((vv.scale || 1) - 1) > 0.01) return;
         const height = Math.round(vv ? vv.height : window.innerHeight);
+        const layoutHeight = Math.round(window.innerHeight || height);
+        const keyboardOffset = Math.max(0, layoutHeight - height - Math.round(vv?.offsetTop || 0));
+        document.documentElement.style.setProperty('--keyboard-offset', `${keyboardOffset}px`);
         if (height > 0 && height !== lastViewportHeight) {
           lastViewportHeight = height;
           document.documentElement.style.setProperty('--mobile-vh', `${height}px`);
+        }
+        const focused = document.activeElement;
+        if (keyboardOffset > 0 && focused && ['INPUT', 'TEXTAREA'].includes(focused.tagName)) {
+          requestAnimationFrame(() => focused.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
         }
       };
       let viewportFrame = 0;
@@ -22128,7 +22230,7 @@ jobs:
 
       function loadBlackBoxLogsFromStorage() {
         try {
-          let raw = null; try { raw = localStorage.getItem(BLACKBOX_STORAGE_KEY); } catch(e) {}
+          let raw = null; try { raw = nexusStorageGet(BLACKBOX_STORAGE_KEY); } catch(e) {}
           if (!raw) return [];
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
@@ -22143,7 +22245,7 @@ jobs:
           if (blackBoxLogs.length > MAX_BLACKBOX_LOGS) {
             blackBoxLogs.length = MAX_BLACKBOX_LOGS;
           }
-          try { localStorage.setItem(BLACKBOX_STORAGE_KEY, JSON.stringify(blackBoxLogs)); } catch(e) {}
+          try { nexusStorageSet(BLACKBOX_STORAGE_KEY, JSON.stringify(blackBoxLogs)); } catch(e) {}
           return true;
         } catch (e) {
           return false;

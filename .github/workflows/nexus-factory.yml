@@ -73,7 +73,11 @@ jobs:
           {
             "appId": "com.egnexus.os",
             "appName": "EG Nexus OS",
-            "webDir": "www"
+            "webDir": "www",
+            "backgroundColor": "#0b0d14",
+            "android": {
+              "adjustMarginsForEdgeToEdge": "auto"
+            }
           }
           EOF
 
