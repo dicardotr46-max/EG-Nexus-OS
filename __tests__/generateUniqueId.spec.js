@@ -68,9 +68,12 @@ describe('generateUniqueId', () => {
   });
 
   it('should generate unique IDs', () => {
-    const id1 = context.generateUniqueId('test');
-    const id2 = context.generateUniqueId('test');
-    expect(id1).not.toBe(id2);
+    const numIds = 1000;
+    const ids = new Set();
+    for (let i = 0; i < numIds; i++) {
+      ids.add(context.generateUniqueId('test'));
+    }
+    expect(ids.size).toBe(numIds);
   });
 
   it('should generate completely unique IDs at scale', () => {
@@ -82,11 +85,17 @@ describe('generateUniqueId', () => {
   });
 
   it('should start with the correct prefix', () => {
-    const id1 = context.generateUniqueId('test');
-    expect(id1.startsWith('test_')).toBe(true);
+    // Custom prefix
+    const customPrefixId = context.generateUniqueId('my_custom_prefix');
+    expect(customPrefixId.startsWith('my_custom_prefix_')).toBe(true);
 
-    const id2 = context.generateUniqueId();
-    expect(id2.startsWith('id_')).toBe(true);
+    // Default prefix
+    const defaultPrefixId = context.generateUniqueId();
+    expect(defaultPrefixId.startsWith('id_')).toBe(true);
+
+    // Empty prefix
+    const emptyPrefixId = context.generateUniqueId('');
+    expect(emptyPrefixId.startsWith('_')).toBe(true);
   });
 
   it('should match the expected format structure', () => {
