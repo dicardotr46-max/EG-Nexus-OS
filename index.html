@@ -155,7 +155,7 @@ body > header,
     </header>
     <!-- Collapsible Home Search Bar -->
     <div id="homeSearchBox" class="hidden mb-3">
-      <input id="homeSearchInput" oninput="renderHomeChatList()" type="text" placeholder="Search agents or group chats..." class="w-full bg-cue-card border border-cue-border rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500" />
+      <input id="homeSearchInput" oninput="debouncedRenderHomeChatList()" type="text" placeholder="Search agents or group chats..." class="w-full bg-cue-card border border-cue-border rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500" />
     </div>
     <!-- Main Chat & Agent List -->
     <div id="homeChatList" class="flex-1 flex flex-col divide-y divide-white/[0.04]"></div>
@@ -431,7 +431,7 @@ body > header,
     </header>
     <!-- Search Apps Bar -->
     <div class="relative mb-3.5">
-      <input id="appsSearchInput" oninput="renderAppsCatalog()" type="text" placeholder="Search apps" class="w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border-white/30" />
+      <input id="appsSearchInput" oninput="debouncedRenderAppsCatalog()" type="text" placeholder="Search apps" class="w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border-white/30" />
       <svg class="w-4 h-4 text-cue-muted absolute left-4 top-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/></svg>
     </div>
     <!-- Added Apps Entry Card (Only in main catalog mode) -->
@@ -654,6 +654,15 @@ body > header,
 
 </script>
 <script>
+    // Bolt Optimization: Adds debounce to prevent main-thread blocking during rapid typing
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    }
+
     var STORAGE_KEY = 'eg_nexus_os_v5_master_state';
     window.STORAGE_KEY = STORAGE_KEY;
     const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
@@ -1621,6 +1630,10 @@ body > header,
       box.classList.toggle('hidden');
       if (!box.classList.contains('hidden')) document.getElementById('homeSearchInput')?.focus();
     }
+    const debouncedRenderHomeChatList = debounce(function() {
+      renderHomeChatList();
+    }, 250);
+
     function renderHomeChatList() {
       const container = document.getElementById('homeChatList');
       if (!container) return;
@@ -3226,6 +3239,10 @@ body > header,
         <button onclick="uiState.activeAppsCategory='${c}';renderAppsCategories();renderAppsCatalog()" class="px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${uiState.activeAppsCategory === c ? 'bg-[#262632] text-white' : 'text-cue-muted hover:text-white'}">${c}</button>
       `).join('');
     }
+    const debouncedRenderAppsCatalog = debounce(function() {
+      renderAppsCatalog();
+    }, 250);
+
     function renderAppsCatalog() {
       syncAddedAppIds();
       const q = (document.getElementById('appsSearchInput')?.value || '').trim().toLowerCase();
