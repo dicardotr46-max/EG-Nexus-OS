@@ -3293,8 +3293,21 @@ body > header,
       myfitnesspal: 'https://www.myfitnesspal.com/privacy-policy', withings: 'https://www.withings.com/us/en/legal/privacy-policy', polar: 'https://www.polar.com/en/legal/privacy', trainingpeaks: 'https://www.trainingpeaks.com/privacy-policy/', plaid: 'https://plaid.com/legal/#end-user-privacy-policy', clue: 'https://helloclue.com/privacy', cronometer: 'https://cronometer.com/privacy/', oura: 'https://ouraring.com/privacy-policy'
     };
     const PROVIDER_LAUNCH_URLS = {
-      gmail: 'https://mail.google.com/mail/u/0/', gcal: 'https://calendar.google.com/calendar/u/0/r', gworkspace: 'https://workspace.google.com/dashboard/', picsart: 'https://picsart.com/', instagram: 'https://www.instagram.com/', ig_creator: 'https://business.facebook.com/creatorstudio/', meta_ads: 'https://www.facebook.com/adsmanager/', myfitnesspal: 'https://www.myfitnesspal.com/', withings: 'https://healthmate.withings.com/', polar: 'https://flow.polar.com/', trainingpeaks: 'https://app.trainingpeaks.com/', plaid: 'https://dashboard.plaid.com/', clue: 'https://helloclue.com/', cronometer: 'https://cronometer.com/', fitbit: 'https://www.fitbit.com/user/profile/edit', oura: 'https://cloud.ouraring.com/'
+      github: 'https://github.com/', gmail: 'https://mail.google.com/mail/u/0/', gcal: 'https://calendar.google.com/calendar/u/0/r', gworkspace: 'https://workspace.google.com/dashboard/', picsart: 'https://picsart.com/', instagram: 'https://www.instagram.com/', ig_creator: 'https://business.facebook.com/creatorstudio/', meta_ads: 'https://www.facebook.com/adsmanager/', myfitnesspal: 'https://www.myfitnesspal.com/', withings: 'https://healthmate.withings.com/', polar: 'https://flow.polar.com/', trainingpeaks: 'https://app.trainingpeaks.com/', plaid: 'https://dashboard.plaid.com/', clue: 'https://helloclue.com/', cronometer: 'https://cronometer.com/', fitbit: 'https://www.fitbit.com/user/profile/edit', oura: 'https://cloud.ouraring.com/'
     };
+    function providerAuthUrl(appId) {
+      const target = PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website || 'https://github.com/';
+      if (isGoogleProvider(appId)) return `https://accounts.google.com/AccountChooser?continue=${encodeURIComponent(target)}`;
+      if (appId === 'github') return `https://github.com/login?return_to=${encodeURIComponent(target)}`;
+      return target;
+    }
+    function openExternalProviderUrl(url) {
+      if (!url) return;
+      if (typeof window !== 'undefined' && window.Capacitor?.Plugins?.Browser?.open) {
+        try { window.Capacitor.Plugins.Browser.open({ url }); return; } catch (e) {}
+      }
+      try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { window.location.href = url; }
+    }
     let pendingProviderConnection = null;
     function isGoogleProvider(appId) { return GOOGLE_APP_IDS.has(appId); }
     function getConnectionAccounts(appId) {
@@ -3310,7 +3323,7 @@ body > header,
       return String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
     }
     function getAppPrivacyUrl(app) { return PROVIDER_PRIVACY_URLS[app.id] || app.website || '#'; }
-    function openProviderUrl(appId) { const url = PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website; if (url) window.open(url, '_blank', 'noopener,noreferrer'); }
+    function openProviderUrl(appId) { openExternalProviderUrl(PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website); }
     function providerLabel(appId) { return APPS_CATALOG.find(a => a.id === appId)?.name || appId; }
     function renderIntegrationModal(title, content) {
       const modal = document.getElementById('settingsSubModal');
@@ -3356,36 +3369,21 @@ body > header,
     function openGoogleAccountChooser(appId) {
       pendingProviderConnection = { appId, token: '', clientId: '' };
       const accounts = getConnectionAccounts(appId);
-      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left shrink-0"><span class="w-9 h-9 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs shrink-0">Connected</span></button>`).join('');
+      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left shrink-0"><span class="w-9 h-9 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs shrink-0">Saved</span></button>`).join('');
       renderIntegrationModal('Sign in with Google', `<div class="space-y-3" dir="ltr">
         <div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3">
-          <div class="text-sm font-bold text-white">Choose an account to continue to EG Nexus OS</div>
-          <div class="text-xs text-slate-300 mt-1">Gmail, Calendar, and Workspace use the same Google account chooser.</div>
+          <div class="text-sm font-bold text-white">Choose a Google account</div>
+          <div class="text-xs text-slate-300 mt-1">Google will show the accounts already signed in on your device. EG Nexus OS never asks you to type a Gmail password here.</div>
         </div>
-        ${rows || '<div class="text-xs text-slate-400 p-2">No Google accounts connected yet.</div>'}
-        <button onclick="openGoogleAccountForm()" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white shrink-0">+ Use another account</button>
+        <button onclick="openExternalProviderUrl(providerAuthUrl('${escapeJsAttr(appId)}'))" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shrink-0">Continue with Google</button>
+        ${rows || '<div class="text-xs text-slate-400 p-2">No saved EG Nexus account yet. Continue with Google to choose one.</div>'}
+        <button onclick="openGoogleAccountForm()" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white shrink-0">+ Use another Google account</button>
+        <div class="text-[10px] leading-relaxed text-slate-500">This direct launcher opens Google’s real account chooser. Full API sync requires the app owner to configure a Google OAuth Client ID and callback.</div>
         <button onclick="closeSettingsPanel()" class="w-full py-2.5 text-xs text-slate-400 shrink-0">Cancel</button>
       </div>`);
     }
-    function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId; const account = getConnectionAccounts(appId)[index]; if (account) showGoogleConsentStep(account, ''); }
-    function openGoogleAccountForm() {
-      const appId = pendingProviderConnection?.appId || 'gmail';
-      renderIntegrationModal('Sign in with Google · Use another account', `<div class="space-y-3" dir="ltr">
-        <p class="text-xs text-slate-300">Enter your Google account details to connect it with EG Nexus OS securely without popups.</p>
-        <label class="block text-xs text-slate-300">Gmail address
-          <input id="googleAccountEmail" type="email" placeholder="you@gmail.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" />
-        </label>
-        <label class="block text-xs text-slate-300">Display name
-          <input id="googleAccountName" placeholder="Your name" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white" />
-        </label>
-        <label class="block text-xs text-slate-300">OAuth Access Token <span class="text-slate-500">(required for API sync)</span>
-          <input id="googleAccessToken" type="password" autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" />
-        </label>
-        <div id="googleIdentityStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
-        <button onclick="continueGoogleManualAccount('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold shrink-0">Continue</button>
-        <button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="w-full py-2 text-xs text-slate-400 shrink-0">Back to account chooser</button>
-      </div>`);
-    }
+    function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId || 'gmail'; const account = getConnectionAccounts(appId)[index]; if (account) openExternalProviderUrl(providerAuthUrl(appId)); }
+    function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; openExternalProviderUrl(providerAuthUrl(appId)); }
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function continueGoogleManualAccount(appId) { const email = document.getElementById('googleAccountEmail')?.value.trim() || ''; const name = document.getElementById('googleAccountName')?.value.trim() || email.split('@')[0] || 'Google account'; const token = document.getElementById('googleAccessToken')?.value.trim() || ''; const clientId = document.getElementById('googleClientId')?.value.trim() || ''; if (!email || !email.includes('@')) { setGoogleIdentityStatus('Enter a valid Google account email.', 'error'); return; } pendingProviderConnection = { appId, token, clientId }; showGoogleConsentStep({ id: `google_${Date.now()}`, email, name, avatar: (name[0] || 'G').toUpperCase() }, token); }
     function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
@@ -3540,14 +3538,24 @@ body > header,
       const modal = document.getElementById('settingsSubModal');
       const content = document.getElementById('settingsSubContent');
       document.getElementById('settingsSubTitle').innerText = 'GitHub Integration';
-      content.innerHTML = `
+content.innerHTML = `
         <div class="space-y-3" dir="ltr">
-          <p class="text-xs text-slate-300 leading-relaxed">Connect a public repository without a token, or add a fine-grained PAT to access private repositories and trigger workflows. The PAT is kept in the current session secret store and is never written to the durable app state.</p>
-          <label class="block text-xs text-slate-300">GitHub Owner/Username<input id="githubOwnerInput" value="${escapeHtml(conn.owner || 'dicardotr46-max')}" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-          <label class="block text-xs text-slate-300">Repository Name<input id="githubRepoInput" value="${escapeHtml(conn.repo || 'EG-Nexus-OS')}" autocomplete="off" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-          <label class="block text-xs text-slate-300">Personal Access Token <span class="text-slate-500">(optional)</span><input id="githubPatInput" type="password" value="${escapeHtml(getGitHubToken())}" autocomplete="new-password" spellcheck="false" placeholder="github_pat_..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
+          <div class="rounded-2xl bg-slate-500/10 border border-white/10 p-3">
+            <div class="text-sm font-bold text-white">Connect GitHub without copying tokens</div>
+            <div class="text-xs text-slate-300 mt-1">Use GitHub’s own secure sign-in page. EG Nexus OS never asks for your GitHub password.</div>
+          </div>
+          <button onclick="openExternalProviderUrl(providerAuthUrl('github'))" class="w-full py-3 rounded-xl bg-white text-black hover:bg-slate-200 font-extrabold text-sm">Continue with GitHub</button>
+          <button id="githubConnectBtn" onclick="connectGitHubRepository()" class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-sm">Connect public EG Nexus repository</button>
           <div id="githubConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
-          <button id="githubConnectBtn" onclick="connectGitHubRepository()" class="w-full py-3 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-extrabold text-sm">Connect</button>
+          <details class="rounded-xl border border-white/10 bg-cue-bg p-3">
+            <summary class="cursor-pointer text-xs text-slate-300">Advanced repository / private API settings</summary>
+            <div class="space-y-3 mt-3">
+              <label class="block text-xs text-slate-300">GitHub Owner/Username<input id="githubOwnerInput" value="${escapeHtml(conn.owner || 'dicardotr46-max')}" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
+              <label class="block text-xs text-slate-300">Repository Name<input id="githubRepoInput" value="${escapeHtml(conn.repo || 'EG-Nexus-OS')}" autocomplete="off" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
+              <label class="block text-xs text-slate-300">Personal Access Token <span class="text-slate-500">(optional)</span><input id="githubPatInput" type="password" value="${escapeHtml(getGitHubToken())}" autocomplete="new-password" spellcheck="false" placeholder="github_pat_..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
+            </div>
+          </details>
+          <div class="text-[10px] leading-relaxed text-slate-500">A true GitHub OAuth callback requires an OAuth App Client ID and registered callback URL. Until those are configured, the buttons above use GitHub’s real login/repository pages and the public repository connector.</div>
           ${isAppGenuinelyConnected('github') ? '<button onclick="disconnectApp(\'github\')" class="w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold">Disconnect repository</button>' : ''}
         </div>`;
       modal.classList.remove('hidden');
