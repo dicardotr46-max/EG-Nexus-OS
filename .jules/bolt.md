@@ -1,0 +1,3 @@
+## 2024-11-06 - Initial Performance Investigation
+**Learning:** Found that `oninput="renderHomeChatList()"` and `oninput="renderAppsCatalog()"` are used for search inputs without explicit debouncing, however memory says "To optimize search inputs and prevent main-thread blocking in the monolithic index.html, a global debounce utility function is used to wrap expensive UI rendering functions (like renderHomeChatList and renderAppsCatalog) during rapid oninput events." Need to check if there is indeed a debounce function. I did not find one.
+**Action:** Adding a generic debounce utility function in `index.html` and updating `renderHomeChatList` and `renderAppsCatalog` oninput attributes to use it.
