@@ -1,8 +1,8 @@
 {
   "file": "index.html",
-  "lines": 22480,
-  "script_bytes": 1028625,
-  "function_count": 627,
+  "lines": 22606,
+  "script_bytes": 1034066,
+  "function_count": 634,
   "interactive_element_count": 58,
   "target_hits": {
     "bottom_mode_bar": {
@@ -89,331 +89,323 @@
       "text": "y,1))}.placeholder-slate-500::placeholder{--tw-placeholder-opacity:1;color:rgb(100 116 139/var(--tw-placeholder-opacity,1))}.accent-blue-500{accent-color:#3b82f6}.accent-emerald-500{accent-color:#10b981}.opacity-90{opacity:.9}.shadow-2xl{--tw-shadow:0 25px 50px -12px rgba(0,0,0,."
     },
     {
-      "line": 124,
-      "text": "\" class=\"hidden mb-3\">       <input id=\"homeSearchInput\" oninput=\"renderHomeChatList()\" type=\"text\" placeholder=\"Search agents or group chats...\" class=\"w-full bg-cue-card border border-cue-border rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+      "line": 158,
+      "text": "\"hidden mb-3\">       <input id=\"homeSearchInput\" oninput=\"debounceRenderHomeChatList()\" type=\"text\" placeholder=\"Search agents or group chats...\" class=\"w-full bg-cue-card border border-cue-border rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
     },
     {
-      "line": 186,
+      "line": 220,
       "text": " d=\"M12 5v14M5 12h14\"/></svg>         </label>         <input id=\"chatInput\" type=\"text\" dir=\"auto\" placeholder=\"Message...\" oninput=\"saveActiveChatDraft(this.value)\" onkeydown=\"if(event.key==='Enter')sendUserMessage()\" class=\"flex-1 bg-transparent text-sm text-white placeholder-"
     },
     {
-      "line": 186,
+      "line": 220,
       "text": "nkeydown=\"if(event.key==='Enter')sendUserMessage()\" class=\"flex-1 bg-transparent text-sm text-white placeholder-slate-500 focus:outline-none\" />         <button id=\"voiceMicBtn\" onclick=\"toggleVoiceInputPlaceholder()\" class=\"text-slate-300 hover:text-white p-1\" title=\"Voice Input"
     },
     {
-      "line": 400,
-      "text": "lass=\"relative mb-3.5\">       <input id=\"appsSearchInput\" oninput=\"renderAppsCatalog()\" type=\"text\" placeholder=\"Search apps\" class=\"w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border"
+      "line": 434,
+      "text": "lative mb-3.5\">       <input id=\"appsSearchInput\" oninput=\"debounceRenderAppsCatalog()\" type=\"text\" placeholder=\"Search apps\" class=\"w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border"
     },
     {
-      "line": 400,
+      "line": 434,
       "text": "lass=\"w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border-white/30\" />       <svg class=\"w-4 h-4 text-cue-muted absolute left-4 top-3.5\" fill=\"none\" stroke=\"currentColor\" stroke-width="
     },
     {
-      "line": 534,
+      "line": 568,
       "text": "   </div>       <div class=\"space-y-3\" dir=\"rtl\">         <input id=\"newAgentNameInput\" type=\"text\" placeholder=\"نام ایجنت (مثلاً: بررسی کننده ی تصاویر یا معمار کد)\" class=\"w-full bg-[#1e1e26] border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-500 f"
     },
     {
-      "line": 534,
+      "line": 568,
       "text": "مار کد)\" class=\"w-full bg-[#1e1e26] border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500\" />         <select id=\"newAgentModelSelect\" class=\"code-block-dir w-full bg-[#1e1e26] border border-white/10 rounded"
     },
     {
-      "line": 543,
+      "line": 577,
       "text": "Live X / Uncensored)</option>         </select>         <textarea id=\"newAgentPromptInput\" rows=\"3\" placeholder=\"وظیفه و دستورالعمل تخصصی این ایجنت را بنویسید...\" class=\"w-full bg-[#1e1e26] border border-white/10 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-slate-500 fo"
     },
     {
-      "line": 543,
+      "line": 577,
       "text": "ید...\" class=\"w-full bg-[#1e1e26] border border-white/10 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none\"></textarea>       </div>     </div>   </div>   <!-- Change Avatar Modal (Exact Screenshots 1000030150, 1000030151, 1000030155) -->   <div "
     },
     {
-      "line": 579,
+      "line": 613,
       "text": "')\" class=\"text-slate-400\">✕</button>       </div>       <input id=\"newGroupTitleInput\" type=\"text\" placeholder=\"نام گروه (مثلاً: تیم توسعه اپ ورزشی یا استودیو کلش رویال)\" class=\"w-full bg-[#1e1e26] border border-white/10 rounded-2xl px-4 py-2.5 text-xs text-white\" />       <div "
     },
     {
-      "line": 1101,
+      "line": 1151,
       "text": "    }       // ============================================================================      // TODO: Improve memory cleanup during background sync.     // TODO: Add offline mode fallback for AI chat.     // TODO: Expand supported Google API scopes securely.     // TODO: Impl"
     },
     {
-      "line": 1102,
+      "line": 1152,
       "text": "===============================      // TODO: Improve memory cleanup during background sync.     // TODO: Add offline mode fallback for AI chat.     // TODO: Expand supported Google API scopes securely.     // TODO: Implement advanced Swarm dynamic sub-agent spawning.     // TODO"
     },
     {
-      "line": 1103,
+      "line": 1153,
       "text": "e memory cleanup during background sync.     // TODO: Add offline mode fallback for AI chat.     // TODO: Expand supported Google API scopes securely.     // TODO: Implement advanced Swarm dynamic sub-agent spawning.     // TODO: Enhance visual feedback for long-running Deep Rese"
     },
     {
-      "line": 1104,
+      "line": 1154,
       "text": "offline mode fallback for AI chat.     // TODO: Expand supported Google API scopes securely.     // TODO: Implement advanced Swarm dynamic sub-agent spawning.     // TODO: Enhance visual feedback for long-running Deep Research tasks.     // TODO: Refine RTL/LTR transitions in com"
     },
     {
-      "line": 1105,
+      "line": 1155,
       "text": "oogle API scopes securely.     // TODO: Implement advanced Swarm dynamic sub-agent spawning.     // TODO: Enhance visual feedback for long-running Deep Research tasks.     // TODO: Refine RTL/LTR transitions in complex data tables.      // INITIALIZATION & PERSISTENCE     // ===="
     },
     {
-      "line": 1106,
+      "line": 1156,
       "text": "b-agent spawning.     // TODO: Enhance visual feedback for long-running Deep Research tasks.     // TODO: Refine RTL/LTR transitions in complex data tables.      // INITIALIZATION & PERSISTENCE     // ============================================================================   "
     },
     {
-      "line": 1335,
+      "line": 1403,
       "text": "             <input id=\"nexusDlgField_${i}\" type=\"text\" value=\"${escapeHtml(f.defaultValue || '')}\" placeholder=\"${escapeHtml(f.placeholder || '')}\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();document.getElementById('nexusDlgConfirmBtn')?.click();}\" class=\"${f.ltr "
     },
     {
-      "line": 1335,
+      "line": 1403,
       "text": "sDlgField_${i}\" type=\"text\" value=\"${escapeHtml(f.defaultValue || '')}\" placeholder=\"${escapeHtml(f.placeholder || '')}\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();document.getElementById('nexusDlgConfirmBtn')?.click();}\" class=\"${f.ltr ? 'code-block-dir' : ''} w-f"
     },
     {
-      "line": 2035,
+      "line": 2103,
       "text": "hatMessages();       const inp = document.getElementById('chatInput');       if (inp) {         inp.placeholder = `Message ${chat.title}`;         inp.value = chat.draftText || '';       }     }     function renderChatHeader() {       const chat = getActiveChat();       if (!chat"
     },
     {
-      "line": 2222,
+      "line": 2290,
       "text": "اتی که این ایجنت همیشه در طول جلسات به یاد می‌آورد:</p>           <textarea id=\"editAgMem\" rows=\"5\" placeholder=\"مثلاً: همیشه کدهای حرکت اسکوات را با SVG برداری و بدون کتابخانه خارجی بنویس...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-white\">${e"
     },
     {
-      "line": 3238,
+      "line": 3362,
       "text": "0\">Account handle or email<input id=\"providerAccountEmail\" value=\"${escapeHtml(first.email || '')}\" placeholder=\"you@example.com\" autocomplete=\"username\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir\" /></label>         <la"
     },
     {
-      "line": 3239,
+      "line": 3363,
       "text": "text-slate-300\">Display name<input id=\"providerAccountName\" value=\"${escapeHtml(first.name || '')}\" placeholder=\"Your name\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white\" /></label>         <label class=\"block text-xs text-slate-300\">API "
     },
     {
-      "line": 3281,
-      "text": "=\"block text-xs text-slate-300\">Gmail address           <input id=\"googleAccountEmail\" type=\"email\" placeholder=\"you@gmail.com\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir\" />         </label>         <label class=\"block "
-    },
-    {
-      "line": 3284,
-      "text": "   <label class=\"block text-xs text-slate-300\">Display name           <input id=\"googleAccountName\" placeholder=\"Your name\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white\" />         </label>         <label class=\"block text-xs text-slate-"
-    },
-    {
-      "line": 3311,
+      "line": 3420,
       "text": "t body = '';       if (appId === 'gmail') body = `<div class=\"space-y-2\"><input id=\"gmailComposeTo\" placeholder=\"To\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir\" /><input id=\"gmailComposeSubject\" placeholder=\"Subject\" cl"
     },
     {
-      "line": 3311,
+      "line": 3420,
       "text": "-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir\" /><input id=\"gmailComposeSubject\" placeholder=\"Subject\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white\" /><textarea id=\"gmailComposeBody\" rows=\"3\" placeholder=\"Write an ema"
     },
     {
-      "line": 3311,
+      "line": 3420,
       "text": "border-white/10 rounded-lg px-3 py-2 text-xs text-white\" /><textarea id=\"gmailComposeBody\" rows=\"3\" placeholder=\"Write an email…\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white\"></textarea><div class=\"grid grid-cols-2 gap-2\"><button oncli"
     },
     {
-      "line": 3312,
+      "line": 3421,
       "text": "v>`;       else if (appId === 'gcal') body = `<div class=\"space-y-2\"><input id=\"calendarEventTitle\" placeholder=\"Event title\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white\" /><input id=\"calendarEventDate\" type=\"datetime-local\" class=\"w-f"
     },
     {
-      "line": 3313,
+      "line": 3422,
       "text": "=\"sleep\">Sleep</option><option value=\"weight\">Weight</option></select><input id=\"healthMetricValue\" placeholder=\"Value\" class=\"min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir\" /></div><button onclick=\"saveHealthMetric('${escapeJsA"
     },
     {
-      "line": 3453,
-      "text": "e=\"password\" value=\"${escapeHtml(getGitHubToken())}\" autocomplete=\"new-password\" spellcheck=\"false\" placeholder=\"github_pat_...\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono\" /></label>           <div id=\"githubConnectSta"
+      "line": 3571,
+      "text": "e=\"password\" value=\"${escapeHtml(getGitHubToken())}\" autocomplete=\"new-password\" spellcheck=\"false\" placeholder=\"github_pat_...\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono\" /></label>             </div>           </deta"
     },
     {
-      "line": 3557,
+      "line": 3676,
       "text": "nput\" type=\"password\" autocomplete=\"off\" spellcheck=\"false\" value=\"${escapeHtml(conn.token || '')}\" placeholder=\"API Key / Access Token / Endpoint...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono\" />          "
     },
     {
-      "line": 3631,
+      "line": 3750,
       "text": "        title: '🧩 ساخت مهارت جدید (Skill)',         fields: [           { label: 'نام مهارت جدید:', placeholder: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText:"
     },
     {
-      "line": 3632,
+      "line": 3751,
       "text": "older: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText: 'ثبت در کتابخانه Skills',         onConfirm: ([title, desc]) => {           if (!title || !desc) {       "
     },
     {
-      "line": 4056,
+      "line": 4175,
       "text": "\"rtl\">             <input id=\"dreamNameInp\" type=\"text\" value=\"${escapeHtml(appState.profileName)}\" placeholder=\"نام شما\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white\" />             <textarea id=\"dreamBioInp\" rows=\"4\" class=\"w-full bg-cue-"
     },
     {
-      "line": 4070,
+      "line": 4189,
       "text": "               <input id=\"keyGemini\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.gemini)}\" placeholder=\"AIzaSy...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <la"
     },
     {
-      "line": 4074,
+      "line": 4193,
       "text": "           <input id=\"keyDeepseek\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.deepseek)}\" placeholder=\"sk-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <label"
     },
     {
-      "line": 4078,
+      "line": 4197,
       "text": "bel>               <input id=\"keyKimi\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.kimi)}\" placeholder=\"sk-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <label"
     },
     {
-      "line": 4082,
+      "line": 4201,
       "text": "bel>               <input id=\"keyGrok\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.grok)}\" placeholder=\"xai-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <labe"
     },
     {
-      "line": 4086,
+      "line": 4205,
       "text": "       <input id=\"keyOpenrouter\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.openrouter)}\" placeholder=\"sk-or-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <la"
     },
     {
-      "line": 4090,
+      "line": 4209,
       "text": "         <input id=\"keyTavily\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.tavily || '')}\" placeholder=\"tvly-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <button onclick=\"saveAll"
     },
     {
-      "line": 4972,
+      "line": 5098,
       "text": "AIN_TEXT_LEN}\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();addBrainNodeFromModal();}\" placeholder=\"نکته یا قانون جدید برای حافظه پروژه...\" class=\"flex-1 bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs text-white\" />             <button onclick=\"addBr"
     },
     {
-      "line": 4976,
+      "line": 5102,
       "text": "\" type=\"text\" value=\"${escapeHtml(brainModalFilterState.query)}\" oninput=\"updateBrainModalFilter()\" placeholder=\"🔍 جستجو در قوانین حافظه...\" class=\"flex-1 bg-cue-bg/70 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white\" />             <select id=\"brainFilter"
     },
     {
-      "line": 5123,
+      "line": 5249,
       "text": "     { label: `قوانین را وارد کنید (حداکثر ${MAX_BULK_IMPORT_ITEMS} مورد در هر نوبت، جدا با «|»):`, placeholder: 'قانون اول | قانون دوم | قانون سوم' }         ],         confirmText: 'افزودن به حافظه',         onConfirm: ([catVal, rawList]) => {           const cleanCat = String("
     },
     {
-      "line": 5548,
+      "line": 5674,
       "text": "st queuedProposals = [];       const codeBlocks = [];       // Never interpret a literal user/model placeholder as an internal token.       let codeTokenPrefix = '__NEXUS_CODE_BLOCK_';       while (raw.includes(codeTokenPrefix)) codeTokenPrefix += '_';       const codeTokenRegex "
     },
     {
-      "line": 9245,
+      "line": 9371,
       "text": "=\"${escapeHtml(doc.title)}\" oninput=\"appState.officeDoc.title=this.value;schedulePhase3SaveState()\" placeholder=\"عنوان سند، گزارش یا فایل ارائه...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-b"
     },
     {
-      "line": 9246,
+      "line": 9372,
       "text": "=\"officeDocBodyInp\" rows=\"5\" oninput=\"appState.officeDoc.body=this.value;schedulePhase3SaveState()\" placeholder=\"متن گزارش، جدول مقایسه‌ای یا اسلایدها (هر پاراگراف با یک خط فاصله = یک اسلاید مجزا)...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-sl"
     },
     {
-      "line": 9510,
+      "line": 9636,
       "text": "',           fields: [             { label: 'نام آیتم (گوشی، حرکت ورزشی یا دک):', defaultValue: '', placeholder: 'مثلاً: OnePlus 15 Pro' },             { label: 'امتیاز یا درصد پایداری (۰ تا ۱۰۰ — فارسی یا انگلیسی، اعشاری مجاز):', defaultValue: '92.5', placeholder: '92.5', ltr: t"
     },
     {
-      "line": 9511,
+      "line": 9637,
       "text": " label: 'امتیاز یا درصد پایداری (۰ تا ۱۰۰ — فارسی یا انگلیسی، اعشاری مجاز):', defaultValue: '92.5', placeholder: '92.5', ltr: true },             { label: 'توضیح کوتاه فنی:', defaultValue: 'تست‌شده در شرایط واقعی', placeholder: 'توضیح کوتاه...' }           ],           confirmTex"
     },
     {
-      "line": 9512,
+      "line": 9638,
       "text": "2.5', ltr: true },             { label: 'توضیح کوتاه فنی:', defaultValue: 'تست‌شده در شرایط واقعی', placeholder: 'توضیح کوتاه...' }           ],           confirmText: 'افزودن به نمودار',           onConfirm: ([label, scoreStr, note]) => {             if (!label || !label.trim())"
     },
     {
-      "line": 9807,
+      "line": 9933,
       "text": "oninput=\"appState.fluxStudio.prompt=this.value;schedulePhase3SaveState();drawFluxThumbnailCanvas()\" placeholder=\"توصیف صحنه برای تامنیل کلش رویال یا گرافیک اپ ورزشی...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white focus:outli"
     },
     {
-      "line": 9809,
+      "line": 9935,
       "text": "ut=\"appState.fluxStudio.overlayText=this.value;schedulePhase3SaveState();drawFluxThumbnailCanvas()\" placeholder=\"متن روی تامنیل (Overlay)\" class=\"bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs font-extrabold text-amber-300 focus:outline-none focus:border-amber-50"
     },
     {
-      "line": 10268,
+      "line": 10394,
       "text": "cs.playerTag || '')}\" oninput=\"appState.clashStudio.playerTag=this.value;schedulePhase3SaveState()\" placeholder=\"#PlayerTag\" class=\"code-block-dir w-32 bg-cue-bg border border-cue-border rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-amb"
     },
     {
-      "line": 10639,
+      "line": 10765,
       "text": "lds: [             { label: 'بازه زمانی سکانس (MM:SS یا HH:MM:SS):', defaultValue: '00:32 - 00:45', placeholder: '00:32 - 00:45', ltr: true },             { label: 'عنوان لایه / سکانس:', defaultValue: '⚡ ضدحمله دابل اکسیر', placeholder: 'عنوان سکانس...' },             { label: 'ت"
     },
     {
-      "line": 10640,
+      "line": 10766,
       "text": ":45', ltr: true },             { label: 'عنوان لایه / سکانس:', defaultValue: '⚡ ضدحمله دابل اکسیر', placeholder: 'عنوان سکانس...' },             { label: 'توضیح افکت تصویری یا زوم:', defaultValue: 'زوم ۱.۳۵x روی تانک اصلی + افکت صوتی', placeholder: 'توضیح افکت...' },             "
     },
     {
-      "line": 10641,
+      "line": 10767,
       "text": "         { label: 'توضیح افکت تصویری یا زوم:', defaultValue: 'زوم ۱.۳۵x روی تانک اصلی + افکت صوتی', placeholder: 'توضیح افکت...' },             { label: 'فایل افکت صوتی (SFX):', defaultValue: 'impact_hit.mp3', placeholder: 'impact_hit.mp3', ltr: true }           ],           conf"
     },
     {
-      "line": 10642,
+      "line": 10768,
       "text": "r: 'توضیح افکت...' },             { label: 'فایل افکت صوتی (SFX):', defaultValue: 'impact_hit.mp3', placeholder: 'impact_hit.mp3', ltr: true }           ],           confirmText: 'افزودن سکانس',           onConfirm: ([time, layer, action, sfx]) => {             if (!time || !time"
     },
     {
-      "line": 11078,
+      "line": 11204,
       "text": "        title: '🧩 ساخت مهارت جدید (Skill)',         fields: [           { label: 'نام مهارت جدید:', placeholder: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText:"
     },
     {
-      "line": 11079,
+      "line": 11205,
       "text": "older: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText: 'ثبت در کتابخانه Skills',         onConfirm: ([title, desc]) => {           if (!title || !desc) {       "
     },
     {
-      "line": 16869,
+      "line": 16995,
       "text": "{event.preventDefault();syncStateWithCloudWorker(true);}\" value=\"${escapeHtml(displayedWorkerUrl)}\" placeholder=\"https://eg-nexus-worker.yourname.workers.dev\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-cyan-300 font-mono\" /"
     },
     {
-      "line": 16870,
+      "line": 16996,
       "text": "loudWorkerSecretInp\" type=\"password\" value=\"${escapeHtml(appState.cloudConfig.workerSecret || '')}\" placeholder=\"کلید امنیتی اجباری Worker (X-Nexus-Secret - حداقل ۸ کاراکتر)\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-1.5 text-[11px] text"
     },
     {
-      "line": 16872,
+      "line": 16998,
       "text": "2 gap-2\">               <input id=\"cloudSbUrlInp\" type=\"text\" value=\"${escapeHtml(displayedSbUrl)}\" placeholder=\"Supabase HTTPS Project URL\" class=\"code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono\" />               <inp"
     },
     {
-      "line": 16873,
+      "line": 16999,
       "text": "  <input id=\"cloudSbKeyInp\" type=\"password\" value=\"${escapeHtml(appState.cloudConfig.supabaseKey)}\" placeholder=\"Supabase publishable / anon key (نه service_role)\" class=\"code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono"
     },
     {
-      "line": 16874,
+      "line": 17000,
       "text": "SbAuthTokenInp\" type=\"password\" value=\"${escapeHtml(appState.cloudConfig.supabaseAuthToken || '')}\" placeholder=\"JWT کاربر Supabase (authenticated)\" class=\"code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-emerald-200 font-mono col-span"
     },
     {
-      "line": 16906,
+      "line": 17032,
       "text": "Default();addNewRoutineFromModal();}\" value=\"${escapeHtml(phase4ModalDraftCache.newRtTitle || '')}\" placeholder=\"عنوان روتین جدید (مثلاً: بررسی صبحگاهی بتل‌لاگ کلش)\" class=\"w-full bg-black/50 border border-cue-border rounded-xl px-3 py-1.5 text-xs text-white\" />                 <"
     },
     {
-      "line": 16920,
+      "line": 17046,
       "text": "efault();addNewRoutineFromModal();}\" value=\"${escapeHtml(phase4ModalDraftCache.newRtPrompt || '')}\" placeholder=\"دستور اجرایی برای ایجنت...\" class=\"flex-1 bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-xs text-white\" />                 <button onclick=\"addNewR"
     },
     {
-      "line": 16974,
+      "line": 17100,
       "text": "  <input id=\"tgBotTokenInp\" type=\"password\" value=\"${escapeHtml(appState.telegramConfig.botToken)}\" placeholder=\"123456789:ABCdefGHIjklMNOpqrSTUvwxYZ\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-sky-300 font-mono\" />        "
     },
     {
-      "line": 16976,
+      "line": 17102,
       "text": "          <input id=\"tgChatIdInp\" type=\"text\" value=\"${escapeHtml(appState.telegramConfig.chatId)}\" placeholder=\"Chat ID مجاز (یا با /pair قفل کنید)\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono\" />   "
     },
     {
-      "line": 16977,
+      "line": 17103,
       "text": " id=\"tgOwnerUserIdInp\" type=\"text\" value=\"${escapeHtml(appState.telegramConfig.ownerUserId || '')}\" placeholder=\"Owner User ID (from.id)\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-emerald-300 font-mono\" />         "
     },
     {
-      "line": 17024,
+      "line": 17150,
       "text": "    <input id=\"agEmailAddrInp\" type=\"text\" value=\"${escapeHtml(appState.emailConfig.agentAddress)}\" placeholder=\"agent@yourdomain.com\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-emerald-300 font-mono\" />             <label "
     },
     {
-      "line": 17026,
+      "line": 17152,
       "text": "input id=\"agEmailFwdInp\" type=\"email\" value=\"${escapeHtml(appState.emailConfig.forwardToPersonal)}\" placeholder=\"you@gmail.com\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-white font-mono\" />             <label class=\"flex i"
     },
     {
-      "line": 19069,
+      "line": 19195,
       "text": "ر جای‌گذاری کنید:',           fields: [             { label: 'متن یا HTML صفحه:', defaultValue: '', placeholder: 'متن کپی‌شده از صفحه یا <html>...', ltr: false }           ],           confirmText: '✓ ثبت و تحلیل محتوا',           onConfirm: (vals) => applyPastedContent(vals?.[0]"
     },
     {
-      "line": 19514,
+      "line": 19640,
       "text": "جای‌گذاری کنید:',           fields: [             { label: 'ساختار JSON گام‌ها:', defaultValue: '', placeholder: '{\"taskTitle\":\"...\",\"steps\":[...]}', ltr: true }           ],           confirmText: '📥 اعتبارسنجی و بارگذاری',           onConfirm: (vals) => applyImportedJson(vals?."
     },
     {
-      "line": 21594,
+      "line": 21720,
       "text": "aveState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();runBrowserOperatorAction();}\" placeholder=\"https://...\" class=\"code-block-dir flex-1 bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs text-cyan-300 font-mono\" />                 <button onclick=\""
     },
     {
-      "line": 21598,
+      "line": 21724,
       "text": "aveState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();runBrowserOperatorAction();}\" placeholder=\"دستور به مرورگر (مثلاً: جدول وین‌ریت دک‌ها را استخراج کن یا فرم را بررسی کن)\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs text-white\""
     },
     {
-      "line": 21602,
+      "line": 21728,
       "text": "wserConfig.allowedDomains)}\" oninput=\"appState.browserConfig.allowedDomains=this.value;saveState()\" placeholder=\"* یا *.royaleapi.com\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-lg px-2 py-1 text-[10px] text-emerald-300 font-mono\" />                 <"
     },
     {
-      "line": 21606,
+      "line": 21732,
       "text": "wserConfig.blockedDomains)}\" oninput=\"appState.browserConfig.blockedDomains=this.value;saveState()\" placeholder=\"malware.example, ...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-lg px-2 py-1 text-[10px] text-rose-300 font-mono\" />                 </di"
     },
     {
-      "line": 21651,
+      "line": 21777,
       "text": "pState.teachRecorder.taskTitle)}\" oninput=\"appState.teachRecorder.taskTitle=this.value;saveState()\" placeholder=\"عنوان مهارت آموزش‌داده‌شده...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-1.5 text-xs text-white\" />                 <div class=\"grid grid-col"
     },
     {
-      "line": 21662,
+      "line": 21788,
       "text": "tInputsToAppState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();recordTeachStep();}\" placeholder=\"آدرس / سلکتور CSS...\" class=\"code-block-dir bg-cue-bg border border-cue-border rounded-xl px-2 py-1.5 text-[11px] text-white font-mono\" />                 <div class=\""
     },
     {
-      "line": 21664,
+      "line": 21790,
       "text": "tInputsToAppState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();recordTeachStep();}\" placeholder=\"توضیح گام\" class=\"flex-1 bg-cue-bg border border-cue-border rounded-xl px-2 py-1.5 text-[11px] text-white\" />                   <button onclick=\"recordTeachStep()\" cla"
     },
     {
-      "line": 21712,
+      "line": 21838,
       "text": "l=sanitizeLocalBridgeUrl(this.value);this.value=appState.localComputerConfig.bridgeUrl;saveState()\" placeholder=\"http://127.0.0.1:8765\" class=\"code-block-dir bg-cue-bg border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-emerald-300 font-mono\" />               <inpu"
     },
     {
-      "line": 21713,
+      "line": 21839,
       "text": "nfig.allowedFolders)}\" oninput=\"appState.localComputerConfig.allowedFolders=this.value;saveState()\" placeholder=\"/sdcard/Download/NexusProjects\" class=\"code-block-dir bg-cue-bg border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-slate-300 font-mono\" />             "
     },
     {
-      "line": 21764,
+      "line": 21890,
       "text": " onkeydown=\"if(event.key==='Enter'){event.preventDefault();executeLocalTermuxCommand(null, true);}\" placeholder=\"ffmpeg -version || python3 --version\" class=\"code-block-dir flex-1 bg-cue-bg border border-cue-border rounded-xl px-3 py-1.5 text-xs text-emerald-300 font-mono\" />    "
     }
   ],
@@ -436,10 +428,6 @@
     },
     {
       "function": "fallbackPhase5Copy",
-      "reason": "toast-heavy first 1200 chars; manual review required"
-    },
-    {
-      "function": "formatAgentMessageContent",
       "reason": "toast-heavy first 1200 chars; manual review required"
     },
     {

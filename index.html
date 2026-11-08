@@ -155,7 +155,7 @@ body > header,
     </header>
     <!-- Collapsible Home Search Bar -->
     <div id="homeSearchBox" class="hidden mb-3">
-      <input id="homeSearchInput" oninput="renderHomeChatList()" type="text" placeholder="Search agents or group chats..." class="w-full bg-cue-card border border-cue-border rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500" />
+      <input id="homeSearchInput" oninput="debounceRenderHomeChatList()" type="text" placeholder="Search agents or group chats..." class="w-full bg-cue-card border border-cue-border rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500" />
     </div>
     <!-- Main Chat & Agent List -->
     <div id="homeChatList" class="flex-1 flex flex-col divide-y divide-white/[0.04]"></div>
@@ -431,7 +431,7 @@ body > header,
     </header>
     <!-- Search Apps Bar -->
     <div class="relative mb-3.5">
-      <input id="appsSearchInput" oninput="renderAppsCatalog()" type="text" placeholder="Search apps" class="w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border-white/30" />
+      <input id="appsSearchInput" oninput="debounceRenderAppsCatalog()" type="text" placeholder="Search apps" class="w-full bg-cue-card border border-cue-border rounded-full pl-10 pr-4 py-2.5 text-sm text-white placeholder-cue-muted focus:outline-none focus:border-white/30" />
       <svg class="w-4 h-4 text-cue-muted absolute left-4 top-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/></svg>
     </div>
     <!-- Added Apps Entry Card (Only in main catalog mode) -->
@@ -805,6 +805,23 @@ body > header,
 </body>
 </html>`
     };
+
+    // ⚡ Bolt: Debounce utility to prevent UI blocking during rapid search typing
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+      };
+    }
+    const debounceRenderHomeChatList = debounce(() => {
+      if (typeof renderHomeChatList === 'function') renderHomeChatList();
+    }, 250);
+    const debounceRenderAppsCatalog = debounce(() => {
+      if (typeof renderAppsCatalog === 'function') renderAppsCatalog();
+    }, 250);
+
     // UI state object consolidating previously scattered globals
     var uiState = {
       // Temporary state for Avatar Customizer
