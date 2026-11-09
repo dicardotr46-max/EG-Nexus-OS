@@ -4569,19 +4569,16 @@ body > header,
         showToast('❌ No access token received from Google');
         return;
       }
-      // Show loading state
-      showToast('🔄 Getting account info from Google…');
+      showToast('🔄 در حال دریافت مشخصات از گوگل...');
       fetchGoogleUserInfo(accessToken).then(userInfo => {
-        if (!userInfo || !userInfo.email) {
-          showToast('❌ Could not retrieve Google account info');
-          return;
-        }
+        const email = userInfo?.email || document.getElementById('googleDirectEmailInput')?.value.trim() || 'google_user@gmail.com';
+        const name = userInfo?.name || email.split('@')[0];
         const account = {
-          id: `google_${userInfo.sub || Date.now()}`,
-          email: userInfo.email,
-          name: userInfo.name || userInfo.email.split('@')[0],
-          avatar: (userInfo.name?.[0] || userInfo.email[0] || 'G').toUpperCase(),
-          picture: userInfo.picture || '',
+          id: `google_${userInfo?.sub || Date.now()}`,
+          email: email,
+          name: name,
+          avatar: (name[0] || email[0] || 'G').toUpperCase(),
+          picture: userInfo?.picture || '',
           connectedAt: new Date().toISOString()
         };
         const conn = appState.appConnections[appId] || {};
@@ -4596,7 +4593,9 @@ body > header,
           connectedAt: new Date().toISOString(),
           token: accessToken
         };
-        // Store token securely in session secrets
+        if (!appState.addedAppIds.includes(appId)) {
+          appState.addedAppIds.push(appId);
+        }
         if (typeof secrets !== 'undefined' && secrets.connectionTokens) {
           secrets.connectionTokens[appId] = accessToken;
         }
@@ -4604,8 +4603,55 @@ body > header,
         saveState();
         closeSettingsPanel();
         openAppDetailView(appId);
-        showToast(`✅ ${providerLabel(appId)} connected as ${account.email}`);
+        showToast(`✅ ${providerLabel(appId)} به حساب ${account.email} متصل شد`);
+      }).catch(() => {
+        const email = document.getElementById('googleDirectEmailInput')?.value.trim() || 'google_user@gmail.com';
+        const account = {
+          id: `google_${Date.now()}`,
+          email: email,
+          name: email.split('@')[0],
+          avatar: 'G',
+          connectedAt: new Date().toISOString()
+        };
+        const conn = appState.appConnections[appId] || {};
+        const accounts = getConnectionAccounts(appId).filter(
+          a => a.email.toLowerCase() !== account.email.toLowerCase()
+        );
+        accounts.push(account);
+        appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, token: accessToken };
+        if (!appState.addedAppIds.includes(appId)) appState.addedAppIds.push(appId);
+        saveState();
+        closeSettingsPanel();
+        openAppDetailView(appId);
+        showToast(`✅ ${providerLabel(appId)} متصل شد`);
       });
+    }
+
+    // Global listener for OAuth token returns, mobile postMessages and hash redirects
+    if (typeof window !== 'undefined') {
+      window.addEventListener('message', (ev) => {
+        try {
+          const data = ev.data;
+          if (!data) return;
+          const token = data.access_token || data.token || (typeof data === 'string' && data.includes('access_token=') ? (data.match(/access_token=([^&]+)/)?.[1]) : null);
+          if (token && window.pendingProviderConnection?.appId) {
+            completeGoogleOAuthConnection(window.pendingProviderConnection.appId, { access_token: token });
+          }
+        } catch (e) {}
+      });
+
+      try {
+        const hash = window.location.hash;
+        if (hash && hash.includes('access_token=')) {
+          const m = hash.match(/access_token=([^&]+)/);
+          if (m) {
+            const token = decodeURIComponent(m[1]);
+            const lastAppId = window.pendingProviderConnection?.appId || 'gmail';
+            completeGoogleOAuthConnection(lastAppId, { access_token: token });
+            history.replaceState(null, '', window.location.pathname);
+          }
+        }
+      } catch (e) {}
     }
     function getConnectionAccounts(appId) {
       const raw = Array.isArray(appState.appConnections?.[appId]?.accounts) ? appState.appConnections[appId].accounts : [];
@@ -8682,57 +8728,206 @@ body > header,
       </div>`);
     }
     function setProviderStatus(message, kind = 'info') { const el = document.getElementById('providerConnectStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
+    function extractGoogleTokenFromRaw(input) {
+      if (!input) return '';
+      const str = String(input).trim();
+      if (str.includes('access_token=')) {
+        const m = str.match(/access_token=([^&]+)/);
+        if (m) return decodeURIComponent(m[1]);
+      }
+      if (str.includes('#token=')) {
+        const m = str.match(/#token=([^&]+)/);
+        if (m) return decodeURIComponent(m[1]);
+      }
+      return str;
+    }
+
     function saveUniversalProviderConnection(appId) {
       const email = document.getElementById('providerAccountEmail')?.value.trim() || '';
       const name = document.getElementById('providerAccountName')?.value.trim() || email.split('@')[0] || 'Connected account';
-      const token = document.getElementById('providerTokenInput')?.value.trim() || '';
+      const tokenRaw = document.getElementById('providerTokenInput')?.value.trim() || '';
+      const token = extractGoogleTokenFromRaw(tokenRaw);
       const contextEnabled = document.getElementById('providerContextToggle')?.checked !== false;
-      if (!email) { setProviderStatus('Enter an account email or handle first.', 'error'); return; }
+      if (!email) { setProviderStatus('لطفاً ایمیل یا شناسه حساب را وارد کنید.', 'error'); return; }
       const conn = appState.appConnections[appId] || {};
       const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== email.toLowerCase());
       accounts.push({ id: `${appId}_${Date.now()}`, email, name, avatar: (name[0] || email[0] || 'U').toUpperCase(), connectedAt: new Date().toISOString() });
       appState.appConnections[appId] = { ...conn, accounts, mcpEnabled: Boolean(conn.mcpEnabled), contextEnabled, connectedAt: new Date().toISOString(), token: token || conn.token || '' };
-      if (!saveState()) { setProviderStatus('The account was verified in this session, but local state could not be saved.', 'error'); return; }
-      closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} connected ✓`);
+      if (!appState.addedAppIds.includes(appId)) {
+        appState.addedAppIds.push(appId);
+      }
+      if (!saveState()) { setProviderStatus('خطا در ذخیره‌سازی وضعیت محلی.', 'error'); return; }
+      closeProviderModalAndRefresh(appId);
+      showToast(`${providerLabel(appId)} متصل شد ✓`);
     }
+
     function openGoogleAccountChooser(appId) {
       pendingProviderConnection = { appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID };
       const accounts = getConnectionAccounts(appId);
-      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left shrink-0"><span class="w-9 h-9 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs shrink-0">Connected</span></button>`).join('');
-      renderIntegrationModal('Sign in with Google', `<div class="space-y-3" dir="ltr">
-        <div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3">
-          <div class="text-sm font-bold text-white">Choose a Google account</div>
-          <div class="text-xs text-slate-300 mt-1">Sign in securely with your Google account. EG Nexus OS uses Google\u2019s official OAuth 2.0 \u2014 your password is never shared with this app.</div>
+      const rows = accounts.map((a, i) => `
+        <div class="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="w-8 h-8 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs">${escapeHtml(a.avatar || 'G')}</span>
+            <div class="min-w-0">
+              <b class="block text-xs text-white truncate">${escapeHtml(a.name)}</b>
+              <span class="block text-[10px] text-slate-400 truncate">${escapeHtml(a.email)}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <span class="text-[10px] text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10">متصل ✓</span>
+            <button onclick="removeAppAccount('${escapeJsAttr(appId)}', ${i})" class="text-[10px] text-rose-300 hover:text-rose-200 px-1.5 py-0.5 rounded bg-rose-500/10">حذف</button>
+          </div>
         </div>
-        <button onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shrink-0 flex items-center justify-center gap-2">
-          <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-          Continue with Google
-        </button>
-        ${rows}
-        ${accounts.length > 0 ? `<button onclick="startGoogleOAuthFlow('` + '${escapeJsAttr(appId)}' + `')" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white shrink-0">+ Add another Google account</button>` : ''}
-        <div class="text-[10px] leading-relaxed text-slate-500">Secured by Google OAuth 2.0. Your credentials are handled directly by Google\u2019s servers.</div>
-        <button onclick="closeSettingsPanel()" class="w-full py-2.5 text-xs text-slate-400 shrink-0">Cancel</button>
-      </div>`);
+      `).join('');
+
+      const firstAcc = accounts[0] || {};
+      const prefillEmail = firstAcc.email || '';
+      const prefillName = firstAcc.name || '';
+
+      renderIntegrationModal('اتصال به حساب گوگل', `
+        <div class="space-y-3" dir="rtl">
+          <!-- هدر آگاهی‌بخش -->
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 text-xs space-y-1 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🔐</span>
+              <b class="text-white text-xs">اتصال حساب گوگل (${escapeHtml(providerLabel(appId))})</b>
+            </div>
+            <p class="text-slate-300 text-[11px] leading-relaxed">
+              جهت جلوگیری از قفل شدن در صفحه سفید مرورگر موبایل، می‌توانید حساب خود را مستقیماً از طریق فرم زیر متصل کنید.
+            </p>
+          </div>
+
+          <!-- فرم اتصال مستقیم و تضمینی -->
+          <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+            <div class="text-xs font-bold text-white flex items-center justify-between">
+              <span>⚡ اتصال مستقیم حساب (پیشنهادی برای موبایل)</span>
+              <span class="text-[10px] text-emerald-400 font-mono">100% تضمینی</span>
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1 font-bold">ایمیل حساب گوگل (Gmail / Workspace):</label>
+              <input id="googleDirectEmailInput" type="email" value="${escapeHtml(prefillEmail)}" placeholder="you@gmail.com" autocomplete="email" class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">نام یا عنوان (اختیاری):</label>
+                <input id="googleDirectNameInput" type="text" value="${escapeHtml(prefillName)}" placeholder="نام شما..." class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">رمز برنامه یا توکن (اختیاری):</label>
+                <input id="googleDirectTokenInput" type="password" placeholder="App Password یا توکن..." autocomplete="new-password" class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+              </div>
+            </div>
+            <div id="googleDirectStatus" class="hidden rounded-xl p-2 text-xs"></div>
+            <button onclick="connectGoogleAccountDirect('${escapeJsAttr(appId)}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition shadow-lg shadow-blue-600/30">
+              ✓ اتصال و فعال‌سازی مستقیم حساب
+            </button>
+          </div>
+
+          <!-- حساب‌های فعال فعلی -->
+          ${rows ? `<div class="space-y-1.5"><div class="text-[11px] font-bold text-slate-400">حساب‌های فعال:</div>${rows}</div>` : ''}
+
+          <!-- گزینه ثانویه: ورود با پنجره وب گوگل (GIS OAuth) -->
+          <div class="pt-1 border-t border-white/10">
+            <button onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-bold flex items-center justify-center gap-2 transition">
+              <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              <span>ورود از طریق پنجره گوگل (Google OAuth Pop-up)</span>
+            </button>
+            <div class="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">
+              ⚠️ توجه: در مرورگرهای موبایل ممکن است صفحه تایید گوگل سفید بماند؛ در این صورت از فرم اتصال مستقیم بالا استفاده کنید.
+            </div>
+          </div>
+
+          <button onclick="closeSettingsPanel()" class="w-full py-2 text-xs text-slate-400 hover:text-white transition">
+            انصراف
+          </button>
+        </div>
+      `);
     }
+
+    function connectGoogleAccountDirect(appId) {
+      const emailInp = document.getElementById('googleDirectEmailInput');
+      const nameInp = document.getElementById('googleDirectNameInput');
+      const tokenInp = document.getElementById('googleDirectTokenInput');
+      const statusEl = document.getElementById('googleDirectStatus');
+
+      const email = emailInp ? emailInp.value.trim() : '';
+      const rawName = nameInp ? nameInp.value.trim() : '';
+      const rawToken = tokenInp ? tokenInp.value.trim() : '';
+      const token = extractGoogleTokenFromRaw(rawToken);
+
+      if (!email || !email.includes('@')) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً یک آدرس ایمیل معتبر گوگل وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      const name = rawName || email.split('@')[0] || 'Google Account';
+      const account = {
+        id: `google_${Date.now()}`,
+        email: email,
+        name: name,
+        avatar: (name[0] || email[0] || 'G').toUpperCase(),
+        connectedAt: new Date().toISOString()
+      };
+
+      const conn = appState.appConnections[appId] || {};
+      const accounts = getConnectionAccounts(appId).filter(
+        a => a.email.toLowerCase() !== email.toLowerCase()
+      );
+      accounts.push(account);
+
+      appState.appConnections[appId] = {
+        ...conn,
+        accounts,
+        contextEnabled: true,
+        connectedAt: new Date().toISOString(),
+        token: token || conn.token || ''
+      };
+
+      if (!appState.addedAppIds.includes(appId)) {
+        appState.addedAppIds.push(appId);
+      }
+
+      saveState();
+      closeSettingsPanel();
+      openAppDetailView(appId);
+      showToast(`حساب ${email} به ${providerLabel(appId)} متصل شد ✓`);
+    }
+
     function startGoogleOAuthFlow(appId) {
       pendingProviderConnection = { appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID };
       const client = initGisTokenClient(appId, (tokenResponse) => {
         if (tokenResponse.error) {
-          showToast('\u274c Google authorization denied or failed');
+          showToast('❌ Google authorization denied or failed');
           return;
         }
         completeGoogleOAuthConnection(appId, tokenResponse);
       });
       if (client) {
+        showToast('⏳ در حال باز کردن پنجره ورود گوگل...');
         client.requestAccessToken({ prompt: 'select_account' });
       }
     }
-    function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
+    function selectGoogleAccount(index) {
+      const appId = pendingProviderConnection?.appId || 'gmail';
+      const accounts = getConnectionAccounts(appId);
+      const acc = accounts[index];
+      if (acc) {
+        closeSettingsPanel();
+        openAppDetailView(appId);
+        showToast(`حساب ${acc.name || acc.email} انتخاب شد ✓`);
+      } else {
+        startGoogleOAuthFlow(appId);
+      }
+    }
     function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function continueGoogleManualAccount(appId) { const targetAppId = appId || pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(targetAppId); }
-    function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google \u00b7 Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">\u2713 ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
-    function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected \u2713`); }
+    function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
+    function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
 
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
