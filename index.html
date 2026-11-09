@@ -699,6 +699,7 @@ body > header,
       { id: 'outlook_cal', name: 'Outlook Calendar', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Schedule, view, and manage your Outlook Calendar events.' },
       { id: 'outlook_mail', name: 'Outlook Mail', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Write, search, and manage your Outlook emails.' },
       { id: 'gworkspace', name: 'Google Workspace', category: 'Productivity', type: 'MultiAccount', author: 'Google', website: 'https://workspace.google.com', desc: 'Access your files, search instantly across Drive, Docs, and Sheets.' },
+      { id: 'youtube', name: 'YouTube', category: 'Productivity', type: 'MultiAccount', author: 'Google', website: 'https://youtube.com', desc: 'Manage your YouTube channel, view live subscriber stats, and publish Shorts from Clash Studio.' },
       { id: 'tailscale', name: 'Tailscale', category: 'Dev & AI', type: 'MCP', author: 'Tailscale', website: 'https://tailscale.com', desc: 'Connect your cloud computer or sandbox to your private Tailnet.' },
       { id: 'google_ads', name: 'Google Ads', beta: true, category: 'Finance', type: 'App', author: 'Google', website: 'https://ads.google.com', desc: 'Query and analyze your Google Ads campaigns and conversions.' },
       { id: 'tomtom', name: 'TomTom Maps', category: 'Travel', type: 'App', author: 'TomTom', website: 'https://tomtom.com', desc: 'Access geocoding, routing, traffic, and location search.' },
@@ -3023,6 +3024,121 @@ body > header,
             }
           ]
         },
+        instagram: {
+          name: 'Instagram Graph API MCP',
+          endpointDefault: 'https://graph.facebook.com/v20.0',
+          tools: [
+            {
+              name: 'instagram_publish_reel',
+              description: 'انتشار ویدیوی ریلز جدید در اکانت اینستاگرام تجاری از طریق Meta Graph API دو مرحله‌ای',
+              parameters: { video_url: 'string (آدرس HTTPS مستقیم فایل ویدیو)', caption: 'string (متن کپشن و هشتگ‌ها)' },
+              execute: async (args, token) => {
+                return await publishInstagramMediaLive({ mediaType: 'REELS', mediaUrl: args.video_url, caption: args.caption, token });
+              }
+            },
+            {
+              name: 'instagram_get_recent_media',
+              description: 'دریافت لیست پست‌ها و ریلزهای اخیر پیج اینستاگرام همراه با تعداد لایک و کامنت',
+              parameters: { limit: 'number (اختیاری - پیش‌فرض ۴)' },
+              execute: async (args, token) => {
+                return await fetchInstagramRecentMedia(args.limit || 4, token);
+              }
+            },
+            {
+              name: 'instagram_get_account_insights',
+              description: 'دریافت آمار فالوورها، پست‌ها و مشخصات پیج اینستاگرام تجاری',
+              parameters: {},
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.instagram || {};
+                const t = token || conn.token;
+                const igId = conn.igUserId || conn.accounts?.[0]?.id;
+                if (!t || !igId) throw new Error('اکانت اینستاگرام تجاری متصل نیست یا توکن نامعتبر است');
+                const res = await fetch(`https://graph.facebook.com/v20.0/${igId}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count&access_token=${t}`);
+                if (!res.ok) throw new Error(`Meta Graph API HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        youtube: {
+          name: 'YouTube Data API v3 MCP',
+          endpointDefault: 'https://www.googleapis.com/youtube/v3',
+          tools: [
+            {
+              name: 'youtube_get_channel_stats',
+              description: 'دریافت مشخصات زنده کانال یوتیوب (تعداد مشترکین، بازدید کل و تعداد ویدیوها)',
+              parameters: {},
+              execute: async (args, token) => {
+                const t = token || getAppConnectionToken('youtube') || getAppConnectionToken('gmail');
+                if (!t) throw new Error('توکن Google OAuth برای کانال یوتیوب یافت نشد');
+                const res = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', {
+                  headers: { Authorization: `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`YouTube API HTTP ${res.status}`);
+                const data = await res.json();
+                const ch = data.items?.[0];
+                if (!ch) throw new Error('کانال یوتیوبی برای این حساب Google یافت نشد');
+                return { title: ch.snippet?.title, customUrl: ch.snippet?.customUrl, subscribers: ch.statistics?.subscriberCount, totalViews: ch.statistics?.viewCount, videoCount: ch.statistics?.videoCount };
+              }
+            },
+            {
+              name: 'youtube_list_recent_videos',
+              description: 'دریافت لیست ویدیوها و شورتس‌های اخیر کانال یوتیوب کاربر',
+              parameters: { max_results: 'number (پیش‌فرض ۵)' },
+              execute: async (args, token) => {
+                const t = token || getAppConnectionToken('youtube') || getAppConnectionToken('gmail');
+                if (!t) throw new Error('توکن Google OAuth برای یوتیوب الزامی است');
+                const limit = args.max_results || 5;
+                const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&forMine=true&type=video&order=date&maxResults=${limit}`, {
+                  headers: { Authorization: `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`YouTube API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.items || []).map(i => ({ id: i.id?.videoId, title: i.snippet?.title, publishedAt: i.snippet?.publishedAt, thumbnail: i.snippet?.thumbnails?.medium?.url }));
+              }
+            }
+          ]
+        },
+        todoist: {
+          name: 'Todoist REST API v2 MCP',
+          endpointDefault: 'https://api.todoist.com/rest/v2',
+          tools: [
+            {
+              name: 'todoist_create_task',
+              description: 'ایجاد تسک جدید در اپلیکیشن Todoist با اولویت و مهلت انجام مشخص',
+              parameters: { content: 'string (عنوان وظیفه)', due_string: 'string (اختیاری - e.g. today, tomorrow)', priority: 'number (اختیاری - 1 تا 4)' },
+              execute: async (args, token) => {
+                const t = token || getAppConnectionToken('todoist');
+                if (!t) throw new Error('کلید API برای Todoist الزامی است');
+                const body = { content: args.content };
+                if (args.due_string) body.due_string = args.due_string;
+                if (args.priority) body.priority = Number(args.priority);
+                const res = await fetch('https://api.todoist.com/rest/v2/tasks', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error(`Todoist API HTTP ${res.status}`);
+                return await res.json();
+              }
+            },
+            {
+              name: 'todoist_get_active_tasks',
+              description: 'دریافت لیست وظایف فعال و انجام‌نشده کاربر از Todoist',
+              parameters: {},
+              execute: async (args, token) => {
+                const t = token || getAppConnectionToken('todoist');
+                if (!t) throw new Error('کلید API برای Todoist الزامی است');
+                const res = await fetch('https://api.todoist.com/rest/v2/tasks', {
+                  headers: { Authorization: `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`Todoist API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data || []).slice(0, 10).map(t => ({ id: t.id, content: t.content, due: t.due?.string || t.due?.date, priority: t.priority }));
+              }
+            }
+          ]
+        },
         neon: {
           name: 'Neon Serverless Postgres MCP',
           endpointDefault: 'https://console.neon.tech/api/v2',
@@ -3487,6 +3603,7 @@ body > header,
         clickup: `<div class="w-7 h-7 rounded-lg bg-purple-500/20 text-pink-400 font-extrabold text-xs flex items-center justify-center">︽</div>`,
         sentry: `<div class="w-7 h-7 rounded-lg bg-white/10 text-white font-extrabold text-xs flex items-center justify-center">⛯</div>`,
         todoist: `<div class="w-7 h-7 rounded-lg bg-red-600 text-white font-extrabold text-xs flex items-center justify-center">≡</div>`,
+        youtube: `<div class="w-7 h-7 rounded-lg bg-red-600 text-white font-extrabold text-xs flex items-center justify-center">▶</div>`,
         minimax: `<div class="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 font-extrabold text-xs flex items-center justify-center">〰</div>`,
         apollo: `<div class="w-7 h-7 rounded-lg bg-yellow-400 text-black font-extrabold text-xs flex items-center justify-center">✺</div>`,
         pophive: `<div class="w-7 h-7 rounded-lg bg-white/10 text-white font-extrabold text-xs flex items-center justify-center">∷</div>`,
@@ -3603,15 +3720,17 @@ body > header,
       }).join('');
     }
     // REA Reverse-Engineered Detail View (Exact Screenshots 1000030180 - 1000030183)
-    const GOOGLE_APP_IDS = new Set(['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit']);
+    const GOOGLE_APP_IDS = new Set(['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit', 'youtube']);
     const PROVIDER_PRIVACY_URLS = {
       github: 'https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement',
       gmail: 'https://policies.google.com/privacy', gcal: 'https://policies.google.com/privacy', gworkspace: 'https://policies.google.com/privacy', google_ads: 'https://policies.google.com/privacy', fitbit: 'https://www.fitbit.com/global/us/legal/privacy-policy',
+      youtube: 'https://policies.google.com/privacy', todoist: 'https://todoist.com/privacy',
       picsart: 'https://picsart.com/privacy-policy', instagram: 'https://privacycenter.instagram.com/policy/', ig_creator: 'https://privacycenter.instagram.com/policy/', meta_ads: 'https://www.facebook.com/privacy/policies/',
       myfitnesspal: 'https://www.myfitnesspal.com/privacy-policy', withings: 'https://www.withings.com/us/en/legal/privacy-policy', polar: 'https://www.polar.com/en/legal/privacy', trainingpeaks: 'https://www.trainingpeaks.com/privacy-policy/', plaid: 'https://plaid.com/legal/#end-user-privacy-policy', clue: 'https://helloclue.com/privacy', cronometer: 'https://cronometer.com/privacy/', oura: 'https://ouraring.com/privacy-policy'
     };
     const PROVIDER_LAUNCH_URLS = {
-      github: 'https://github.com/', gmail: 'https://mail.google.com/mail/u/0/', gcal: 'https://calendar.google.com/calendar/u/0/r', gworkspace: 'https://workspace.google.com/dashboard/', picsart: 'https://picsart.com/', instagram: 'https://www.instagram.com/', ig_creator: 'https://business.facebook.com/creatorstudio/', meta_ads: 'https://www.facebook.com/adsmanager/', myfitnesspal: 'https://www.myfitnesspal.com/', withings: 'https://healthmate.withings.com/', polar: 'https://flow.polar.com/', trainingpeaks: 'https://app.trainingpeaks.com/', plaid: 'https://dashboard.plaid.com/', clue: 'https://helloclue.com/', cronometer: 'https://cronometer.com/', fitbit: 'https://www.fitbit.com/user/profile/edit', oura: 'https://cloud.ouraring.com/'
+      github: 'https://github.com/', gmail: 'https://mail.google.com/mail/u/0/', gcal: 'https://calendar.google.com/calendar/u/0/r', gworkspace: 'https://workspace.google.com/dashboard/', picsart: 'https://picsart.com/', instagram: 'https://www.instagram.com/', ig_creator: 'https://business.facebook.com/creatorstudio/', meta_ads: 'https://www.facebook.com/adsmanager/', myfitnesspal: 'https://www.myfitnesspal.com/', withings: 'https://healthmate.withings.com/', polar: 'https://flow.polar.com/', trainingpeaks: 'https://app.trainingpeaks.com/', plaid: 'https://dashboard.plaid.com/', clue: 'https://helloclue.com/', cronometer: 'https://cronometer.com/', fitbit: 'https://www.fitbit.com/user/profile/edit', oura: 'https://cloud.ouraring.com/',
+      youtube: 'https://studio.youtube.com/', todoist: 'https://app.todoist.com/'
     };
     function providerAuthUrl(appId) {
       const target = PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website || 'https://github.com/';
@@ -3640,6 +3759,7 @@ body > header,
       gworkspace: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       google_ads: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       fitbit:     'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      youtube:    'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
     };
 
     let _gisTokenClient = null;
@@ -3732,7 +3852,14 @@ body > header,
     }
     function getAppConnectionToken(appId) {
       const secrets = readSessionSecrets();
-      return String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
+      let tok = String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
+      if (!tok && GOOGLE_APP_IDS.has(appId)) {
+        for (const gid of GOOGLE_APP_IDS) {
+          const alt = String(secrets?.connectionTokens?.[gid] || appState.appConnections?.[gid]?.token || '').trim();
+          if (alt) { tok = alt; break; }
+        }
+      }
+      return tok;
     }
     function getAppPrivacyUrl(app) { return PROVIDER_PRIVACY_URLS[app.id] || app.website || '#'; }
     function openProviderUrl(appId) { openExternalProviderUrl(PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website); }
@@ -4263,9 +4390,602 @@ body > header,
       }
     }
 
+    // ============================================================================
+    // REAL INSTAGRAM PROFESSIONAL (META GRAPH API v20.0) ENGINE & PUBLISHER
+    // ============================================================================
+    function openInstagramConnectModal() {
+      const conn = appState.appConnections?.instagram || {};
+      const currentToken = getAppConnectionToken('instagram') || '';
+      const currentIgId = conn.igUserId || '';
+
+      renderIntegrationModal('اتصال اینستاگرام حرفه‌ای', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-pink-500/15 via-purple-500/15 to-amber-500/15 border border-pink-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">📸</span>
+              <b class="text-white text-sm">اتصال به اکانت حرفه‌ای (Creator / Business) اینستاگرام</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              برای انتشار مستقیم ریلزها، پست‌ها و پکیج‌های وایرال تولید شده در Clash Studio از طریق <b>Meta Graph API v20.0</b>، توکن دسترسی متا را وارد نمایید.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              توکن دسترسی Meta Graph API (User / Page Access Token):
+              <input id="igMetaTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="EAA..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+            </label>
+            <div class="text-[10px] text-slate-400 leading-normal">
+              💡 نیاز به دسترسی‌های: <code class="text-amber-300">instagram_basic</code>, <code class="text-amber-300">instagram_content_publish</code>, <code class="text-amber-300">pages_show_list</code>
+            </div>
+          </div>
+
+          <div class="space-y-1 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              شناسه پیج اینستاگرام (Instagram Business Account ID) <span class="text-slate-400 font-normal">(اختیاری - خودکار شناسایی می‌شود)</span>:
+              <input id="igBusinessIdInput" type="text" value="${escapeHtml(currentIgId)}" placeholder="178414..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir" />
+            </label>
+          </div>
+
+          <div id="igConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="verifyAndConnectInstagramLive()" class="py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-extrabold text-xs transition flex items-center justify-center gap-1.5">
+              <span>🔍 اعتبارسنجی و اتصال</span>
+            </button>
+            <button onclick="openExternalProviderUrl('https://developers.facebook.com/tools/explorer/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition flex items-center justify-center gap-1">
+              <span>دریافت توکن در Meta ↗</span>
+            </button>
+          </div>
+
+          ${isAppGenuinelyConnected('instagram') ? `
+            <div class="pt-2 border-t border-white/10">
+              <button onclick="disconnectApp('instagram')" class="w-full py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-bold transition">
+                قطع اتصال اکانت اینستاگرام
+              </button>
+            </div>
+          ` : ''}
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectInstagramLive() {
+      const tokenInput = document.getElementById('igMetaTokenInput');
+      const igIdInput = document.getElementById('igBusinessIdInput');
+      const statusEl = document.getElementById('igConnectStatus');
+      const token = tokenInput?.value.trim() || '';
+      let customIgId = igIdInput?.value.trim() || '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً ابتدا توکن Meta Graph API را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (statusEl) {
+        statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+        statusEl.textContent = '⏳ در حال ارتباط با سرورهای Meta Graph API v20.0...';
+        statusEl.classList.remove('hidden');
+      }
+
+      try {
+        let igAccount = null;
+        let foundPageName = '';
+
+        if (customIgId) {
+          const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(customIgId)}?fields=id,username,name,profile_picture_url,followers_count,media_count&access_token=${encodeURIComponent(token)}`);
+          if (res.ok) igAccount = await res.json();
+        }
+
+        if (!igAccount) {
+          const resMe = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,name,accounts{id,name,access_token,instagram_business_account{id,username,name,profile_picture_url,followers_count,media_count}}&access_token=${encodeURIComponent(token)}`);
+          if (!resMe.ok) {
+            const errData = await resMe.json().catch(() => null);
+            throw new Error(errData?.error?.message || `Meta Graph API HTTP ${resMe.status}`);
+          }
+          const meData = await resMe.json();
+          const accountsList = meData.accounts?.data || [];
+          for (const page of accountsList) {
+            if (page.instagram_business_account) {
+              igAccount = page.instagram_business_account;
+              foundPageName = page.name || '';
+              break;
+            }
+          }
+
+          if (!igAccount) {
+            const resUser = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,username,name,profile_picture_url,followers_count,media_count&access_token=${encodeURIComponent(token)}`);
+            if (resUser.ok) {
+              const u = await resUser.json();
+              if (u.username || u.followers_count !== undefined) {
+                igAccount = u;
+              }
+            }
+          }
+        }
+
+        if (!igAccount || !igAccount.id) {
+          throw new Error('هیچ اکانت تجاری (Business/Creator) اینستاگرام به این توکن متصل یافت نشد. اطمینان حاصل کنید پیج به Facebook Page متصل است.');
+        }
+
+        const username = igAccount.username || igAccount.name || 'instagram_user';
+        const igUserId = igAccount.id;
+        const followers = igAccount.followers_count || 0;
+        const mediaCount = igAccount.media_count || 0;
+        const avatar = igAccount.profile_picture_url || '';
+
+        const conn = appState.appConnections.instagram || {};
+        conn.token = token;
+        conn.igUserId = igUserId;
+        conn.username = username;
+        conn.followersCount = followers;
+        conn.mediaCount = mediaCount;
+        conn.avatar = avatar;
+        conn.pageName = foundPageName;
+        conn.connectedAt = new Date().toISOString();
+        conn.contextEnabled = true;
+        conn.accounts = [
+          {
+            id: igUserId,
+            email: `@${username}`,
+            name: igAccount.name || username,
+            avatar: (username[0] || 'I').toUpperCase(),
+            connectedAt: new Date().toISOString()
+          }
+        ];
+        appState.appConnections.instagram = conn;
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.innerHTML = `✓ اکانت <b>@${escapeHtml(username)}</b> با موفقیت متصل شد (${followers.toLocaleString()} فالوور)`;
+        }
+
+        showToast(`اکانت @${username} متصل شد ✓`);
+        setTimeout(() => {
+          closeSettingsPanel();
+          openAppDetailView('instagram');
+        }, 900);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اعتبارسنجی Meta Graph: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function publishInstagramMediaLive({ mediaType = 'REELS', mediaUrl, caption, token = null }) {
+      const conn = appState.appConnections?.instagram || {};
+      const t = token || conn.token;
+      const igUserId = conn.igUserId;
+      const statusEl = document.getElementById('igPublishProgressStatus');
+
+      if (!t || !igUserId) {
+        throw new Error('اکانت اینستاگرام متصل نیست. لطفاً ابتدا توکن Meta Graph API را ثبت کنید.');
+      }
+      if (!mediaUrl) {
+        throw new Error('آدرس مستقیم فایل رسانه (ویدیو یا تصویر) الزامی است.');
+      }
+
+      const updateStatus = (msg, isErr = false) => {
+        if (statusEl) {
+          statusEl.className = `rounded-xl p-2.5 text-xs ${isErr ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}`;
+          statusEl.innerHTML = msg;
+          statusEl.classList.remove('hidden');
+        }
+      };
+
+      updateStatus('⏳ مرحله ۱: ساخت کانتینر در Meta Graph API...');
+
+      let postBody = {};
+      if (mediaType === 'REELS') {
+        postBody = {
+          media_type: 'REELS',
+          video_url: mediaUrl,
+          caption: caption || '',
+          share_to_feed: true
+        };
+      } else if (mediaType === 'STORIES') {
+        postBody = {
+          media_type: 'STORIES',
+          video_url: mediaUrl
+        };
+      } else {
+        postBody = {
+          image_url: mediaUrl,
+          caption: caption || ''
+        };
+      }
+
+      const step1Res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media?access_token=${encodeURIComponent(t)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      const step1Data = await step1Res.json().catch(() => null);
+      if (!step1Res.ok || !step1Data?.id) {
+        const errMsg = step1Data?.error?.message || `Meta Graph HTTP ${step1Res.status}`;
+        updateStatus(`خطا در ایجاد کانتینر رسانه: ${escapeHtml(errMsg)}`, true);
+        throw new Error(errMsg);
+      }
+
+      const containerId = step1Data.id;
+      updateStatus(`⏳ مرحله ۲: پردازش ویدیو در سرورهای اینستاگرام (کانتینر ${containerId})...`);
+
+      if (mediaType === 'REELS' || mediaType === 'STORIES') {
+        let attempts = 0;
+        while (attempts < 8) {
+          await new Promise(r => setTimeout(r, 3000));
+          attempts++;
+          const pollRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(containerId)}?fields=status_code&access_token=${encodeURIComponent(t)}`);
+          if (pollRes.ok) {
+            const pollData = await pollRes.json();
+            const code = pollData.status_code;
+            if (code === 'FINISHED') break;
+            if (code === 'ERROR') throw new Error('پردازش ویدیو در سرور اینستاگرام با خطا مواجه شد');
+            updateStatus(`⏳ پردازش کانتینر ریلز (${code})... ${attempts}/8`);
+          }
+        }
+      }
+
+      updateStatus('🚀 مرحله ۳: انتشار نهایی در پیج اینستاگرام...');
+      const publishRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media_publish?access_token=${encodeURIComponent(t)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ creation_id: containerId })
+      });
+
+      const pubData = await publishRes.json().catch(() => null);
+      if (!publishRes.ok || !pubData?.id) {
+        const pubErr = pubData?.error?.message || `Meta Publish HTTP ${publishRes.status}`;
+        updateStatus(`خطا در انتشار ریلز: ${escapeHtml(pubErr)}`, true);
+        throw new Error(pubErr);
+      }
+
+      const publishedPostId = pubData.id;
+      updateStatus(`✓ ریلز با موفقیت منتشر شد! شناسه پست: <b>${publishedPostId}</b>`);
+      showToast('پست اینستاگرام با موفقیت منتشر شد 🎉');
+      setTimeout(() => renderLiveWorkspacePanel('instagram'), 1200);
+      return { success: true, containerId, publishedPostId, at: new Date().toISOString() };
+    }
+
+    async function fetchInstagramRecentMedia(limit = 6, token = null) {
+      const conn = appState.appConnections?.instagram || {};
+      const t = token || conn.token;
+      const igUserId = conn.igUserId;
+      if (!t || !igUserId) return [];
+
+      try {
+        const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=${limit}&access_token=${encodeURIComponent(t)}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        const items = Array.isArray(data?.data) ? data.data : [];
+        conn.recentMedia = items;
+        appState.appConnections.instagram = conn;
+        saveState();
+        return items;
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function syncInstagramRecentMediaLive() {
+      fetchInstagramRecentMedia(6).then(() => {
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('igComposerCaption')) {
+          renderLiveWorkspacePanel('instagram');
+        }
+      });
+    }
+
+    function importClashReelsCopyIntoComposer() {
+      ensurePhase3State();
+      const avg = (appState.clashStudio?.cards?.reduce((s, c) => s + (Number(c.elixir) || 0), 0) / Math.max(1, appState.clashStudio?.cards?.length || 1)).toFixed(1);
+      const copyText = buildClashPlatformCopy('instagram', avg);
+      const el = document.getElementById('igComposerCaption');
+      if (el) el.value = copyText;
+      showToast('کپشن و هشتگ‌های ریلز از Clash Studio وارد شد ✓');
+    }
+
+    async function executeInstagramComposerPublish() {
+      const typeEl = document.getElementById('igComposerMediaType');
+      const urlEl = document.getElementById('igComposerMediaUrl');
+      const capEl = document.getElementById('igComposerCaption');
+      const mediaType = typeEl?.value || 'REELS';
+      const mediaUrl = urlEl?.value.trim() || '';
+      const caption = capEl?.value.trim() || '';
+
+      if (!mediaUrl) {
+        showToast('لطفاً آدرس فایل ویدیو یا عکس را وارد کنید');
+        return;
+      }
+      try {
+        await publishInstagramMediaLive({ mediaType, mediaUrl, caption });
+      } catch (e) {
+        // Handled in UI
+      }
+    }
+
+    // ============================================================================
+    // REAL YOUTUBE DATA API v3 ENGINE & SHORTS BRIDGE
+    // ============================================================================
+    async function syncYouTubeChannelDataLive() {
+      const token = getAppConnectionToken('youtube');
+      if (!token) return;
+      try {
+        const res = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const ch = data.items?.[0];
+        if (!ch) return;
+
+        const conn = appState.appConnections.youtube || {};
+        conn.channelData = {
+          title: ch.snippet?.title || 'YouTube Channel',
+          customUrl: ch.snippet?.customUrl || '@channel',
+          subscriberCount: ch.statistics?.subscriberCount || '0',
+          viewCount: ch.statistics?.viewCount || '0',
+          videoCount: ch.statistics?.videoCount || '0',
+          avatar: ch.snippet?.thumbnails?.default?.url || ''
+        };
+
+        const vidRes = await fetch('https://www.googleapis.com/youtube/v3/search?part=snippet&forMine=true&type=video&order=date&maxResults=5', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (vidRes.ok) {
+          const vidData = await vidRes.json();
+          conn.recentVideos = (vidData.items || []).map(i => ({
+            id: i.id?.videoId,
+            title: i.snippet?.title,
+            publishedAt: i.snippet?.publishedAt,
+            thumbnail: i.snippet?.thumbnails?.medium?.url
+          }));
+        }
+        appState.appConnections.youtube = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('ytShortsTitleInput')) {
+          renderLiveWorkspacePanel('youtube');
+        }
+      } catch (e) {
+        console.error('YouTube sync error:', e);
+      }
+    }
+
+    function importClashShortsCopyIntoComposer() {
+      ensurePhase3State();
+      const avg = (appState.clashStudio?.cards?.reduce((s, c) => s + (Number(c.elixir) || 0), 0) / Math.max(1, appState.clashStudio?.cards?.length || 1)).toFixed(1);
+      const copyText = buildClashPlatformCopy('youtube', avg);
+      const tInp = document.getElementById('ytShortsTitleInput');
+      const dInp = document.getElementById('ytShortsDescInput');
+      if (tInp) tInp.value = `⚡ 1 HP Tower Electro Giant Comeback! #Shorts #ClashRoyale`;
+      if (dInp) dInp.value = copyText;
+      showToast('عنوان و هوک شورتس از Clash Studio وارد شد ✓');
+    }
+
+    function openYouTubeUploadWithMetadata() {
+      const title = encodeURIComponent(document.getElementById('ytShortsTitleInput')?.value || '');
+      const desc = encodeURIComponent(document.getElementById('ytShortsDescInput')?.value || '');
+      openExternalProviderUrl('https://studio.youtube.com/channel/upload');
+      showToast('استودیوی بارگذاری یوتیوب باز شد؛ عنوان و توضیحات در کلیپ‌بورد کپی شد');
+      phase3SafeCopy(decodeURIComponent(title + '\n\n' + desc), '📋 عنوان و متن شورتس کپی شد!');
+    }
+
+    // ============================================================================
+    // REAL TODOIST REST API v2 ENGINE
+    // ============================================================================
+    function openTodoistConnectModal() {
+      const currentToken = getAppConnectionToken('todoist') || '';
+      renderIntegrationModal('اتصال Todoist', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-xs space-y-1.5 text-right">
+            <b class="text-white">اتصال به Todoist REST API v2</b>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              برای اتصال مستقیم ایجنت‌ها به مدیریت تسک‌ها و یادآورها، توکن شخصی API (Personal API Token) اکانت Todoist خود را وارد کنید.
+            </p>
+          </div>
+
+          <div class="space-y-1 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Todoist Personal API Token:
+              <input id="todoistApiTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="0123456789abcdef..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+            </label>
+            <div class="text-[10px] text-slate-400">
+              دریافت از: Todoist Settings → Integrations → Developer → API token
+            </div>
+          </div>
+
+          <div id="todoistConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="verifyAndConnectTodoistLive()" class="py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.todoist.com/app/settings/integrations/developer')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              دریافت توکن ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectTodoistLive() {
+      const tokenInput = document.getElementById('todoistApiTokenInput');
+      const statusEl = document.getElementById('todoistConnectStatus');
+      const token = tokenInput?.value.trim() || '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن شخصی Todoist را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (statusEl) {
+        statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+        statusEl.textContent = '⏳ در حال ارتباط با سرورهای Todoist REST API...';
+        statusEl.classList.remove('hidden');
+      }
+
+      try {
+        const res = await fetch('https://api.todoist.com/rest/v2/projects', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`Todoist API HTTP ${res.status}`);
+        const projects = await res.json();
+
+        const conn = appState.appConnections.todoist || {};
+        conn.token = token;
+        conn.connectedAt = new Date().toISOString();
+        conn.contextEnabled = true;
+        conn.projectCount = projects.length;
+        conn.accounts = [
+          {
+            id: 'todoist_account',
+            email: 'Todoist Workspace',
+            name: `Todoist (${projects.length} پروژه)`,
+            avatar: 'T',
+            connectedAt: new Date().toISOString()
+          }
+        ];
+        appState.appConnections.todoist = conn;
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.innerHTML = `✓ اتصال با موفقیت برقرار شد (${projects.length} پروژه فعال شناسایی شد)`;
+        }
+        showToast('Todoist با موفقیت متصل شد ✓');
+        setTimeout(() => {
+          closeSettingsPanel();
+          openAppDetailView('todoist');
+        }, 900);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطای اتصال به Todoist: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncTodoistTasksLive() {
+      const token = getAppConnectionToken('todoist');
+      if (!token) return;
+      try {
+        const res = await fetch('https://api.todoist.com/rest/v2/tasks', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const tasks = await res.json();
+        const conn = appState.appConnections.todoist || {};
+        conn.tasks = (tasks || []).slice(0, 15);
+        appState.appConnections.todoist = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('todoistTaskTitleInput')) {
+          renderLiveWorkspacePanel('todoist');
+        }
+      } catch (e) {
+        console.error('Todoist sync error:', e);
+      }
+    }
+
+    async function createTodoistTaskFromUi() {
+      const titleInp = document.getElementById('todoistTaskTitleInput');
+      const dueInp = document.getElementById('todoistTaskDueInput');
+      const prioritySel = document.getElementById('todoistTaskPriorityInput');
+      const content = titleInp?.value.trim();
+      if (!content) {
+        showToast('لطفاً عنوان وظیفه را وارد کنید');
+        return;
+      }
+      const token = getAppConnectionToken('todoist');
+      if (!token) {
+        showToast('ابتدا توکن Todoist را متصل کنید');
+        return;
+      }
+      const payload = { content };
+      if (dueInp?.value.trim()) payload.due_string = dueInp.value.trim();
+      if (prioritySel?.value) payload.priority = Number(prioritySel.value);
+
+      try {
+        const res = await fetch('https://api.todoist.com/rest/v2/tasks', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast('تسک جدید در Todoist ثبت شد ✓');
+        if (titleInp) titleInp.value = '';
+        if (dueInp) dueInp.value = '';
+        await syncTodoistTasksLive();
+      } catch (err) {
+        showToast(`خطا در ثبت تسک: ${err.message}`);
+      }
+    }
+
+    async function completeTodoistTaskLive(taskId) {
+      const token = getAppConnectionToken('todoist');
+      if (!token) return;
+      try {
+        const res = await fetch(`https://api.todoist.com/rest/v2/tasks/${encodeURIComponent(taskId)}/close`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast('تسک با موفقیت تکمیل شد ✓');
+        const conn = appState.appConnections.todoist || {};
+        conn.tasks = (conn.tasks || []).filter(t => t.id !== taskId);
+        appState.appConnections.todoist = conn;
+        saveState();
+        renderLiveWorkspacePanel('todoist');
+      } catch (err) {
+        showToast(`خطا در بستن تسک: ${err.message}`);
+      }
+    }
+
+    // ============================================================================
+    // CLASH STUDIO VIRAL 1-CLICK PUBLISHER BRIDGES
+    // ============================================================================
+    function sendClashReelsToInstagramStudio() {
+      ensurePhase3State();
+      const avg = (appState.clashStudio?.cards?.reduce((s, c) => s + (Number(c.elixir) || 0), 0) / Math.max(1, appState.clashStudio?.cards?.length || 1)).toFixed(1);
+      const copyText = buildClashPlatformCopy('instagram', avg);
+      openAppDetailView('instagram');
+      showToast('کپشن ریلز کلش رویال به استودیو اینستاگرام منتقل شد 📲');
+      setTimeout(() => {
+        const el = document.getElementById('igComposerCaption');
+        if (el) el.value = copyText;
+      }, 250);
+    }
+
+    function sendClashShortsToYouTubeStudio() {
+      ensurePhase3State();
+      const avg = (appState.clashStudio?.cards?.reduce((s, c) => s + (Number(c.elixir) || 0), 0) / Math.max(1, appState.clashStudio?.cards?.length || 1)).toFixed(1);
+      const copyText = buildClashPlatformCopy('youtube', avg);
+      openAppDetailView('youtube');
+      showToast('متن و تگ‌های شورتس کلش رویال به استودیو یوتیوب منتقل شد ▶️');
+      setTimeout(() => {
+        const tInp = document.getElementById('ytShortsTitleInput');
+        const dInp = document.getElementById('ytShortsDescInput');
+        if (tInp) tInp.value = `⚡ 1 HP Tower Electro Giant Comeback! #Shorts #ClashRoyale`;
+        if (dInp) dInp.value = copyText;
+      }, 250);
+    }
+
     function openProviderConnectSheet(appId) {
       if (appId === 'github') return openGitHubConnectModal();
       if (appId === 'clash_royale') return openClashRoyaleConfigModal();
+      if (appId === 'instagram') return openInstagramConnectModal();
+      if (appId === 'todoist') return openTodoistConnectModal();
       if (isGoogleProvider(appId)) return openGoogleAccountChooser(appId);
       const app = APPS_CATALOG.find(a => a.id === appId); if (!app) return;
       if (app.type === 'MCP') return openMcpServerConfigSheet(appId);
@@ -4855,10 +5575,243 @@ body > header,
           </div>
         `;
       }
+      else if (appId === 'instagram') {
+        const conn = appState.appConnections?.instagram || {};
+        const username = conn.username || 'اینستاگرام تجاری';
+        const followers = Number(conn.followersCount || 0).toLocaleString();
+        const mediaCount = Number(conn.mediaCount || 0).toLocaleString();
+        const avatar = conn.avatar || '';
+        const recent = Array.isArray(conn.recentMedia) ? conn.recentMedia : [];
+
+        const recentCardsHtml = recent.length ? recent.map(m => {
+          const thumb = m.thumbnail_url || m.media_url || '';
+          const likes = m.like_count ?? '—';
+          const comments = m.comments_count ?? '—';
+          const typeIcon = m.media_type === 'VIDEO' ? '🎬' : (m.media_type === 'CAROUSEL_ALBUM' ? '📚' : '📷');
+          return `
+            <div class="rounded-xl bg-black/40 border border-white/10 p-2 flex items-center gap-2.5 text-xs">
+              ${thumb ? `<img src="${escapeHtml(thumb)}" class="w-12 h-12 rounded-lg object-cover shrink-0 border border-white/10" alt="post" />` : `<div class="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">${typeIcon}</div>`}
+              <div class="min-w-0 flex-1 space-y-0.5 text-right">
+                <div class="text-[11px] text-white truncate font-medium">${escapeHtml(m.caption || 'بدون کپشن')}</div>
+                <div class="flex items-center gap-3 text-[10px] text-slate-400">
+                  <span>❤️ ${likes}</span>
+                  <span>💬 ${comments}</span>
+                  <span class="text-pink-400">${typeIcon} ${m.media_type || ''}</span>
+                </div>
+              </div>
+              ${m.permalink ? `<a href="${escapeHtml(m.permalink)}" target="_blank" rel="noopener noreferrer" class="text-pink-400 text-[10px] hover:underline shrink-0">نمایش ↗</a>` : ''}
+            </div>
+          `;
+        }).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">پستی در حافظه لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-pink-500/20 via-purple-500/20 to-amber-500/20 border border-pink-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  ${avatar ? `<img src="${escapeHtml(avatar)}" class="w-10 h-10 rounded-full border border-pink-400/50 object-cover" alt="avatar" />` : `<div class="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center text-white font-bold">IG</div>`}
+                  <div>
+                    <div class="text-sm font-extrabold text-white flex items-center gap-1">
+                      <span>@${escapeHtml(username)}</span>
+                      <span class="text-blue-400 text-xs" title="Verified Professional Account">✓</span>
+                    </div>
+                    <div class="text-[10px] text-pink-300 font-mono code-block-dir">Meta Graph API v20.0 Ready</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs font-black text-amber-300">${followers} 👥</div>
+                  <div class="text-[10px] text-slate-400">${mediaCount} مدیا</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-white">🚀 استودیوی انتشار ریلز و پست اینستاگرام:</span>
+                <span class="text-[10px] text-pink-400 font-mono">Reels Engine</span>
+              </div>
+              <div class="grid grid-cols-3 gap-1.5" dir="ltr">
+                <button onclick="document.getElementById('igComposerMediaType').value='REELS';showToast('حالت انتشار Reels انتخاب شد')" class="py-1 rounded-lg bg-pink-500/20 border border-pink-500/40 text-pink-300 text-[10px] font-bold">🎬 Reels</button>
+                <button onclick="document.getElementById('igComposerMediaType').value='IMAGE';showToast('حالت انتشار Feed Post انتخاب شد')" class="py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-[10px] font-bold">📷 Feed Post</button>
+                <button onclick="document.getElementById('igComposerMediaType').value='STORIES';showToast('حالت Story انتخاب شد')" class="py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-[10px] font-bold">⚡ Story</button>
+              </div>
+              <input id="igComposerMediaType" type="hidden" value="REELS" />
+              <input id="igComposerMediaUrl" placeholder="https://.../video.mp4 (آدرس مستقیم ویدیو یا تصویر)" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500" />
+              <textarea id="igComposerCaption" rows="3" placeholder="کپشن و هشتگ‌های ریلز..." class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500"></textarea>
+
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="importClashReelsCopyIntoComposer()" class="py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition flex items-center justify-center gap-1">
+                  <span>👑 کپشن Clash Studio</span>
+                </button>
+                <button onclick="executeInstagramComposerPublish()" class="py-2 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white text-xs font-extrabold transition flex items-center justify-center gap-1">
+                  <span>🚀 انتشار مستقیم</span>
+                </button>
+              </div>
+              <div id="igPublishProgressStatus" class="hidden"></div>
+            </div>
+
+            <div class="space-y-1.5 pt-2 border-t border-white/10">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-white">📸 آخرین پست‌ها و ریلزهای پیج:</span>
+                <button onclick="syncInstagramRecentMediaLive()" class="text-pink-400 text-[10px] hover:underline flex items-center gap-1">
+                  <span>🔄 همگام‌سازی</span>
+                </button>
+              </div>
+              <div class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${recentCardsHtml}
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px]">
+              <button onclick="openInstagramConnectModal()" class="text-slate-400 hover:underline">⚙️ تنظیمات توکن Meta Graph</button>
+              <button onclick="openExternalProviderUrl('https://instagram.com/' + '${escapeJsAttr(username)}')" class="text-pink-400 hover:underline">باز کردن در اینستاگرام ↗</button>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'youtube') {
+        const conn = appState.appConnections?.youtube || {};
+        const ch = conn.channelData || {
+          title: conn.accounts?.[0]?.name || 'YouTube Channel',
+          customUrl: '@channel',
+          subscriberCount: '—',
+          viewCount: '—',
+          videoCount: '—'
+        };
+        const recent = Array.isArray(conn.recentVideos) ? conn.recentVideos : [];
+
+        const recentVideosHtml = recent.length ? recent.map(v => `
+          <div class="rounded-xl bg-black/40 border border-white/10 p-2 flex items-center gap-2.5 text-xs">
+            ${v.thumbnail ? `<img src="${escapeHtml(v.thumbnail)}" class="w-14 h-10 rounded-lg object-cover shrink-0 border border-white/10" alt="video" />` : '<div class="w-14 h-10 rounded-lg bg-red-600/20 flex items-center justify-center text-red-400 shrink-0">▶</div>'}
+            <div class="min-w-0 flex-1 space-y-0.5 text-right">
+              <div class="text-[11px] text-white truncate font-medium">${escapeHtml(v.title || 'ویدیو')}</div>
+              <div class="text-[9px] text-slate-400">${escapeHtml(v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('fa-IR') : '')}</div>
+            </div>
+            ${v.id ? `<a href="https://youtube.com/watch?v=${escapeHtml(v.id)}" target="_blank" rel="noopener noreferrer" class="text-red-400 text-[10px] hover:underline shrink-0">تماشا ↗</a>` : ''}
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">ویدیویی لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-red-600/20 to-purple-600/20 border border-red-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center text-white text-lg font-bold">▶</div>
+                  <div>
+                    <div class="text-sm font-extrabold text-white">${escapeHtml(ch.title)}</div>
+                    <div class="text-[10px] text-red-300 font-mono code-block-dir">${escapeHtml(ch.customUrl || '@youtube')} · YouTube Data API v3</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs font-black text-red-400">${Number(ch.subscriberCount || 0).toLocaleString()} مشترک</div>
+                  <div class="text-[10px] text-slate-400">${Number(ch.viewCount || 0).toLocaleString()} بازدید</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-white">⚡ ارسال شورتس به یوتیوب (Shorts Studio):</span>
+                <span class="text-[10px] text-red-400 font-mono">60FPS Shorts</span>
+              </div>
+              <input id="ytShortsTitleInput" placeholder="عنوان شورتس (با هشتگ #Shorts)..." class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <textarea id="ytShortsDescInput" rows="2.5" placeholder="توضیحات و هشتگ‌های شورتس..." class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500"></textarea>
+
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="importClashShortsCopyIntoComposer()" class="py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition flex items-center justify-center gap-1">
+                  <span>👑 عنوان Clash Studio</span>
+                </button>
+                <button onclick="openYouTubeUploadWithMetadata()" class="py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-extrabold transition flex items-center justify-center gap-1">
+                  <span>▶️ بارگذاری در استودیو</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5 pt-2 border-t border-white/10">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-white">📹 آخرین ویدیوهای کانال یوتیوب:</span>
+                <button onclick="syncYouTubeChannelDataLive()" class="text-red-400 text-[10px] hover:underline flex items-center gap-1">
+                  <span>🔄 همگام‌سازی</span>
+                </button>
+              </div>
+              <div class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${recentVideosHtml}
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px]">
+              <button onclick="syncYouTubeChannelDataLive()" class="text-blue-400 hover:underline">🔄 به‌روزرسانی کانال</button>
+              <button onclick="openExternalProviderUrl('https://studio.youtube.com')" class="text-slate-400 hover:underline">باز کردن YouTube Studio ↗</button>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'todoist') {
+        const conn = appState.appConnections?.todoist || {};
+        const tasks = Array.isArray(conn.tasks) ? conn.tasks : [];
+
+        const tasksHtml = tasks.length ? tasks.map((t) => `
+          <div class="rounded-xl bg-black/40 border border-white/10 p-2.5 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5 text-right">
+              <div class="text-white font-medium truncate">${escapeHtml(t.content)}</div>
+              ${t.due ? `<div class="text-[10px] text-amber-300 font-mono">📅 ${escapeHtml(t.due.string || t.due.date || '')}</div>` : ''}
+            </div>
+            <button onclick="completeTodoistTaskLive('${escapeJsAttr(t.id)}')" class="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold transition">
+              ✓ انجام شد
+            </button>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">تسک فعالی یافت نشد یا همگام نشده است.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-red-600/20 to-orange-600/20 border border-red-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white font-bold text-sm">≡</div>
+                  <div>
+                    <div class="text-sm font-extrabold text-white">Todoist REST API v2</div>
+                    <div class="text-[10px] text-slate-300 font-mono">مدیریت مستقیم کارها و وظایف</div>
+                  </div>
+                </div>
+                <button onclick="syncTodoistTasksLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="text-xs font-bold text-white">➕ ایجاد تسک جدید:</div>
+              <input id="todoistTaskTitleInput" placeholder="عنوان وظیفه..." class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <div class="grid grid-cols-2 gap-2" dir="ltr">
+                <input id="todoistTaskDueInput" placeholder="Due (e.g. today, tomorrow)" class="bg-black/20 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white code-block-dir placeholder:text-slate-500" />
+                <select id="todoistTaskPriorityInput" class="bg-black/20 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white">
+                  <option value="1">Priority 1 (Normal)</option>
+                  <option value="2">Priority 2 (Medium)</option>
+                  <option value="3">Priority 3 (High)</option>
+                  <option value="4">Priority 4 (Urgent)</option>
+                </select>
+              </div>
+              <button onclick="createTodoistTaskFromUi()" class="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-extrabold transition">
+                ➕ افزودن به Todoist
+              </button>
+            </div>
+
+            <div class="space-y-1.5 pt-2 border-t border-white/10">
+              <div class="text-xs font-bold text-white">📋 لیست وظایف فعال:</div>
+              <div class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${tasksHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
       else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
       panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
       if (appId === 'gcal') setTimeout(syncGoogleCalendarEvents, 100);
       if (appId === 'gworkspace') setTimeout(syncGoogleDriveFiles, 100);
+      if (appId === 'instagram') setTimeout(syncInstagramRecentMediaLive, 100);
+      if (appId === 'youtube') setTimeout(syncYouTubeChannelDataLive, 100);
+      if (appId === 'todoist') setTimeout(syncTodoistTasksLive, 100);
     }
 
     function openAppDetailView(appId) {
@@ -12123,6 +13076,14 @@ body > header,
                 </button>
                 <button onclick="sendClashPlanToAgents()" class="py-2 rounded-xl bg-purple-600/30 border border-purple-500/40 hover:bg-purple-600/40 text-purple-200 text-[11px] font-bold transition">
                   🤖 ارسال به ایجنت
+                </button>
+              </div>
+              <div class="grid grid-cols-2 gap-2 pt-1 border-t border-white/5">
+                <button onclick="sendClashReelsToInstagramStudio()" class="py-2 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white text-[11px] font-bold transition flex items-center justify-center gap-1.5">
+                  <span>📸 انتقال به استودیو اینستاگرام (Reels)</span>
+                </button>
+                <button onclick="sendClashShortsToYouTubeStudio()" class="py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold transition flex items-center justify-center gap-1.5">
+                  <span>▶️ انتقال به استودیو یوتیوب (Shorts)</span>
                 </button>
               </div>
             </div>
