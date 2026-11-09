@@ -2856,6 +2856,21 @@ body > header,
             }
           ]
         },
+        gworkspace: {
+          name: 'Google Workspace & Drive MCP',
+          endpointDefault: 'https://www.googleapis.com/drive/v3',
+          tools: [
+            {
+              name: 'gworkspace_search_drive',
+              description: 'جستجو در اسناد Google Docs، شیت‌ها، ارائه‌ها و فایل‌های کاربر در Google Drive',
+              parameters: { query: 'string (متن جستجو در نام فایل)' },
+              execute: async (args) => {
+                const results = await fetchGoogleDriveFiles(args.query || '', 8);
+                return { query: args.query || 'all', count: results.length, files: results };
+              }
+            }
+          ]
+        },
         clash_royale: {
           name: 'Clash Royale Official API',
           endpointDefault: 'https://api.clashroyale.com/v1',
@@ -4252,8 +4267,158 @@ body > header,
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
     function injectAppContextIntoChat(appId) { const text = accountWorkspaceContext(appId); appState.dreamMemory = `${appState.dreamMemory || ''}\n[Connected app context]\n${text}`.slice(-12000); saveState(); showToast(`${providerLabel(appId)} context injected into Nexus AI Chat`); }
+
+    function getGoogleOAuthToken(preferredAppId = 'gworkspace') {
+      return getAppConnectionToken(preferredAppId) ||
+             getAppConnectionToken('gworkspace') ||
+             getAppConnectionToken('gmail') ||
+             getAppConnectionToken('gcal') || '';
+    }
+
+    // ============================================================================
+    // REAL GOOGLE WORKSPACE & GOOGLE DRIVE API v3 INTEGRATION
+    // ============================================================================
+    function getGoogleDriveFileIcon(mimeType = '') {
+      if (mimeType.includes('document')) return { icon: '📄', color: 'text-blue-400', label: 'Docs' };
+      if (mimeType.includes('spreadsheet')) return { icon: '📊', color: 'text-emerald-400', label: 'Sheets' };
+      if (mimeType.includes('presentation')) return { icon: '📽️', color: 'text-amber-400', label: 'Slides' };
+      if (mimeType.includes('pdf')) return { icon: '📕', color: 'text-rose-400', label: 'PDF' };
+      if (mimeType.startsWith('image/')) return { icon: '🖼️', color: 'text-purple-400', label: 'Image' };
+      if (mimeType.includes('folder')) return { icon: '📁', color: 'text-amber-300', label: 'Folder' };
+      return { icon: '📎', color: 'text-slate-300', label: 'File' };
+    }
+
+    async function fetchGoogleDriveFiles(query = '', pageSize = 10) {
+      const token = getGoogleOAuthToken('gworkspace');
+      if (!token) throw new Error('حساب گوگل متصل نیست؛ لطفاً با زدن دکمه Connect وارد شوید');
+
+      let qClause = 'trashed=false';
+      if (query && query.trim()) {
+        const cleanQ = query.trim().replace(/'/g, "\\'");
+        qClause += ` and name contains '${cleanQ}'`;
+      }
+
+      const url = `https://www.googleapis.com/drive/v3/files?pageSize=${pageSize}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink,size)&q=${encodeURIComponent(qClause)}&orderBy=modifiedTime desc`;
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) throw new Error('توکن گوگل منقضی شده است؛ لطفاً مجدداً وارد حساب شوید');
+        if (res.status === 403) throw new Error('دسترسی به Google Drive مجاز نیست یا هنوز فعال نشده است');
+        throw new Error(`Google Drive API HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      return (data.files || []).map(f => ({
+        id: f.id,
+        name: f.name || 'Untitled File',
+        mimeType: f.mimeType || 'application/octet-stream',
+        modifiedTime: f.modifiedTime,
+        webViewLink: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+        size: f.size ? formatBytes(f.size) : ''
+      }));
+    }
+
+    async function syncGoogleDriveFiles(query = '') {
+      const statusEl = document.getElementById('driveSyncStatus');
+      const listEl = document.getElementById('driveFilesList');
+      const token = getGoogleOAuthToken('gworkspace');
+
+      if (!token) {
+        if (statusEl) statusEl.innerHTML = '<span class="text-slate-400">حساب گوگل متصل نیست؛ دکمه Connect را برای اتصال Google Workspace بزنید.</span>';
+        if (listEl) listEl.innerHTML = '';
+        return;
+      }
+
+      if (statusEl) statusEl.innerHTML = '<span class="text-blue-300">⏳ در حال دریافت فایل‌های زنده از Google Drive...</span>';
+
+      try {
+        const files = await fetchGoogleDriveFiles(query, 12);
+        window._lastFetchedDriveFiles = files;
+
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="text-emerald-300 font-bold">✓ درایو همگام شد · ${files.length} فایل و سند یافت شد</span>`;
+        }
+
+        if (listEl) {
+          if (files.length === 0) {
+            listEl.innerHTML = '<div class="text-[11px] text-slate-400 py-2 text-center">هیچ فایلی در Google Drive با این مشخصات یافت نشد.</div>';
+            return;
+          }
+
+          listEl.innerHTML = files.map(f => {
+            const meta = getGoogleDriveFileIcon(f.mimeType);
+            const dt = f.modifiedTime ? new Date(f.modifiedTime) : null;
+            const dateStr = dt ? dt.toLocaleDateString('fa-IR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+            return `
+              <div class="p-2 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between gap-2 text-xs">
+                <div class="flex items-center gap-2 min-w-0 pr-1">
+                  <span class="text-base shrink-0">${meta.icon}</span>
+                  <div class="min-w-0">
+                    <div class="font-bold text-white truncate text-right" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+                    <div class="text-[10px] text-cue-muted flex items-center gap-2">
+                      <span class="${meta.color} font-semibold">${meta.label}</span>
+                      ${dateStr ? `<span>${escapeHtml(dateStr)}</span>` : ''}
+                      ${f.size ? `<span class="text-slate-500">${escapeHtml(f.size)}</span>` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button onclick="injectSingleDriveFileContext('${escapeJsAttr(f.id)}')" class="min-h-0 px-2 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[10px] hover:bg-purple-500/25" title="تزریق به حافظه">
+                    📥 AI
+                  </button>
+                  <a href="${escapeHtml(f.webViewLink)}" target="_blank" rel="noopener noreferrer" class="min-h-0 px-2 py-1 rounded-lg bg-white/5 text-blue-400 text-[10px] hover:underline">
+                    نمایش ↗
+                  </a>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Google Drive sync error:', err);
+        if (statusEl) statusEl.innerHTML = `<span class="text-rose-300">خطای Google Drive: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function searchGoogleDriveFiles() {
+      const q = document.getElementById('driveSearchInput')?.value.trim() || '';
+      syncGoogleDriveFiles(q);
+    }
+
+    function injectSingleDriveFileContext(fileId) {
+      const file = (window._lastFetchedDriveFiles || []).find(f => f.id === fileId);
+      if (!file) return;
+      const text = `[Google Drive File]\n• نام سند: ${file.name}\n• نوع فایل: ${file.mimeType}\n• آدرس نمایش درایو: ${file.webViewLink}\n• آخرین ویرایش: ${file.modifiedTime || 'نامشخص'}`;
+      appState.dreamMemory = `${appState.dreamMemory || ''}\n${text}`.slice(-12000);
+      saveState();
+      showToast(`سند «${file.name}» به حافظه هوش مصنوعی متصل شد ✓`);
+    }
+
+    function injectAllDriveFilesContext() {
+      const files = window._lastFetchedDriveFiles || [];
+      if (!files.length) {
+        showToast('ابتدا فایل‌ها را از درایو همگام‌سازی کنید');
+        return;
+      }
+      const listText = files.slice(0, 10).map((f, i) => `${i + 1}. ${f.name} (${f.mimeType})`).join('\n');
+      const text = `[لیست اسناد و فایل‌های فعال Google Drive]\n${listText}`;
+      appState.dreamMemory = `${appState.dreamMemory || ''}\n${text}`.slice(-12000);
+      saveState();
+      showToast(`فهرست ${files.length} فایل درایو به حافظه AI تزریق شد ✓`);
+    }
+
+    function formatBytes(bytes) {
+      const b = Number(bytes);
+      if (!b || isNaN(b)) return '';
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      return (b / 1048576).toFixed(1) + ' MB';
+    }
+
     function getGoogleCalendarToken() {
-      return getAppConnectionToken('gcal') || getAppConnectionToken('gmail') || getAppConnectionToken('gworkspace') || '';
+      return getGoogleOAuthToken('gcal');
     }
     function formatGcalDateLabel(d) {
       if (!(d instanceof Date) || isNaN(d.getTime())) return '';
@@ -4354,6 +4519,7 @@ body > header,
       let body = '';
       if (appId === 'gmail') body = `<div class="space-y-2"><input id="gmailComposeTo" placeholder="To" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><input id="gmailComposeSubject" placeholder="Subject" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><textarea id="gmailComposeBody" rows="3" placeholder="Write an email…" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"></textarea><div class="grid grid-cols-2 gap-2"><button onclick="sendGmailQuickMail()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Compose / Send</button><button onclick="syncGmailInbox()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Sync inbox</button></div><div id="gmailSyncStatus" class="text-[10px] text-slate-400">${getAppConnectionToken('gmail') ? 'OAuth token available for Gmail API sync.' : 'Connect an OAuth token for live Gmail API sync.'}</div></div>`;
       else if (appId === 'gcal') body = `<div class="space-y-2.5" dir="rtl"><div class="space-y-1.5"><input id="calendarEventTitle" placeholder="عنوان رویداد یا جلسه..." class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500" /><div class="grid grid-cols-2 gap-2" dir="ltr"><label class="block text-[10px] text-slate-400">Start:<input id="calendarEventDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label><label class="block text-[10px] text-slate-400">End:<input id="calendarEventEndDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label></div></div><div class="grid grid-cols-2 gap-2"><button onclick="createGoogleCalendarLiveEvent()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>➕ ثبت مستقیم</span></button><button onclick="syncGoogleCalendarEvents()" class="min-h-0 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>🔄 همگام‌سازی</span></button></div><div id="gcalSyncStatus" class="text-[11px] text-slate-300"></div><div id="gcalUpcomingList" class="space-y-1.5 max-h-48 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="exportCalendarICS()" class="text-blue-300 hover:underline">خروجی iCalendar (.ics)</button><button onclick="openCalendarEventComposer()" class="text-slate-400 hover:underline">باز کردن در وب ↗</button></div></div>`;
+      else if (appId === 'gworkspace') body = `<div class="space-y-3" dir="rtl"><div class="flex items-center justify-between"><span class="text-xs font-bold text-white">🗂️ کاوشگر اسناد و فایل‌های Google Drive</span><span class="text-[10px] text-slate-400">Google Drive API v3</span></div><div class="flex items-center gap-1.5" dir="ltr"><input id="driveSearchInput" placeholder="جستجوی نام سند، شیت یا فایل در درایو..." class="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500" onkeydown="if(event.key==='Enter') searchGoogleDriveFiles()" /><button onclick="searchGoogleDriveFiles()" class="min-h-0 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center"><span>🔍</span></button><button onclick="syncGoogleDriveFiles()" class="min-h-0 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center" title="تازه‌سازی"><span>🔄</span></button></div><div id="driveSyncStatus" class="text-[11px] text-slate-300"></div><div id="driveFilesList" class="space-y-1.5 max-h-56 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="openProviderUrl('gworkspace')" class="text-blue-300 hover:underline">باز کردن درایو در وب ↗</button><button onclick="injectAllDriveFilesContext()" class="text-purple-300 hover:underline">تزریق لیست فایل‌ها به مغز AI</button></div></div>`;
       else if (['myfitnesspal','withings','polar','trainingpeaks','fitbit','oura','clue','cronometer'].includes(appId)) body = `<div class="space-y-2"><div class="grid grid-cols-[1fr_1fr] gap-2"><select id="healthMetricType" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-2 py-2 text-xs text-white"><option value="steps">Steps</option><option value="heart_rate">Heart rate</option><option value="calories">Calories</option><option value="sleep">Sleep</option><option value="weight">Weight</option></select><input id="healthMetricValue" placeholder="Value" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /></div><button onclick="saveHealthMetric('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-emerald-600 text-xs text-white font-bold">Sync metric to Nexus Brain</button><div id="healthMetricStatus" class="text-[10px] text-slate-400">Manual sync is available; provider API sync uses an optional token.</div></div>`;
       else if (appId === 'clash_royale') {
         const conn = appState.appConnections?.clash_royale || {};
@@ -4463,6 +4629,7 @@ body > header,
       else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
       panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
       if (appId === 'gcal') setTimeout(syncGoogleCalendarEvents, 100);
+      if (appId === 'gworkspace') setTimeout(syncGoogleDriveFiles, 100);
     }
 
     function openAppDetailView(appId) {
