@@ -2932,6 +2932,37 @@ body > header,
             }
           ]
         },
+        health_metrics: {
+          name: 'Biometrics & Workout Health MCP',
+          endpointDefault: 'https://health.nexus.local',
+          tools: [
+            {
+              name: 'health_get_recent_metrics',
+              description: 'دریافت آخرین شاخص‌های سلامتی کاربر (قدم‌ها، ضربان قلب، کالری سوزانده شده و خواب)',
+              parameters: { app_id: 'string (e.g. fitbit, myfitnesspal, trainingpeaks)' },
+              execute: async (args) => {
+                const appId = args.app_id || 'fitbit';
+                const conn = appState.appConnections?.[appId] || {};
+                return { provider: appId, metrics: (conn.metrics || []).slice(0, 5) };
+              }
+            },
+            {
+              name: 'health_log_biometric_data',
+              description: 'ثبت متریک جدید ورزشی یا سلامتی در حافظه برای تحلیل‌های بیومکانیک',
+              parameters: { app_id: 'string', metric: 'string (steps, heart_rate, calories, sleep, weight)', value: 'string' },
+              execute: async (args) => {
+                const appId = args.app_id || 'fitbit';
+                const conn = appState.appConnections[appId] || {};
+                conn.metrics = Array.isArray(conn.metrics) ? conn.metrics : [];
+                conn.metrics.unshift({ metric: args.metric || 'steps', value: String(args.value || '0'), at: new Date().toISOString() });
+                conn.metrics = conn.metrics.slice(0, 30);
+                appState.appConnections[appId] = conn;
+                saveState();
+                return { success: true, logged: { metric: args.metric, value: args.value, at: new Date().toISOString() } };
+              }
+            }
+          ]
+        },
         firecrawl: {
           name: 'Firecrawl Web Crawler MCP',
           endpointDefault: 'https://api.firecrawl.dev/v1',
@@ -4512,7 +4543,115 @@ body > header,
     }
     function sendGmailQuickMail() { const to = document.getElementById('gmailComposeTo')?.value.trim() || ''; const subject = encodeURIComponent(document.getElementById('gmailComposeSubject')?.value.trim() || ''); const body = encodeURIComponent(document.getElementById('gmailComposeBody')?.value || ''); const token = getAppConnectionToken('gmail'); if (token) { const raw = [`To: ${to}`, `Subject: ${decodeURIComponent(subject)}`, 'Content-Type: text/plain; charset=UTF-8', '', decodeURIComponent(body)].join('\r\n'); const encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: encoded }) }).then(r => { if (!r.ok) throw new Error(`Gmail API HTTP ${r.status}`); return r.json(); }).then(() => showToast('Email sent through Gmail API ✓')).catch(err => showToast(`Gmail API failed: ${err.message}`)); return; } window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`; showToast('Opened the device email composer'); }
     async function syncGmailInbox() { const status = document.getElementById('gmailSyncStatus'); const token = getAppConnectionToken('gmail'); if (!token) { if (status) status.textContent = 'Direct API sync needs an OAuth token; Gmail workspace link is ready.'; return; } try { const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', { headers: { Authorization: `Bearer ${token}` } }); if (!res.ok) throw new Error(`Gmail API HTTP ${res.status}`); const data = await res.json(); if (status) status.textContent = `Live Gmail sync complete · ${data.resultSizeEstimate || data.messages?.length || 0} messages visible`; } catch (err) { if (status) status.textContent = `Gmail sync failed: ${err.message}`; } }
-    function saveHealthMetric(appId) { const metric = document.getElementById('healthMetricType')?.value || 'steps'; const value = document.getElementById('healthMetricValue')?.value.trim() || ''; if (!value) return showToast('Enter a metric value first'); const conn = appState.appConnections[appId] || {}; conn.metrics = Array.isArray(conn.metrics) ? conn.metrics : []; conn.metrics.unshift({ metric, value, at: new Date().toISOString() }); conn.metrics = conn.metrics.slice(0, 30); appState.appConnections[appId] = conn; saveState(); const out = document.getElementById('healthMetricStatus'); if (out) out.textContent = `${metric}: ${value} logged to Nexus Brain`; showToast('Health metric saved ✓'); }
+    function renderHealthMetricsHistory(appId) {
+      const conn = appState.appConnections?.[appId] || {};
+      const metrics = Array.isArray(conn.metrics) ? conn.metrics : [];
+      if (!metrics.length) {
+        return '<div class="text-[11px] text-slate-400 py-1.5 text-center">هنوز متریکی ثبت نشده است؛ مقدار را وارد و دکمه ثبت را بزنید.</div>';
+      }
+      const iconMap = { steps: '🏃', heart_rate: '❤️', calories: '🔥', sleep: '😴', weight: '⚖️' };
+      const unitMap = { steps: 'قدم', heart_rate: 'bpm', calories: 'kcal', sleep: 'ساعت', weight: 'kg' };
+      return metrics.slice(0, 6).map(m => {
+        const dt = m.at ? new Date(m.at) : null;
+        const timeStr = dt ? dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '';
+        return `
+          <div class="p-2 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2">
+              <span>${iconMap[m.metric] || '📊'}</span>
+              <span class="font-bold text-white">${escapeHtml(m.value)} ${unitMap[m.metric] || ''}</span>
+              <span class="text-[10px] text-slate-400">(${m.metric})</span>
+            </div>
+            <span class="text-[10px] text-slate-500">${timeStr}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function saveHealthMetric(appId) {
+      const metric = document.getElementById('healthMetricType')?.value || 'steps';
+      const value = document.getElementById('healthMetricValue')?.value.trim() || '';
+      if (!value) return showToast('ابتدا مقدار شاخص را وارد کنید');
+      const conn = appState.appConnections[appId] || {};
+      conn.metrics = Array.isArray(conn.metrics) ? conn.metrics : [];
+      conn.metrics.unshift({ metric, value, at: new Date().toISOString() });
+      conn.metrics = conn.metrics.slice(0, 30);
+      appState.appConnections[appId] = conn;
+      saveState();
+      renderLiveWorkspacePanel(appId);
+      showToast(`شاخص ${metric}: ${value} در حافظه نکسوس ثبت شد ✓`);
+    }
+
+    function sendHealthMetricsToWorkoutTeam(appId) {
+      const conn = appState.appConnections?.[appId] || {};
+      const metrics = (conn.metrics || []).slice(0, 5).map(m => `${m.metric}: ${m.value}`).join(' | ');
+      const msg = `گزارش بیومتریک و شاخص‌های سلامت کاربر از ${providerLabel(appId)}:\n• متریک‌های اخیر: ${metrics || 'ورودی دستی'}\n• پکیج هدف: توسعه اپ ورزشی اندروید 60FPS (com.browseruse.workout.v159)\n\nلطفاً بیومکانیک حرکات (اسکوات، شنا، لانج، فیس‌پول) را بر اساس این داده‌ها ممیزی و پیشنهاد تکرار تنظیم کنید.`;
+      
+      const chat = (typeof getActiveChat === 'function' ? getActiveChat() : null) || appState.chats?.[0];
+      if (chat && typeof openChat === 'function') {
+        openChat(chat.id);
+        const inp = document.getElementById('chatInput');
+        if (inp) {
+          inp.value = msg;
+          if (typeof sendUserMessage === 'function') sendUserMessage();
+        }
+      } else {
+        showToast('ابتدا یک چت یا گروه ایجنت‌ها باز کنید');
+      }
+    }
+
+    async function syncFitbitGoogleFitLive() {
+      const status = document.getElementById('healthMetricStatus');
+      const token = getGoogleOAuthToken('fitbit');
+      if (!token) {
+        showToast('حساب گوگل متصل نیست؛ دکمه Connect را بزنید');
+        return;
+      }
+      if (status) status.innerHTML = '<span class="text-blue-300">⏳ در حال همگام‌سازی از Google Fit / Fitbit...</span>';
+      try {
+        const now = Date.now();
+        const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+        const res = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            aggregateBy: [
+              { dataTypeName: 'com.google.step_count.delta' },
+              { dataTypeName: 'com.google.calories.expended' }
+            ],
+            bucketByTime: { durationMillis: 86400000 },
+            startTimeMillis: startOfDay.getTime(),
+            endTimeMillis: now
+          })
+        });
+        if (!res.ok) throw new Error(`Google Fit HTTP ${res.status}`);
+        const data = await res.json();
+        let totalSteps = 0;
+        let totalCals = 0;
+        (data.bucket || []).forEach(b => {
+          (b.dataset || []).forEach(ds => {
+            (ds.point || []).forEach(pt => {
+              (pt.value || []).forEach(v => {
+                if (v.intVal) totalSteps += v.intVal;
+                if (v.fpVal) totalCals += Math.round(v.fpVal);
+              });
+            });
+          });
+        });
+
+        const conn = appState.appConnections['fitbit'] || {};
+        conn.metrics = Array.isArray(conn.metrics) ? conn.metrics : [];
+        if (totalSteps > 0) conn.metrics.unshift({ metric: 'steps', value: String(totalSteps), at: new Date().toISOString() });
+        if (totalCals > 0) conn.metrics.unshift({ metric: 'calories', value: String(totalCals), at: new Date().toISOString() });
+        conn.metrics = conn.metrics.slice(0, 30);
+        appState.appConnections['fitbit'] = conn;
+        saveState();
+        renderLiveWorkspacePanel('fitbit');
+        showToast(`همگام‌سازی موفق: ${totalSteps} قدم | ${totalCals} کالری ✓`);
+      } catch (err) {
+        if (status) status.innerHTML = `<span class="text-rose-300">خطای همگام‌سازی: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
     function toggleProviderContext(appId, enabled) { if (!appState.appConnections[appId]) return; appState.appConnections[appId].contextEnabled = Boolean(enabled); saveState(); showToast(enabled ? `${providerLabel(appId)} context enabled` : `${providerLabel(appId)} context paused`); }
     function renderLiveWorkspacePanel(appId) {
       const panel = document.getElementById('appWorkspacePanel'); if (!panel) return; const app = APPS_CATALOG.find(a => a.id === appId); const accounts = getConnectionAccounts(appId); const first = accounts[0]; const common = `<div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold text-white">Live Workspace</div><div class="text-[10px] text-cue-muted">${escapeHtml(accounts.length ? `${accounts.length} account${accounts.length > 1 ? 's' : ''} connected` : 'Connected')}</div></div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="min-h-0 px-2.5 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-200">Open ${escapeHtml(app.name)}</button></div>`;
@@ -4520,7 +4659,58 @@ body > header,
       if (appId === 'gmail') body = `<div class="space-y-2"><input id="gmailComposeTo" placeholder="To" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><input id="gmailComposeSubject" placeholder="Subject" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><textarea id="gmailComposeBody" rows="3" placeholder="Write an email…" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"></textarea><div class="grid grid-cols-2 gap-2"><button onclick="sendGmailQuickMail()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Compose / Send</button><button onclick="syncGmailInbox()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Sync inbox</button></div><div id="gmailSyncStatus" class="text-[10px] text-slate-400">${getAppConnectionToken('gmail') ? 'OAuth token available for Gmail API sync.' : 'Connect an OAuth token for live Gmail API sync.'}</div></div>`;
       else if (appId === 'gcal') body = `<div class="space-y-2.5" dir="rtl"><div class="space-y-1.5"><input id="calendarEventTitle" placeholder="عنوان رویداد یا جلسه..." class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500" /><div class="grid grid-cols-2 gap-2" dir="ltr"><label class="block text-[10px] text-slate-400">Start:<input id="calendarEventDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label><label class="block text-[10px] text-slate-400">End:<input id="calendarEventEndDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label></div></div><div class="grid grid-cols-2 gap-2"><button onclick="createGoogleCalendarLiveEvent()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>➕ ثبت مستقیم</span></button><button onclick="syncGoogleCalendarEvents()" class="min-h-0 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>🔄 همگام‌سازی</span></button></div><div id="gcalSyncStatus" class="text-[11px] text-slate-300"></div><div id="gcalUpcomingList" class="space-y-1.5 max-h-48 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="exportCalendarICS()" class="text-blue-300 hover:underline">خروجی iCalendar (.ics)</button><button onclick="openCalendarEventComposer()" class="text-slate-400 hover:underline">باز کردن در وب ↗</button></div></div>`;
       else if (appId === 'gworkspace') body = `<div class="space-y-3" dir="rtl"><div class="flex items-center justify-between"><span class="text-xs font-bold text-white">🗂️ کاوشگر اسناد و فایل‌های Google Drive</span><span class="text-[10px] text-slate-400">Google Drive API v3</span></div><div class="flex items-center gap-1.5" dir="ltr"><input id="driveSearchInput" placeholder="جستجوی نام سند، شیت یا فایل در درایو..." class="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500" onkeydown="if(event.key==='Enter') searchGoogleDriveFiles()" /><button onclick="searchGoogleDriveFiles()" class="min-h-0 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center"><span>🔍</span></button><button onclick="syncGoogleDriveFiles()" class="min-h-0 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center" title="تازه‌سازی"><span>🔄</span></button></div><div id="driveSyncStatus" class="text-[11px] text-slate-300"></div><div id="driveFilesList" class="space-y-1.5 max-h-56 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="openProviderUrl('gworkspace')" class="text-blue-300 hover:underline">باز کردن درایو در وب ↗</button><button onclick="injectAllDriveFilesContext()" class="text-purple-300 hover:underline">تزریق لیست فایل‌ها به مغز AI</button></div></div>`;
-      else if (['myfitnesspal','withings','polar','trainingpeaks','fitbit','oura','clue','cronometer'].includes(appId)) body = `<div class="space-y-2"><div class="grid grid-cols-[1fr_1fr] gap-2"><select id="healthMetricType" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-2 py-2 text-xs text-white"><option value="steps">Steps</option><option value="heart_rate">Heart rate</option><option value="calories">Calories</option><option value="sleep">Sleep</option><option value="weight">Weight</option></select><input id="healthMetricValue" placeholder="Value" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /></div><button onclick="saveHealthMetric('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-emerald-600 text-xs text-white font-bold">Sync metric to Nexus Brain</button><div id="healthMetricStatus" class="text-[10px] text-slate-400">Manual sync is available; provider API sync uses an optional token.</div></div>`;
+      else if (['myfitnesspal','withings','polar','trainingpeaks','fitbit','oura','clue','cronometer'].includes(appId)) {
+        const historyHtml = renderHealthMetricsHistory(appId);
+        const isFitbit = appId === 'fitbit';
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white">شاخص‌های زیستی و سلامت (${escapeHtml(app.name)})</span>
+              <span class="text-[10px] text-emerald-400 font-mono">60FPS Engine Sync</span>
+            </div>
+
+            <div class="grid grid-cols-[1fr_1fr] gap-2" dir="ltr">
+              <select id="healthMetricType" class="min-w-0 bg-black/20 border border-white/10 rounded-xl px-2.5 py-2 text-xs text-white">
+                <option value="steps">🏃 Steps (قدم)</option>
+                <option value="heart_rate">❤️ Heart Rate (bpm)</option>
+                <option value="calories">🔥 Calories (kcal)</option>
+                <option value="sleep">😴 Sleep (hrs)</option>
+                <option value="weight">⚖️ Weight (kg)</option>
+              </select>
+              <input id="healthMetricValue" placeholder="مقدار عددی..." class="min-w-0 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="saveHealthMetric('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold transition flex items-center justify-center gap-1">
+                <span>➕ ثبت در حافظه</span>
+              </button>
+              ${isFitbit ? `
+                <button onclick="syncFitbitGoogleFitLive()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center gap-1">
+                  <span>🔄 دریافت زنده گوگل فیت</span>
+                </button>
+              ` : `
+                <button onclick="sendHealthMetricsToWorkoutTeam('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 text-xs font-bold transition flex items-center justify-center gap-1">
+                  <span>🤖 تحلیل با تیم ورزشی</span>
+                </button>
+              `}
+            </div>
+
+            <div id="healthMetricStatus" class="text-[10px] text-slate-400"></div>
+
+            <div class="space-y-1">
+              <div class="text-[11px] font-bold text-slate-300">تاریخچه لاگ‌های اخیر:</div>
+              <div class="space-y-1 max-h-36 overflow-y-auto">
+                ${historyHtml}
+              </div>
+            </div>
+
+            <div class="pt-1 border-t border-white/10 flex items-center justify-between text-[10px]">
+              <button onclick="loadWorkoutTemplateInStudio()" class="text-blue-400 hover:underline">🏋️ بارگذاری در استودیو ورزشی ۶۰fps</button>
+              <button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="text-slate-400 hover:underline">باز کردن داشبورد اپ ↗</button>
+            </div>
+          </div>
+        `;
+      }
       else if (appId === 'clash_royale') {
         const conn = appState.appConnections?.clash_royale || {};
         const p = conn.playerData || {
