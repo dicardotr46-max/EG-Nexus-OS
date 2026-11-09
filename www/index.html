@@ -3504,8 +3504,99 @@ body > header,
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
     function injectAppContextIntoChat(appId) { const text = accountWorkspaceContext(appId); appState.dreamMemory = `${appState.dreamMemory || ''}\n[Connected app context]\n${text}`.slice(-12000); saveState(); showToast(`${providerLabel(appId)} context injected into Nexus AI Chat`); }
+    function getGoogleCalendarToken() {
+      return getAppConnectionToken('gcal') || getAppConnectionToken('gmail') || getAppConnectionToken('gworkspace') || '';
+    }
+    function formatGcalDateLabel(d) {
+      if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+      try {
+        return d.toLocaleDateString('fa-IR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      } catch (e) {
+        return d.toISOString().slice(0, 16).replace('T', ' ');
+      }
+    }
     function exportCalendarICS() { const title = document.getElementById('calendarEventTitle')?.value.trim() || 'Nexus event'; const start = document.getElementById('calendarEventDate')?.value || ''; const dt = start ? start.replace(/[-:]/g, '').replace('T', 'T') + '00' : ''; const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title.replace(/\n/g, ' ')}\nDTSTART:${dt}\nEND:VEVENT\nEND:VCALENDAR`; const blob = new Blob([ics], { type: 'text/calendar' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'nexus-event.ics'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
     function openCalendarEventComposer() { const title = encodeURIComponent(document.getElementById('calendarEventTitle')?.value.trim() || 'Nexus event'); const date = encodeURIComponent(document.getElementById('calendarEventDate')?.value || ''); window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date.replace('%3A', '')}`, '_blank', 'noopener,noreferrer'); }
+    async function createGoogleCalendarLiveEvent() {
+      const title = document.getElementById('calendarEventTitle')?.value.trim();
+      const startStr = document.getElementById('calendarEventDate')?.value;
+      const endStr = document.getElementById('calendarEventEndDate')?.value;
+      const statusEl = document.getElementById('gcalSyncStatus');
+      if (!title) {
+        showToast('⚠️ لطفاً ابتدا عنوان رویداد را وارد کنید');
+        return;
+      }
+      const token = getGoogleCalendarToken();
+      if (!token) {
+        showToast('⚠️ حساب گوگل متصل نیست؛ باز کردن ویرایشگر وب...');
+        openCalendarEventComposer();
+        return;
+      }
+      const now = new Date();
+      const start = startStr ? new Date(startStr) : new Date(now.getTime() + 15 * 60000);
+      const end = endStr ? new Date(endStr) : new Date(start.getTime() + 60 * 60000);
+      if (statusEl) statusEl.innerHTML = '<span class="text-blue-300">⏳ در حال ثبت در تقویم گوگل...</span>';
+      try {
+        const payload = {
+          summary: title,
+          description: 'ثبت شده توسط EG Nexus OS',
+          start: { dateTime: start.toISOString() },
+          end: { dateTime: end.toISOString() }
+        };
+        const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+        showToast(`✅ رویداد «${title}» مستقیماً در تقویم گوگل ثبت شد`);
+        if (statusEl) statusEl.innerHTML = `<span class="text-emerald-300">✓ رویداد ثبت شد: <b>${escapeHtml(title)}</b> (${formatGcalDateLabel(start)})</span>`;
+        const inp = document.getElementById('calendarEventTitle');
+        if (inp) inp.value = '';
+        setTimeout(syncGoogleCalendarEvents, 600);
+      } catch (err) {
+        console.error('Google Calendar event creation error:', err);
+        showToast(`❌ خطای ثبت تقویم: ${err.message}`);
+        if (statusEl) statusEl.innerHTML = `<span class="text-rose-300">خطا: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+    async function syncGoogleCalendarEvents() {
+      const statusEl = document.getElementById('gcalSyncStatus');
+      const listEl = document.getElementById('gcalUpcomingList');
+      const token = getGoogleCalendarToken();
+      if (!token) {
+        if (statusEl) statusEl.innerHTML = '<span class="text-slate-400">حساب گوگل متصل نیست؛ دکمه Connect را بزنید.</span>';
+        return;
+      }
+      if (statusEl) statusEl.innerHTML = '<span class="text-blue-300">⏳ در حال دریافت رویدادهای زنده از Google Calendar...</span>';
+      try {
+        const timeMin = new Date().toISOString();
+        const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=5&orderBy=startTime&singleEvents=true&timeMin=${encodeURIComponent(timeMin)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+        const items = Array.isArray(data?.items) ? data.items : [];
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="text-emerald-300 font-bold">✓ تقویم همگام شد · ${items.length} رویداد پیش‌رو</span>`;
+        }
+        if (listEl) {
+          if (items.length === 0) {
+            listEl.innerHTML = '<div class="text-[11px] text-slate-400 py-1 text-center">هیچ رویداد برنامه‌ریزی‌شده‌ای در تقویم یافت نشد.</div>';
+          } else {
+            listEl.innerHTML = items.map(ev => {
+              const dt = ev.start?.dateTime ? new Date(ev.start.dateTime) : (ev.start?.date ? new Date(ev.start.date) : null);
+              const dateLabel = dt ? formatGcalDateLabel(dt) : 'تاریخ نامشخص';
+              return `<div class="p-2 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs"><div class="min-w-0 pr-2"><div class="font-bold text-white truncate">${escapeHtml(ev.summary || 'رویداد بدون عنوان')}</div><div class="text-[10px] text-cue-muted">${escapeHtml(dateLabel)}</div></div>${ev.htmlLink ? `<a href="${escapeHtml(ev.htmlLink)}" target="_blank" rel="noopener noreferrer" class="text-blue-400 text-[10px] hover:underline shrink-0">نمایش ↗</a>` : ''}</div>`;
+            }).join('');
+          }
+        }
+      } catch (err) {
+        console.error('Google Calendar sync error:', err);
+        if (statusEl) statusEl.innerHTML = `<span class="text-rose-300">خطای تقویم: ${escapeHtml(err.message)}</span>`;
+      }
+    }
     function sendGmailQuickMail() { const to = document.getElementById('gmailComposeTo')?.value.trim() || ''; const subject = encodeURIComponent(document.getElementById('gmailComposeSubject')?.value.trim() || ''); const body = encodeURIComponent(document.getElementById('gmailComposeBody')?.value || ''); const token = getAppConnectionToken('gmail'); if (token) { const raw = [`To: ${to}`, `Subject: ${decodeURIComponent(subject)}`, 'Content-Type: text/plain; charset=UTF-8', '', decodeURIComponent(body)].join('\r\n'); const encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: encoded }) }).then(r => { if (!r.ok) throw new Error(`Gmail API HTTP ${r.status}`); return r.json(); }).then(() => showToast('Email sent through Gmail API ✓')).catch(err => showToast(`Gmail API failed: ${err.message}`)); return; } window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`; showToast('Opened the device email composer'); }
     async function syncGmailInbox() { const status = document.getElementById('gmailSyncStatus'); const token = getAppConnectionToken('gmail'); if (!token) { if (status) status.textContent = 'Direct API sync needs an OAuth token; Gmail workspace link is ready.'; return; } try { const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', { headers: { Authorization: `Bearer ${token}` } }); if (!res.ok) throw new Error(`Gmail API HTTP ${res.status}`); const data = await res.json(); if (status) status.textContent = `Live Gmail sync complete · ${data.resultSizeEstimate || data.messages?.length || 0} messages visible`; } catch (err) { if (status) status.textContent = `Gmail sync failed: ${err.message}`; } }
     function saveHealthMetric(appId) { const metric = document.getElementById('healthMetricType')?.value || 'steps'; const value = document.getElementById('healthMetricValue')?.value.trim() || ''; if (!value) return showToast('Enter a metric value first'); const conn = appState.appConnections[appId] || {}; conn.metrics = Array.isArray(conn.metrics) ? conn.metrics : []; conn.metrics.unshift({ metric, value, at: new Date().toISOString() }); conn.metrics = conn.metrics.slice(0, 30); appState.appConnections[appId] = conn; saveState(); const out = document.getElementById('healthMetricStatus'); if (out) out.textContent = `${metric}: ${value} logged to Nexus Brain`; showToast('Health metric saved ✓'); }
@@ -3514,10 +3605,11 @@ body > header,
       const panel = document.getElementById('appWorkspacePanel'); if (!panel) return; const app = APPS_CATALOG.find(a => a.id === appId); const accounts = getConnectionAccounts(appId); const first = accounts[0]; const common = `<div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold text-white">Live Workspace</div><div class="text-[10px] text-cue-muted">${escapeHtml(accounts.length ? `${accounts.length} account${accounts.length > 1 ? 's' : ''} connected` : 'Connected')}</div></div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="min-h-0 px-2.5 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-200">Open ${escapeHtml(app.name)}</button></div>`;
       let body = '';
       if (appId === 'gmail') body = `<div class="space-y-2"><input id="gmailComposeTo" placeholder="To" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><input id="gmailComposeSubject" placeholder="Subject" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><textarea id="gmailComposeBody" rows="3" placeholder="Write an email…" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"></textarea><div class="grid grid-cols-2 gap-2"><button onclick="sendGmailQuickMail()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Compose / Send</button><button onclick="syncGmailInbox()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Sync inbox</button></div><div id="gmailSyncStatus" class="text-[10px] text-slate-400">${getAppConnectionToken('gmail') ? 'OAuth token available for Gmail API sync.' : 'Connect an OAuth token for live Gmail API sync.'}</div></div>`;
-      else if (appId === 'gcal') body = `<div class="space-y-2"><input id="calendarEventTitle" placeholder="Event title" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><input id="calendarEventDate" type="datetime-local" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><div class="grid grid-cols-2 gap-2"><button onclick="openCalendarEventComposer()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Add to Calendar</button><button onclick="exportCalendarICS()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Export .ics</button></div></div>`;
+      else if (appId === 'gcal') body = `<div class="space-y-2.5" dir="rtl"><div class="space-y-1.5"><input id="calendarEventTitle" placeholder="عنوان رویداد یا جلسه..." class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500" /><div class="grid grid-cols-2 gap-2" dir="ltr"><label class="block text-[10px] text-slate-400">Start:<input id="calendarEventDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label><label class="block text-[10px] text-slate-400">End:<input id="calendarEventEndDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label></div></div><div class="grid grid-cols-2 gap-2"><button onclick="createGoogleCalendarLiveEvent()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>➕ ثبت مستقیم</span></button><button onclick="syncGoogleCalendarEvents()" class="min-h-0 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>🔄 همگام‌سازی</span></button></div><div id="gcalSyncStatus" class="text-[11px] text-slate-300"></div><div id="gcalUpcomingList" class="space-y-1.5 max-h-48 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="exportCalendarICS()" class="text-blue-300 hover:underline">خروجی iCalendar (.ics)</button><button onclick="openCalendarEventComposer()" class="text-slate-400 hover:underline">باز کردن در وب ↗</button></div></div>`;
       else if (['myfitnesspal','withings','polar','trainingpeaks','fitbit','oura','clue','cronometer'].includes(appId)) body = `<div class="space-y-2"><div class="grid grid-cols-[1fr_1fr] gap-2"><select id="healthMetricType" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-2 py-2 text-xs text-white"><option value="steps">Steps</option><option value="heart_rate">Heart rate</option><option value="calories">Calories</option><option value="sleep">Sleep</option><option value="weight">Weight</option></select><input id="healthMetricValue" placeholder="Value" class="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /></div><button onclick="saveHealthMetric('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-emerald-600 text-xs text-white font-bold">Sync metric to Nexus Brain</button><div id="healthMetricStatus" class="text-[10px] text-slate-400">Manual sync is available; provider API sync uses an optional token.</div></div>`;
       else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
       panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
+      if (appId === 'gcal') setTimeout(syncGoogleCalendarEvents, 100);
     }
 
     function openAppDetailView(appId) {
