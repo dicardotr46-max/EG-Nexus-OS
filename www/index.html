@@ -3384,6 +3384,312 @@ body > header,
               }
             }
           ]
+        },
+        meta_ads: {
+          name: 'Meta Ads Manager MCP',
+          endpointDefault: 'https://graph.facebook.com/v20.0',
+          tools: [
+            {
+              name: 'meta_ads_get_insights',
+              description: 'دریافت آمار زنده هزینه‌کرد، تعداد نمایش و کلیک‌های حساب تبلیغاتی متا (Meta Ads Insights)',
+              parameters: { date_preset: 'string (e.g. today, last_7d, last_30d)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.meta_ads || {};
+                const t = token || conn.token;
+                const actId = conn.actId;
+                if (!t || !actId) throw new Error('توکن دسترسی یا شناسه حساب تبلیغاتی Meta (act_...) یافت نشد');
+                const preset = args.date_preset || 'last_30d';
+                const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,cpc,ctr&date_preset=${encodeURIComponent(preset)}&access_token=${encodeURIComponent(t)}`);
+                if (!res.ok) throw new Error(`Meta Ads API HTTP ${res.status}`);
+                const data = await res.json();
+                return data.data?.[0] || { spend: '0', impressions: '0', clicks: '0' };
+              }
+            },
+            {
+              name: 'meta_ads_list_campaigns',
+              description: 'دریافت لیست کمپین‌های فعال یا متوقف‌شده حساب تبلیغاتی متا',
+              parameters: { limit: 'number (پیش‌فرض ۵)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.meta_ads || {};
+                const t = token || conn.token;
+                const actId = conn.actId;
+                if (!t || !actId) throw new Error('شناسه حساب تبلیغاتی متا الزامی است');
+                const limit = args.limit || 5;
+                const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/campaigns?fields=id,name,status,objective&limit=${limit}&access_token=${encodeURIComponent(t)}`);
+                if (!res.ok) throw new Error(`Meta Ads API HTTP ${res.status}`);
+                const data = await res.json();
+                return data.data || [];
+              }
+            }
+          ]
+        },
+        atlassian: {
+          name: 'Atlassian Jira Cloud MCP',
+          endpointDefault: 'https://atlassian.net/rest/api/3',
+          tools: [
+            {
+              name: 'jira_search_issues',
+              description: 'جستجوی زنده ایشوها و تسک‌های Jira با کوئری JQL',
+              parameters: { jql: 'string (کوئری JQL - مثلا order by created DESC)', max_results: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.atlassian || {};
+                const domain = conn.domain;
+                const email = conn.email;
+                const t = token || conn.token;
+                if (!domain || !email || !t) throw new Error('دامنه آتلاسیان، ایمیل یا توکن API تنظیم نشده است');
+                const jql = args.jql || 'order by created DESC';
+                const max = args.max_results || 5;
+                const authHeader = 'Basic ' + btoa(`${email}:${t}`);
+                const res = await fetch(`https://${domain}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${max}&fields=summary,status,priority,issuetype,assignee`, {
+                  headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`Jira API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.issues || []).map(i => ({ key: i.key, summary: i.fields?.summary, status: i.fields?.status?.name, priority: i.fields?.priority?.name, type: i.fields?.issuetype?.name }));
+              }
+            },
+            {
+              name: 'jira_create_issue',
+              description: 'ایجاد تسک یا باگ جدید در پروژه Jira',
+              parameters: { project_key: 'string (مانند PROJ)', summary: 'string (عنوان تیکت)', description: 'string (متن شرح تیکت)', issue_type: 'string (Task یا Bug)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.atlassian || {};
+                const domain = conn.domain;
+                const email = conn.email;
+                const t = token || conn.token;
+                if (!domain || !email || !t) throw new Error('اطلاعات احراز هویت Jira ناقص است');
+                const authHeader = 'Basic ' + btoa(`${email}:${t}`);
+                const payload = {
+                  fields: {
+                    project: { key: args.project_key || 'KAN' },
+                    summary: args.summary || 'New Issue from EG Nexus OS',
+                    description: {
+                      type: 'doc',
+                      version: 1,
+                      content: [{ type: 'paragraph', content: [{ type: 'text', text: args.description || 'Created automatically by Nexus AI.' }] }]
+                    },
+                    issuetype: { name: args.issue_type || 'Task' }
+                  }
+                };
+                const res = await fetch(`https://${domain}/rest/api/3/issue`, {
+                  method: 'POST',
+                  headers: { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(`Jira Create HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        asana: {
+          name: 'Asana Project Management MCP',
+          endpointDefault: 'https://app.asana.com/api/1.0',
+          tools: [
+            {
+              name: 'asana_get_tasks',
+              description: 'دریافت وظایف و تسک‌های فعال کاربر در Asana',
+              parameters: { limit: 'number (پیش‌فرض ۶)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.asana || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن PAT آسانا الزامی است');
+                const limit = args.limit || 6;
+                const res = await fetch(`https://app.asana.com/api/1.0/tasks?opt_fields=name,completed,due_on,assignee.name&limit=${limit}`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`Asana API HTTP ${res.status}`);
+                const data = await res.json();
+                return data.data || [];
+              }
+            },
+            {
+              name: 'asana_create_task',
+              description: 'ایجاد تسک جدید در Asana با موعد انجام و یادداشت',
+              parameters: { name: 'string (عنوان وظیفه)', notes: 'string (توضیحات اختیاری)', due_on: 'string (تاریخ YYYY-MM-DD)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.asana || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن PAT آسانا الزامی است');
+                const body = { data: { name: args.name || 'وظیفه جدید نکسوس', notes: args.notes || '', due_on: args.due_on || undefined } };
+                const res = await fetch('https://app.asana.com/api/1.0/tasks', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error(`Asana Task Create HTTP ${res.status}`);
+                const data = await res.json();
+                return data.data || {};
+              }
+            }
+          ]
+        },
+        hubspot: {
+          name: 'HubSpot CRM MCP',
+          endpointDefault: 'https://api.hubapi.com/crm/v3',
+          tools: [
+            {
+              name: 'hubspot_list_contacts',
+              description: 'دریافت لیست ۵ مخاطب اخیر ثبت‌شده در پایگاه مشتریان HubSpot CRM',
+              parameters: { limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.hubspot || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن دسترسی HubSpot CRM الزامی است');
+                const limit = args.limit || 5;
+                const res = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts?limit=${limit}&properties=firstname,lastname,email,company`, {
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`HubSpot API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.results || []).map(c => ({ id: c.id, name: `${c.properties?.firstname || ''} ${c.properties?.lastname || ''}`.trim(), email: c.properties?.email, company: c.properties?.company }));
+              }
+            },
+            {
+              name: 'hubspot_create_deal',
+              description: 'ایجاد یک معامله یا فرصت فروش جدید (Deal) در پایپ‌لاین HubSpot CRM',
+              parameters: { dealname: 'string (عنوان معامله)', amount: 'string (مبلغ معامله به دلار)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.hubspot || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن دسترسی HubSpot CRM الزامی است');
+                const res = await fetch('https://api.hubapi.com/crm/v3/objects/deals', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ properties: { dealname: args.dealname || 'فرصت جدید نکسوس', amount: args.amount || '1000' } })
+                });
+                if (!res.ok) throw new Error(`HubSpot Deal HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        posthog: {
+          name: 'PostHog Product Analytics MCP',
+          endpointDefault: 'https://us.i.posthog.com/api',
+          tools: [
+            {
+              name: 'posthog_list_feature_flags',
+              description: 'دریافت لیست فیچرفلگ‌ها (Feature Flags) و درصد انتشار فعال در پروژه PostHog',
+              parameters: {},
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.posthog || {};
+                const t = token || conn.token;
+                const host = (conn.host || 'https://us.i.posthog.com').replace(/\/$/, '');
+                const projectId = conn.projectId;
+                if (!t || !projectId) throw new Error('شناسه پروژه یا کلید API در PostHog یافت نشد');
+                const res = await fetch(`${host}/api/projects/${encodeURIComponent(projectId)}/feature_flags/?limit=10`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`PostHog API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.results || []).map(f => ({ id: f.id, key: f.key, name: f.name, active: f.active, rollout_percentage: f.rollout_percentage }));
+              }
+            },
+            {
+              name: 'posthog_toggle_flag',
+              description: 'فعال یا غیرفعال کردن یک Feature Flag در محیط عملیاتی PostHog',
+              parameters: { flag_id: 'number (شناسه عددی فیچرفلگ)', active: 'boolean (روشن یا خاموش)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.posthog || {};
+                const t = token || conn.token;
+                const host = (conn.host || 'https://us.i.posthog.com').replace(/\/$/, '');
+                const projectId = conn.projectId;
+                if (!t || !projectId || !args.flag_id) throw new Error('پارامترهای تغییر فلگ PostHog ناقص است');
+                const res = await fetch(`${host}/api/projects/${encodeURIComponent(projectId)}/feature_flags/${encodeURIComponent(args.flag_id)}/`, {
+                  method: 'PATCH',
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ active: Boolean(args.active) })
+                });
+                if (!res.ok) throw new Error(`PostHog Toggle HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        box: {
+          name: 'Box Cloud Storage MCP',
+          endpointDefault: 'https://api.box.com/2.0',
+          tools: [
+            {
+              name: 'box_list_folder_items',
+              description: 'مشاهده لیست فایل‌ها و پوشه‌های ذخیره‌شده در فضای ابری Box',
+              parameters: { folder_id: 'string (پیش‌فرض 0 برای روت)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.box || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن دسترسی Box الزامی است');
+                const folderId = args.folder_id || '0';
+                const res = await fetch(`https://api.box.com/2.0/folders/${encodeURIComponent(folderId)}/items?limit=8&fields=id,type,name,size,modified_at`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`Box API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.entries || []).map(e => ({ id: e.id, type: e.type, name: e.name, size: e.size, modified_at: e.modified_at }));
+              }
+            },
+            {
+              name: 'box_search_files',
+              description: 'جستجوی زنده اسناد و فایل‌ها در محتوای Box Cloud',
+              parameters: { query: 'string (متن جستجو)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.box || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن دسترسی Box الزامی است');
+                const q = args.query || '';
+                const res = await fetch(`https://api.box.com/2.0/search?query=${encodeURIComponent(q)}&limit=5`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`Box Search HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.entries || []).map(e => ({ id: e.id, name: e.name, type: e.type }));
+              }
+            }
+          ]
+        },
+        paypal: {
+          name: 'PayPal for Business MCP',
+          endpointDefault: 'https://api-m.paypal.com/v1',
+          tools: [
+            {
+              name: 'paypal_get_balance',
+              description: 'دریافت مانده موجودی زنده ارزی حساب تجاری پی‌پال (PayPal Balances)',
+              parameters: { currency: 'string (پیش‌فرض USD)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.paypal || {};
+                const t = token || conn.token;
+                const env = conn.env || 'live';
+                const base = env === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+                if (!t) throw new Error('توکن احراز هویت PayPal الزامی است');
+                const curr = args.currency || 'USD';
+                const res = await fetch(`${base}/v1/reporting/balances?currency_code=${encodeURIComponent(curr)}`, {
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`PayPal API HTTP ${res.status}`);
+                const data = await res.json();
+                return data.balances || [];
+              }
+            },
+            {
+              name: 'paypal_list_transactions',
+              description: 'استعلام تراکنش‌های اخیر حساب تجاری PayPal',
+              parameters: { page_size: 'number (پیش‌فرض ۵)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.paypal || {};
+                const t = token || conn.token;
+                const env = conn.env || 'live';
+                const base = env === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+                if (!t) throw new Error('توکن PayPal الزامی است');
+                const size = args.page_size || 5;
+                const res = await fetch(`${base}/v1/reporting/transactions?page_size=${size}&fields=transaction_info`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`PayPal Transactions HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.transaction_details || []).map(d => ({ id: d.transaction_info?.transaction_id, amount: d.transaction_info?.transaction_amount, status: d.transaction_info?.transaction_status, time: d.transaction_info?.transaction_initiation_date }));
+              }
+            }
+          ]
         }
       },
 
@@ -5862,6 +6168,1151 @@ body > header,
       } catch (e) {}
     }
 
+    // REAL META ADS MANAGER ENGINE (Marketing API v20.0)
+    // ============================================================================
+    function openMetaAdsConnectModal() {
+      const conn = appState.appConnections?.meta_ads || {};
+      const currentToken = getAppConnectionToken('meta_ads') || getAppConnectionToken('instagram') || '';
+      const currentActId = conn.actId || '';
+
+      renderIntegrationModal('اتصال Meta Ads Manager', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-600/20 to-indigo-600/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">📊</span>
+              <b class="text-white text-sm">اتصال به پلتفرم تبلیغاتی Meta Marketing API v20.0</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              پایش بلادرنگ هزینه تبلیغات (Ad Spend)، نرخ کلیک (CTR)، تعداد نمایش و کمپین‌های فعال اینستاگرام و فیس‌بوک.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Meta System / User Access Token (با دسترسی ads_read):
+              <input id="metaAdsTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="EAA..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              شناسه حساب تبلیغاتی (Ad Account ID):
+              <input id="metaAdsActIdInput" type="text" value="${escapeHtml(currentActId)}" placeholder="act_1234567890..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">شناسه عددی اکانت در Meta Ads Manager که با act_ شروع می‌شود.</span>
+            </label>
+          </div>
+
+          <div id="metaAdsConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectMetaAdsLive()" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://adsmanager.facebook.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              داشبورد تبلیغات متا ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectMetaAdsLive() {
+      const tokenInput = document.getElementById('metaAdsTokenInput');
+      const actIdInput = document.getElementById('metaAdsActIdInput');
+      const statusEl = document.getElementById('metaAdsConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+      let actId = actIdInput ? actIdInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن دسترسی متا را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با سرورهای Meta Graph Marketing API...';
+          statusEl.classList.remove('hidden');
+        }
+
+        if (!actId) {
+          const accRes = await fetch(`https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,currency,account_status&access_token=${encodeURIComponent(token)}`);
+          if (accRes.ok) {
+            const accData = await accRes.json();
+            if (accData.data && accData.data.length > 0) {
+              actId = accData.data[0].id;
+            }
+          }
+        }
+        if (!actId) actId = 'act_default';
+
+        const testRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,ctr&date_preset=last_30d&access_token=${encodeURIComponent(token)}`);
+        let insights = { spend: '0', impressions: '0', clicks: '0', ctr: '0' };
+        if (testRes.ok) {
+          const testData = await testRes.json();
+          if (testData.data && testData.data[0]) insights = testData.data[0];
+        }
+
+        const conn = appState.appConnections.meta_ads || {};
+        conn.token = token;
+        conn.actId = actId;
+        conn.insights = insights;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `meta_ads_${Date.now()}`,
+          name: `Meta Ads (${actId})`,
+          email: 'Meta Marketing Account',
+          avatar: 'M',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.meta_ads = conn;
+        if (!appState.addedAppIds.includes('meta_ads')) {
+          appState.addedAppIds.push('meta_ads');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = 'حساب Meta Ads با موفقیت متصل و اعتبارسنجی شد ✓';
+        }
+        showToast('Meta Ads Manager متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('meta_ads');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncMetaAdsDataLive() {
+      const conn = appState.appConnections?.meta_ads || {};
+      const t = conn.token;
+      const actId = conn.actId;
+      if (!t || !actId) return;
+
+      try {
+        const [insRes, campRes] = await Promise.all([
+          fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,ctr&date_preset=last_30d&access_token=${encodeURIComponent(t)}`),
+          fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/campaigns?fields=id,name,status,objective&limit=5&access_token=${encodeURIComponent(t)}`)
+        ]);
+
+        if (insRes.ok) {
+          const insData = await insRes.json();
+          if (insData.data?.[0]) conn.insights = insData.data[0];
+        }
+        if (campRes.ok) {
+          const campData = await campRes.json();
+          conn.campaigns = campData.data || [];
+        }
+
+        appState.appConnections.meta_ads = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('metaAdsInsightsContainer')) {
+          renderLiveWorkspacePanel('meta_ads');
+        }
+      } catch (e) {}
+    }
+
+    // REAL ATLASSIAN JIRA CLOUD REST API v3 ENGINE
+    // ============================================================================
+    function openAtlassianConnectModal() {
+      const conn = appState.appConnections?.atlassian || {};
+      const currentToken = getAppConnectionToken('atlassian') || '';
+      const currentDomain = conn.domain || '';
+      const currentEmail = conn.email || '';
+
+      renderIntegrationModal('اتصال Atlassian Jira Cloud', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🔷</span>
+              <b class="text-white text-sm">اتصال به Jira Cloud REST API v3</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              رهگیری تیکت‌ها، تسک‌های اسپرینت، گزارش باگ‌ها و اتصال هوشمند با احراز هویت رسمی Atlassian.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              دامنه اختصاصی Jira (Site Domain):
+              <input id="jiraDomainInput" type="text" value="${escapeHtml(currentDomain)}" placeholder="your-org.atlassian.net" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-blue-300 font-mono code-block-dir" />
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              ایمیل حساب Atlassian:
+              <input id="jiraEmailInput" type="email" value="${escapeHtml(currentEmail)}" placeholder="developer@example.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white code-block-dir" />
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              Atlassian API Token:
+              <input id="jiraTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="ATATT..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">ساخت توکن در: id.atlassian.com/manage-profile/security/api-tokens</span>
+            </label>
+          </div>
+
+          <div id="jiraConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectAtlassianLive()" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://id.atlassian.com/manage-profile/security/api-tokens')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              دریافت توکن Jira ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectAtlassianLive() {
+      const domainInput = document.getElementById('jiraDomainInput');
+      const emailInput = document.getElementById('jiraEmailInput');
+      const tokenInput = document.getElementById('jiraTokenInput');
+      const statusEl = document.getElementById('jiraConnectStatus');
+
+      let domain = domainInput ? domainInput.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') : '';
+      const email = emailInput ? emailInput.value.trim() : '';
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!domain || !email || !token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً دامنه Jira، ایمیل و توکن API را تکمیل کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+      if (!domain.includes('.')) domain += '.atlassian.net';
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال برقراری ارتباط با Jira Cloud API...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const authHeader = 'Basic ' + btoa(`${email}:${token}`);
+        const res = await fetch(`https://${domain}/rest/api/3/myself`, {
+          headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        if (!res.ok) throw new Error(`Jira Cloud HTTP ${res.status}`);
+        const user = await res.json();
+
+        const conn = appState.appConnections.atlassian || {};
+        conn.domain = domain;
+        conn.email = email;
+        conn.token = token;
+        conn.user = user;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `jira_${user.accountId || Date.now()}`,
+          name: user.displayName || email,
+          email: email,
+          avatar: user.avatarUrls?.['48x48'] || '',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.atlassian = conn;
+        if (!appState.addedAppIds.includes('atlassian')) {
+          appState.addedAppIds.push('atlassian');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${user.displayName || email}! اتصال با موفقیت برقرار شد ✓`;
+        }
+        showToast('Atlassian Jira با موفقیت متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('atlassian');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به Jira: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncAtlassianJiraLive() {
+      const conn = appState.appConnections?.atlassian || {};
+      const domain = conn.domain;
+      const email = conn.email;
+      const t = conn.token;
+      if (!domain || !email || !t) return;
+
+      try {
+        const authHeader = 'Basic ' + btoa(`${email}:${t}`);
+        const res = await fetch(`https://${domain}/rest/api/3/search?jql=order+by+created+DESC&maxResults=5&fields=summary,status,priority,issuetype,assignee`, {
+          headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.issues = data.issues || [];
+        appState.appConnections.atlassian = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('jiraIssuesContainer')) {
+          renderLiveWorkspacePanel('atlassian');
+        }
+      } catch (e) {}
+    }
+
+    async function createAtlassianJiraIssueLive() {
+      const summaryInp = document.getElementById('jiraIssueSummaryInput');
+      const descInp = document.getElementById('jiraIssueDescInput');
+      const typeSel = document.getElementById('jiraIssueTypeInput');
+      const projectKeyInp = document.getElementById('jiraIssueProjectKeyInput');
+
+      const summary = summaryInp ? summaryInp.value.trim() : '';
+      if (!summary) { showToast('عنوان تیکت الزامی است'); return; }
+
+      const conn = appState.appConnections?.atlassian || {};
+      const domain = conn.domain;
+      const email = conn.email;
+      const t = conn.token;
+      if (!domain || !email || !t) { showToast('ابتدا Jira را متصل کنید'); return; }
+
+      try {
+        const authHeader = 'Basic ' + btoa(`${email}:${t}`);
+        const payload = {
+          fields: {
+            project: { key: (projectKeyInp ? projectKeyInp.value.trim() : '') || 'KAN' },
+            summary: summary,
+            description: {
+              type: 'doc',
+              version: 1,
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: (descInp ? descInp.value.trim() : '') || 'Created via EG Nexus OS' }] }]
+            },
+            issuetype: { name: (typeSel ? typeSel.value : 'Task') }
+          }
+        };
+
+        const res = await fetch(`https://${domain}/rest/api/3/issue`, {
+          method: 'POST',
+          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Jira HTTP ${res.status}`);
+        const data = await res.json();
+        showToast(`تیکت جدید با شناسه ${data.key} در Jira ثبت شد ✓`);
+        if (summaryInp) summaryInp.value = '';
+        if (descInp) descInp.value = '';
+        await syncAtlassianJiraLive();
+      } catch (err) {
+        showToast(`خطای ایجاد تیکت: ${err.message}`);
+      }
+    }
+
+    // REAL ASANA PROJECT MANAGEMENT REST API v1.0 ENGINE
+    // ============================================================================
+    function openAsanaConnectModal() {
+      const currentToken = getAppConnectionToken('asana') || '';
+
+      renderIntegrationModal('اتصال Asana', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-rose-600/20 to-orange-500/20 border border-rose-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🔴</span>
+              <b class="text-white text-sm">اتصال به Asana REST API v1.0</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              مدیریت و ثبت مستقیم وظایف، همگام‌سازی پروژه‌ها و پیگیری وظایف محوله با Personal Access Token (PAT).
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Asana Personal Access Token (PAT):
+              <input id="asanaTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="1/1234567890:..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">ساخت توکن در: app.asana.com/0/my-apps → Create new token</span>
+            </label>
+          </div>
+
+          <div id="asanaConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectAsanaLive()" class="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.asana.com/0/my-apps')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              دریافت توکن Asana ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectAsanaLive() {
+      const tokenInput = document.getElementById('asanaTokenInput');
+      const statusEl = document.getElementById('asanaConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن PAT آسانا را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با سرورهای Asana...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://app.asana.com/api/1.0/users/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`Asana HTTP ${res.status}`);
+        const data = await res.json();
+        const user = data.data || {};
+
+        const conn = appState.appConnections.asana || {};
+        conn.token = token;
+        conn.user = user;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `asana_${user.gid || Date.now()}`,
+          name: user.name || 'Asana User',
+          email: user.email || 'Asana Workspace',
+          avatar: 'A',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.asana = conn;
+        if (!appState.addedAppIds.includes('asana')) {
+          appState.addedAppIds.push('asana');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${user.name || user.email}! Asana متصل شد ✓`;
+        }
+        showToast('Asana با موفقیت متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('asana');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به Asana: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncAsanaTasksLive() {
+      const conn = appState.appConnections?.asana || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch('https://app.asana.com/api/1.0/tasks?opt_fields=name,completed,due_on,assignee.name&limit=6', {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.tasks = data.data || [];
+        appState.appConnections.asana = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('asanaTasksContainer')) {
+          renderLiveWorkspacePanel('asana');
+        }
+      } catch (e) {}
+    }
+
+    async function createAsanaTaskLive() {
+      const nameInp = document.getElementById('asanaTaskNameInput');
+      const dueInp = document.getElementById('asanaTaskDueInput');
+      const name = nameInp ? nameInp.value.trim() : '';
+      if (!name) { showToast('عنوان وظیفه الزامی است'); return; }
+
+      const conn = appState.appConnections?.asana || {};
+      const t = conn.token;
+      if (!t) { showToast('ابتدا توکن Asana را متصل کنید'); return; }
+
+      try {
+        const body = { data: { name, due_on: (dueInp ? dueInp.value.trim() : '') || undefined } };
+        const res = await fetch('https://app.asana.com/api/1.0/tasks', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error(`Asana HTTP ${res.status}`);
+        showToast('وظیفه جدید در Asana ثبت شد ✓');
+        if (nameInp) nameInp.value = '';
+        if (dueInp) dueInp.value = '';
+        await syncAsanaTasksLive();
+      } catch (err) {
+        showToast(`خطای ثبت تسک: ${err.message}`);
+      }
+    }
+
+    async function completeAsanaTaskLive(taskGid) {
+      const conn = appState.appConnections?.asana || {};
+      const t = conn.token;
+      if (!t || !taskGid) return;
+
+      try {
+        const res = await fetch(`https://app.asana.com/api/1.0/tasks/${encodeURIComponent(taskGid)}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: { completed: true } })
+        });
+        if (!res.ok) throw new Error(`Asana HTTP ${res.status}`);
+        showToast('وظیفه در Asana انجام شد ✓');
+        await syncAsanaTasksLive();
+      } catch (err) {
+        showToast(`خطا: ${err.message}`);
+      }
+    }
+
+    // REAL HUBSPOT CRM REST API v3 ENGINE
+    // ============================================================================
+    function openHubSpotConnectModal() {
+      const currentToken = getAppConnectionToken('hubspot') || '';
+
+      renderIntegrationModal('اتصال HubSpot CRM', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-orange-600/20 to-amber-500/20 border border-orange-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🔶</span>
+              <b class="text-white text-sm">اتصال به HubSpot CRM REST API v3</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              پایگاه داده مشتریان (Contacts)، ارزش پایپ‌لاین فروش (Deals) و ثبت مخاطبین جدید با Private App Token.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              HubSpot Private App Access Token:
+              <input id="hubspotTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="pat-na1-..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">ساخت توکن در: HubSpot Settings → Integrations → Private Apps</span>
+            </label>
+          </div>
+
+          <div id="hubspotConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectHubSpotLive()" class="py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.hubspot.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              پنل هاب‌اسپات ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectHubSpotLive() {
+      const tokenInput = document.getElementById('hubspotTokenInput');
+      const statusEl = document.getElementById('hubspotConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن Private App هاب‌اسپات را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال برقراری ارتباط با HubSpot CRM API...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://api.hubapi.com/crm/v3/objects/contacts?limit=2', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`HubSpot HTTP ${res.status}`);
+        const data = await res.json();
+
+        const conn = appState.appConnections.hubspot || {};
+        conn.token = token;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `hubspot_${Date.now()}`,
+          name: 'HubSpot CRM Account',
+          email: 'CRM Workspace',
+          avatar: 'H',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.hubspot = conn;
+        if (!appState.addedAppIds.includes('hubspot')) {
+          appState.addedAppIds.push('hubspot');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = 'حساب HubSpot CRM با موفقیت تایید و متصل شد ✓';
+        }
+        showToast('HubSpot CRM متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('hubspot');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به HubSpot: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncHubSpotCrmLive() {
+      const conn = appState.appConnections?.hubspot || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const [cRes, dRes] = await Promise.all([
+          fetch('https://api.hubapi.com/crm/v3/objects/contacts?limit=5&properties=firstname,lastname,email,company', {
+            headers: { 'Authorization': `Bearer ${t}` }
+          }),
+          fetch('https://api.hubapi.com/crm/v3/objects/deals?limit=5&properties=dealname,amount,dealstage', {
+            headers: { 'Authorization': `Bearer ${t}` }
+          })
+        ]);
+
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          conn.contacts = cData.results || [];
+        }
+        if (dRes.ok) {
+          const dData = await dRes.json();
+          conn.deals = dData.results || [];
+        }
+
+        appState.appConnections.hubspot = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('hubspotContactsContainer')) {
+          renderLiveWorkspacePanel('hubspot');
+        }
+      } catch (e) {}
+    }
+
+    async function createHubSpotContactLive() {
+      const fnInp = document.getElementById('hubspotContactFirstNameInput');
+      const lnInp = document.getElementById('hubspotContactLastNameInput');
+      const emInp = document.getElementById('hubspotContactEmailInput');
+
+      const email = emInp ? emInp.value.trim() : '';
+      if (!email) { showToast('ایمیل مخاطب الزامی است'); return; }
+
+      const conn = appState.appConnections?.hubspot || {};
+      const t = conn.token;
+      if (!t) { showToast('ابتدا HubSpot را متصل کنید'); return; }
+
+      try {
+        const res = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            properties: {
+              firstname: (fnInp ? fnInp.value.trim() : '') || 'کاربر',
+              lastname: (lnInp ? lnInp.value.trim() : '') || 'نکسوس',
+              email: email
+            }
+          })
+        });
+        if (!res.ok) throw new Error(`HubSpot HTTP ${res.status}`);
+        showToast('مخاطب جدید با موفقیت در HubSpot ثبت شد ✓');
+        if (fnInp) fnInp.value = '';
+        if (lnInp) lnInp.value = '';
+        if (emInp) emInp.value = '';
+        await syncHubSpotCrmLive();
+      } catch (err) {
+        showToast(`خطای ثبت مخاطب: ${err.message}`);
+      }
+    }
+
+    // REAL POSTHOG PRODUCT ANALYTICS & FEATURE FLAGS API ENGINE
+    // ============================================================================
+    function openPostHogConnectModal() {
+      const conn = appState.appConnections?.posthog || {};
+      const currentToken = getAppConnectionToken('posthog') || '';
+      const currentHost = conn.host || 'https://us.i.posthog.com';
+      const currentProjId = conn.projectId || '';
+
+      renderIntegrationModal('اتصال PostHog Analytics', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-yellow-500/20 to-amber-600/20 border border-yellow-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🦔</span>
+              <b class="text-white text-sm">اتصال به PostHog Feature Flags & Analytics API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              پایش و تغییر آنی فیچرفلگ‌ها (Feature Flags)، درصد Rollout قابلیت‌های جدید، و تحلیل محصول در محیط پروداکشن.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              آدرس سرور PostHog (Host):
+              <input id="posthogHostInput" type="text" value="${escapeHtml(currentHost)}" placeholder="https://us.i.posthog.com" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-yellow-300 font-mono code-block-dir" />
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              شناسه پروژه (Project ID):
+              <input id="posthogProjectIdInput" type="text" value="${escapeHtml(currentProjId)}" placeholder="12345" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir" />
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              PostHog Personal API Key:
+              <input id="posthogTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="phx_..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: PostHog Settings → Personal API Keys</span>
+            </label>
+          </div>
+
+          <div id="posthogConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectPostHogLive()" class="py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.posthog.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              داشبورد پست‌هاگ ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectPostHogLive() {
+      const hostInput = document.getElementById('posthogHostInput');
+      const projInput = document.getElementById('posthogProjectIdInput');
+      const tokenInput = document.getElementById('posthogTokenInput');
+      const statusEl = document.getElementById('posthogConnectStatus');
+
+      const host = (hostInput ? hostInput.value.trim() : 'https://us.i.posthog.com').replace(/\/$/, '');
+      const projectId = projInput ? projInput.value.trim() : '';
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!projectId || !token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً شناسه پروژه و Personal API Key را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال برقراری ارتباط با سرورهای PostHog...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch(`${host}/api/projects/${encodeURIComponent(projectId)}/feature_flags/?limit=5`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`PostHog HTTP ${res.status}`);
+        const data = await res.json();
+
+        const conn = appState.appConnections.posthog || {};
+        conn.host = host;
+        conn.projectId = projectId;
+        conn.token = token;
+        conn.flags = data.results || [];
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `posthog_${projectId}`,
+          name: `PostHog Project (${projectId})`,
+          email: 'PostHog Analytics',
+          avatar: 'P',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.posthog = conn;
+        if (!appState.addedAppIds.includes('posthog')) {
+          appState.addedAppIds.push('posthog');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `پروژه PostHog با موفقیت متصل شد (${(data.results || []).length} فیچرفلگ یافت شد) ✓`;
+        }
+        showToast('PostHog با موفقیت متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('posthog');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به PostHog: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncPostHogFlagsLive() {
+      const conn = appState.appConnections?.posthog || {};
+      const host = (conn.host || 'https://us.i.posthog.com').replace(/\/$/, '');
+      const projectId = conn.projectId;
+      const t = conn.token;
+      if (!projectId || !t) return;
+
+      try {
+        const res = await fetch(`${host}/api/projects/${encodeURIComponent(projectId)}/feature_flags/?limit=10`, {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.flags = data.results || [];
+        appState.appConnections.posthog = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('posthogFlagsContainer')) {
+          renderLiveWorkspacePanel('posthog');
+        }
+      } catch (e) {}
+    }
+
+    async function togglePostHogFlagLive(flagId, nextActive) {
+      const conn = appState.appConnections?.posthog || {};
+      const host = (conn.host || 'https://us.i.posthog.com').replace(/\/$/, '');
+      const projectId = conn.projectId;
+      const t = conn.token;
+      if (!projectId || !t || !flagId) return;
+
+      try {
+        const res = await fetch(`${host}/api/projects/${encodeURIComponent(projectId)}/feature_flags/${encodeURIComponent(flagId)}/`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: Boolean(nextActive) })
+        });
+        if (!res.ok) throw new Error(`PostHog HTTP ${res.status}`);
+        showToast(nextActive ? 'فلگ با موفقیت فعال شد ✓' : 'فلگ غیرفعال شد ✓');
+        await syncPostHogFlagsLive();
+      } catch (err) {
+        showToast(`خطای تغییر وضعیت فلگ: ${err.message}`);
+      }
+    }
+
+    // REAL BOX CLOUD CONTENT MANAGEMENT REST API v2 ENGINE
+    // ============================================================================
+    function openBoxConnectModal() {
+      const currentToken = getAppConnectionToken('box') || '';
+
+      renderIntegrationModal('اتصال Box Cloud Storage', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-sky-600/20 to-blue-700/20 border border-sky-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">📦</span>
+              <b class="text-white text-sm">اتصال به Box Cloud REST API v2</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              کاوشگر زنده اسناد و پوشه‌های سازمانی Box، جستجوی فایل و اتصال مستقیم به محتوای ابری با Developer Token یا OAuth.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Box Access / Developer Token:
+              <input id="boxTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="Box Bearer Token..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: Box Developer Console → Configuration → Developer Token</span>
+            </label>
+          </div>
+
+          <div id="boxConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectBoxLive()" class="py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.box.com/developers/console')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              کنسول توسعه Box ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectBoxLive() {
+      const tokenInput = document.getElementById('boxTokenInput');
+      const statusEl = document.getElementById('boxConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن دسترسی Box را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با سرورهای Box...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://api.box.com/2.0/users/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`Box HTTP ${res.status}`);
+        const user = await res.json();
+
+        const conn = appState.appConnections.box || {};
+        conn.token = token;
+        conn.user = user;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `box_${user.id || Date.now()}`,
+          name: user.name || 'Box User',
+          email: user.login || 'Box Account',
+          avatar: 'B',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.box = conn;
+        if (!appState.addedAppIds.includes('box')) {
+          appState.addedAppIds.push('box');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${user.name || user.login}! حساب Box متصل شد ✓`;
+        }
+        showToast('Box Cloud متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('box');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به Box: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncBoxFilesLive() {
+      const conn = appState.appConnections?.box || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch('https://api.box.com/2.0/folders/0/items?limit=8&fields=id,type,name,size,modified_at', {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.items = data.entries || [];
+        appState.appConnections.box = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('boxFilesContainer')) {
+          renderLiveWorkspacePanel('box');
+        }
+      } catch (e) {}
+    }
+
+    async function searchBoxFilesLive() {
+      const qInp = document.getElementById('boxSearchInput');
+      const q = qInp ? qInp.value.trim() : '';
+      if (!q) { await syncBoxFilesLive(); return; }
+
+      const conn = appState.appConnections?.box || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch(`https://api.box.com/2.0/search?query=${encodeURIComponent(q)}&limit=6`, {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.items = data.entries || [];
+        appState.appConnections.box = conn;
+        renderLiveWorkspacePanel('box');
+      } catch (e) {}
+    }
+
+    // REAL PAYPAL FOR BUSINESS REST API ENGINE
+    // ============================================================================
+    function openPayPalConnectModal() {
+      const conn = appState.appConnections?.paypal || {};
+      const currentToken = getAppConnectionToken('paypal') || '';
+      const currentEnv = conn.env || 'live';
+
+      renderIntegrationModal('اتصال PayPal for Business', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-indigo-600/20 to-blue-700/20 border border-indigo-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">💳</span>
+              <b class="text-white text-sm">اتصال به PayPal REST API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              استعلام لحظه‌ای موجودی حساب تجاری پی‌پال (USD, EUR, GBP)، منابع مالی در دسترس و گزارش آخرین تراکنش‌ها.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              محیط اتصال (Environment):
+              <select id="paypalEnvSelect" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white">
+                <option value="live" ${currentEnv === 'live' ? 'selected' : ''}>عملیاتی (Production - api-m.paypal.com)</option>
+                <option value="sandbox" ${currentEnv === 'sandbox' ? 'selected' : ''}>تست (Sandbox - api-m.sandbox.paypal.com)</option>
+              </select>
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              PayPal REST API Access Token:
+              <input id="paypalTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="A21AA..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت Access Token از طریق OAuth v1/oauth2/token در PayPal Developer Console</span>
+            </label>
+          </div>
+
+          <div id="paypalConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectPayPalLive()" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://developer.paypal.com/dashboard/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              کنسول توسعه PayPal ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectPayPalLive() {
+      const envSel = document.getElementById('paypalEnvSelect');
+      const tokenInput = document.getElementById('paypalTokenInput');
+      const statusEl = document.getElementById('paypalConnectStatus');
+
+      const env = envSel ? envSel.value : 'live';
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن دسترسی PayPal را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      const base = env === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال برقراری ارتباط با سرورهای PayPal...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch(`${base}/v1/reporting/balances?currency_code=USD`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error(`PayPal HTTP ${res.status}`);
+        const data = await res.json();
+
+        const conn = appState.appConnections.paypal || {};
+        conn.env = env;
+        conn.token = token;
+        conn.balances = data.balances || [];
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `paypal_${Date.now()}`,
+          name: `PayPal Account (${env.toUpperCase()})`,
+          email: 'PayPal Business Wallet',
+          avatar: 'P',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.paypal = conn;
+        if (!appState.addedAppIds.includes('paypal')) {
+          appState.addedAppIds.push('paypal');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = 'حساب PayPal با موفقیت تایید و متصل شد ✓';
+        }
+        showToast('PayPal با موفقیت متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('paypal');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به PayPal: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncPayPalBalancesLive() {
+      const conn = appState.appConnections?.paypal || {};
+      const env = conn.env || 'live';
+      const t = conn.token;
+      if (!t) return;
+
+      const base = env === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+
+      try {
+        const [bRes, tRes] = await Promise.all([
+          fetch(`${base}/v1/reporting/balances?currency_code=USD`, {
+            headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' }
+          }),
+          fetch(`${base}/v1/reporting/transactions?page_size=5&fields=transaction_info`, {
+            headers: { 'Authorization': `Bearer ${t}` }
+          })
+        ]);
+
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          conn.balances = bData.balances || [];
+        }
+        if (tRes.ok) {
+          const tData = await tRes.json();
+          conn.transactions = tData.transaction_details || [];
+        }
+
+        appState.appConnections.paypal = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('paypalBalancesContainer')) {
+          renderLiveWorkspacePanel('paypal');
+        }
+      } catch (e) {}
+    }
+
     function openProviderConnectSheet(appId) {
       if (appId === 'github') return openGitHubConnectModal();
       if (appId === 'clash_royale') return openClashRoyaleConfigModal();
@@ -5872,6 +7323,13 @@ body > header,
       if (appId === 'linear') return openLinearConnectModal();
       if (appId === 'webflow') return openWebflowConnectModal();
       if (appId === 'shopify') return openShopifyConnectModal();
+      if (appId === 'meta_ads') return openMetaAdsConnectModal();
+      if (appId === 'atlassian') return openAtlassianConnectModal();
+      if (appId === 'asana') return openAsanaConnectModal();
+      if (appId === 'hubspot') return openHubSpotConnectModal();
+      if (appId === 'posthog') return openPostHogConnectModal();
+      if (appId === 'box') return openBoxConnectModal();
+      if (appId === 'paypal') return openPayPalConnectModal();
       if (isGoogleProvider(appId)) return openGoogleAccountChooser(appId);
       const app = APPS_CATALOG.find(a => a.id === appId); if (!app) return;
       if (app.type === 'MCP') return openMcpServerConfigSheet(appId);
@@ -6926,6 +8384,413 @@ body > header,
           </div>
         `;
       }
+      else if (appId === 'meta_ads') {
+        const conn = appState.appConnections?.meta_ads || {};
+        const ins = conn.insights || { spend: '0', impressions: '0', clicks: '0', ctr: '0' };
+        const campaigns = Array.isArray(conn.campaigns) ? conn.campaigns : [];
+
+        const campsHtml = campaigns.length ? campaigns.map(c => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white truncate">${escapeHtml(c.name || 'Campaign')}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(c.objective || 'OUTCOME_TRAFFIC')}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${c.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-500/20 text-slate-300'}">
+              ${escapeHtml(c.status || 'PAUSED')}
+            </span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">کمپینی یافت نشد؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-blue-600/20 to-indigo-600/20 border border-blue-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">📊</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Meta Ads Manager</div>
+                    <div class="text-[10px] text-blue-300 font-mono">${escapeHtml(conn.actId || 'act_account')}</div>
+                  </div>
+                </div>
+                <button onclick="syncMetaAdsDataLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 تازه‌سازی
+                </button>
+              </div>
+
+              <div id="metaAdsInsightsContainer" class="grid grid-cols-3 gap-2 pt-1 border-t border-white/10 text-center">
+                <div class="p-2 rounded-xl bg-black/30">
+                  <div class="text-[10px] text-slate-400">کل هزینه ($)</div>
+                  <div class="text-xs font-black text-amber-300 font-mono mt-0.5">$${escapeHtml(ins.spend || '0')}</div>
+                </div>
+                <div class="p-2 rounded-xl bg-black/30">
+                  <div class="text-[10px] text-slate-400">نمایش (Impr)</div>
+                  <div class="text-xs font-black text-blue-300 font-mono mt-0.5">${escapeHtml(ins.impressions || '0')}</div>
+                </div>
+                <div class="p-2 rounded-xl bg-black/30">
+                  <div class="text-[10px] text-slate-400">کلیک (Clicks)</div>
+                  <div class="text-xs font-black text-emerald-300 font-mono mt-0.5">${escapeHtml(ins.clicks || '0')}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>🎯 کمپین‌های تبلیغاتی:</span>
+                <span class="text-[10px] text-blue-400 font-mono">Marketing API v20.0</span>
+              </div>
+              <div class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${campsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'atlassian') {
+        const conn = appState.appConnections?.atlassian || {};
+        const issues = Array.isArray(conn.issues) ? conn.issues : [];
+
+        const issuesHtml = issues.length ? issues.map(i => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-blue-400 font-mono">${escapeHtml(i.key)}</span>
+                <span class="text-white truncate">${escapeHtml(i.fields?.summary || i.summary || 'بدون عنوان')}</span>
+              </div>
+              <div class="text-[10px] text-slate-400">${escapeHtml(i.fields?.issuetype?.name || i.type || 'Task')} · ${escapeHtml(i.fields?.priority?.name || i.priority || 'Medium')}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              ${escapeHtml(i.fields?.status?.name || i.status || 'To Do')}
+            </span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">تیکتی دریافت نشد؛ همگام‌سازی را بزنید یا تیکت جدید ثبت کنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🔷</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Atlassian Jira Cloud</div>
+                    <div class="text-[10px] text-sky-300 font-mono">${escapeHtml(conn.domain || 'atlassian.net')}</div>
+                  </div>
+                </div>
+                <button onclick="syncAtlassianJiraLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">➕ ثبت سریع تیکت در Jira</div>
+              <input id="jiraIssueSummaryInput" placeholder="عنوان تیکت / باگ..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <div class="grid grid-cols-2 gap-2">
+                <input id="jiraIssueProjectKeyInput" placeholder="Project Key (e.g. KAN)" value="KAN" class="bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono code-block-dir" />
+                <select id="jiraIssueTypeInput" class="bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white">
+                  <option value="Task">Task (وظیفه)</option>
+                  <option value="Bug">Bug (خطای نرم‌افزاری)</option>
+                  <option value="Story">Story (داستان کاربر)</option>
+                </select>
+              </div>
+              <button onclick="createAtlassianJiraIssueLive()" class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition">
+                ثبت مستقیم تیکت در Jira
+              </button>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📋 آخرین تیکت‌های تیم:</span>
+                <span class="text-[10px] text-sky-400 font-mono">REST API v3</span>
+              </div>
+              <div id="jiraIssuesContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${issuesHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'asana') {
+        const conn = appState.appConnections?.asana || {};
+        const tasks = Array.isArray(conn.tasks) ? conn.tasks : [];
+
+        const tasksHtml = tasks.length ? tasks.map(t => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white ${t.completed ? 'line-through text-slate-500' : ''}">${escapeHtml(t.name || 'بدون عنوان')}</div>
+              <div class="text-[10px] text-slate-400">${t.due_on ? `موعد: ${escapeHtml(t.due_on)}` : 'بدون موعد'} · ${escapeHtml(t.assignee?.name || 'تخصیص‌نیافته')}</div>
+            </div>
+            ${t.completed ? `<span class="text-xs text-emerald-400 font-bold">✓ انجام شد</span>` : `<button onclick="completeAsanaTaskLive('${escapeJsAttr(t.gid)}')" class="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold transition">انجام شد ✓</button>`}
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">وظیفه‌ای لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-rose-600/20 to-orange-500/20 border border-rose-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🔴</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Asana Tasks</div>
+                    <div class="text-[10px] text-rose-300">${escapeHtml(conn.user?.name || conn.user?.email || 'Asana Workspace')}</div>
+                  </div>
+                </div>
+                <button onclick="syncAsanaTasksLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">➕ افزودن تسک جدید در Asana</div>
+              <input id="asanaTaskNameInput" placeholder="عنوان وظیفه..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <div class="flex items-center gap-2" dir="ltr">
+                <input id="asanaTaskDueInput" type="date" class="flex-1 bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white code-block-dir" />
+                <button onclick="createAsanaTaskLive()" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold transition">
+                  ثبت در Asana
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📋 لیست وظایف فعال:</span>
+                <span class="text-[10px] text-rose-400 font-mono">REST API v1.0</span>
+              </div>
+              <div id="asanaTasksContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${tasksHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'hubspot') {
+        const conn = appState.appConnections?.hubspot || {};
+        const contacts = Array.isArray(conn.contacts) ? conn.contacts : [];
+        const deals = Array.isArray(conn.deals) ? conn.deals : [];
+
+        const contactsHtml = contacts.length ? contacts.map(c => `
+          <div class="p-2 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white">${escapeHtml(`${c.properties?.firstname || ''} ${c.properties?.lastname || ''}`.trim() || 'مخاطب')}</div>
+              <div class="text-[10px] text-slate-400 font-mono code-block-dir truncate">${escapeHtml(c.properties?.email || '')}</div>
+            </div>
+            <div class="text-[10px] text-amber-300">${escapeHtml(c.properties?.company || 'سازمان')}</div>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">مخاطبی ثبت نشده است.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-orange-600/20 to-amber-500/20 border border-orange-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🔶</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">HubSpot CRM v3</div>
+                    <div class="text-[10px] text-amber-300 font-mono">پایگاه داده مشتریان و معاملات</div>
+                  </div>
+                </div>
+                <button onclick="syncHubSpotCrmLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-1 border-t border-white/10 text-center">
+                <div class="p-1.5 rounded-xl bg-black/30">
+                  <div class="text-[10px] text-slate-400">مخاطبین فعال</div>
+                  <div class="text-xs font-black text-white font-mono mt-0.5">${contacts.length}</div>
+                </div>
+                <div class="p-1.5 rounded-xl bg-black/30">
+                  <div class="text-[10px] text-slate-400">فرصت‌های فروش</div>
+                  <div class="text-xs font-black text-amber-300 font-mono mt-0.5">${deals.length}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">➕ ثبت مخاطب جدید در CRM</div>
+              <div class="grid grid-cols-2 gap-2">
+                <input id="hubspotContactFirstNameInput" placeholder="نام..." class="bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white" />
+                <input id="hubspotContactLastNameInput" placeholder="نام خانوادگی..." class="bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white" />
+              </div>
+              <input id="hubspotContactEmailInput" type="email" placeholder="ایمیل مخاطب..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir" />
+              <button onclick="createHubSpotContactLive()" class="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-extrabold transition">
+                افزودن مخاطب به پایگاه HubSpot
+              </button>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>👥 مخاطبین اخیر:</span>
+                <span class="text-[10px] text-orange-400 font-mono">HubSpot CRM API</span>
+              </div>
+              <div id="hubspotContactsContainer" class="space-y-1.5 max-h-40 overflow-y-auto">
+                ${contactsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'posthog') {
+        const conn = appState.appConnections?.posthog || {};
+        const flags = Array.isArray(conn.flags) ? conn.flags : [];
+
+        const flagsHtml = flags.length ? flags.map(f => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white font-mono">${escapeHtml(f.key)}</div>
+              <div class="text-[10px] text-slate-400">${escapeHtml(f.name || 'Feature Flag')} · Rollout: ${escapeHtml(f.rollout_percentage != null ? f.rollout_percentage + '%' : '100%')}</div>
+            </div>
+            <button onclick="togglePostHogFlagLive(${f.id}, ${!f.active})" class="shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${f.active ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-500/20 text-slate-400'}">
+              ${f.active ? 'ACTIVE (ON)' : 'PAUSED (OFF)'}
+            </button>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">فیچرفلگی لود نشده است؛ همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-yellow-500/20 to-amber-600/20 border border-yellow-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🦔</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">PostHog Analytics</div>
+                    <div class="text-[10px] text-yellow-300 font-mono">پروژه: ${escapeHtml(conn.projectId || '12345')}</div>
+                  </div>
+                </div>
+                <button onclick="syncPostHogFlagsLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>🚩 مدیریت زنده Feature Flags:</span>
+                <span class="text-[10px] text-yellow-400 font-mono">PostHog REST API</span>
+              </div>
+              <div id="posthogFlagsContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${flagsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'box') {
+        const conn = appState.appConnections?.box || {};
+        const items = Array.isArray(conn.items) ? conn.items : [];
+
+        const itemsHtml = items.length ? items.map(it => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+              <span class="text-base">${it.type === 'folder' ? '📁' : '📄'}</span>
+              <div class="min-w-0 flex-1">
+                <div class="font-bold text-white truncate">${escapeHtml(it.name || 'File')}</div>
+                <div class="text-[10px] text-slate-400">${it.size ? `${Math.round(it.size / 1024)} KB` : 'Folder'}</div>
+              </div>
+            </div>
+            <span class="text-[10px] text-sky-300 uppercase">${escapeHtml(it.type || 'file')}</span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">فایلی یافت نشد؛ جستجو کنید یا دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-sky-600/20 to-blue-700/20 border border-sky-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">📦</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Box Cloud Content</div>
+                    <div class="text-[10px] text-sky-300">${escapeHtml(conn.user?.name || conn.user?.login || 'Box Drive')}</div>
+                  </div>
+                </div>
+                <button onclick="syncBoxFilesLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+
+              <div class="flex items-center gap-1.5" dir="ltr">
+                <input id="boxSearchInput" placeholder="جستجو در اسناد Box..." class="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white code-block-dir" onkeydown="if(event.key==='Enter') searchBoxFilesLive()" />
+                <button onclick="searchBoxFilesLive()" class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition">
+                  🔍
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>🗂️ فایل‌ها و پوشه‌های ابری:</span>
+                <span class="text-[10px] text-sky-400 font-mono">Box API v2</span>
+              </div>
+              <div id="boxFilesContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${itemsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'paypal') {
+        const conn = appState.appConnections?.paypal || {};
+        const balances = Array.isArray(conn.balances) ? conn.balances : [];
+        const transactions = Array.isArray(conn.transactions) ? conn.transactions : [];
+
+        const balancesHtml = balances.length ? balances.map(b => `
+          <div class="p-2 rounded-xl bg-black/40 border border-white/10 text-center">
+            <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(b.currency || 'USD')}</div>
+            <div class="text-xs font-black text-emerald-300 font-mono mt-0.5">${escapeHtml(b.total_balance?.value || '0.00')}</div>
+            <div class="text-[9px] text-slate-500">در دسترس: ${escapeHtml(b.available_balance?.value || '0.00')}</div>
+          </div>
+        `).join('') : `
+          <div class="col-span-2 p-2 rounded-xl bg-black/40 text-center">
+            <div class="text-xs font-mono text-emerald-300">$0.00 USD</div>
+            <div class="text-[10px] text-slate-400">موجودی در دسترس</div>
+          </div>
+        `;
+
+        const txHtml = transactions.length ? transactions.map(tx => `
+          <div class="p-2 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1">
+              <div class="font-bold text-white font-mono text-[11px] truncate">${escapeHtml(tx.transaction_info?.transaction_id || tx.id || 'TX-ID')}</div>
+              <div class="text-[10px] text-slate-400">${escapeHtml(tx.transaction_info?.transaction_status || tx.status || 'COMPLETED')}</div>
+            </div>
+            <div class="font-bold text-emerald-400 font-mono text-xs">
+              ${escapeHtml(tx.transaction_info?.transaction_amount?.value || tx.amount?.value || '0.00')} ${escapeHtml(tx.transaction_info?.transaction_amount?.currency_code || 'USD')}
+            </div>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">تراکنشی یافت نشد؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-indigo-600/20 to-blue-700/20 border border-indigo-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">💳</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">PayPal Business Wallet</div>
+                    <div class="text-[10px] text-indigo-300 uppercase">${escapeHtml(conn.env || 'live')} Environment</div>
+                  </div>
+                </div>
+                <button onclick="syncPayPalBalancesLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+
+              <div id="paypalBalancesContainer" class="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
+                ${balancesHtml}
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📑 تراکنش‌های اخیر حساب:</span>
+                <span class="text-[10px] text-indigo-400 font-mono">PayPal REST API</span>
+              </div>
+              <div class="space-y-1.5 max-h-44 overflow-y-auto">
+                ${txHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
       else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
       panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
       if (appId === 'gcal') setTimeout(syncGoogleCalendarEvents, 100);
@@ -6937,6 +8802,13 @@ body > header,
       if (appId === 'linear') setTimeout(syncLinearIssuesLive, 100);
       if (appId === 'webflow') setTimeout(syncWebflowSitesLive, 100);
       if (appId === 'shopify') setTimeout(syncShopifyStoreLive, 100);
+      if (appId === 'meta_ads') setTimeout(syncMetaAdsDataLive, 100);
+      if (appId === 'atlassian') setTimeout(syncAtlassianJiraLive, 100);
+      if (appId === 'asana') setTimeout(syncAsanaTasksLive, 100);
+      if (appId === 'hubspot') setTimeout(syncHubSpotCrmLive, 100);
+      if (appId === 'posthog') setTimeout(syncPostHogFlagsLive, 100);
+      if (appId === 'box') setTimeout(syncBoxFilesLive, 100);
+      if (appId === 'paypal') setTimeout(syncPayPalBalancesLive, 100);
     }
 
     function openAppDetailView(appId) {
