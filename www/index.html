@@ -2880,6 +2880,43 @@ body > header,
             }
           ]
         },
+        elevenlabs: {
+          name: 'ElevenLabs Lifelike Voiceover MCP',
+          endpointDefault: 'https://api.elevenlabs.io/v1',
+          tools: [
+            {
+              name: 'elevenlabs_text_to_speech',
+              description: 'تولید گویندگی با صدای هوش مصنوعی طبیعی برای ویدیوهای شورتس و ریلز',
+              parameters: { text: 'string (متن گویندگی)', voice_id: 'string (اختیاری - شناسه صدا)' },
+              execute: async (args, token) => {
+                if (!token) throw new Error('کلید API ElevenLabs در تنظیمات سرور ثبت نشده است');
+                const voiceId = args.voice_id || '21m00Tcm4TlvDq8ikWAM';
+                const text = args.text || 'سلام، این صدای تولید شده با ایلون لبز در نکسوس او اس است';
+                const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                  method: 'POST',
+                  headers: { 'xi-api-key': token, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text, model_id: 'eleven_multilingual_v2' })
+                });
+                if (!res.ok) throw new Error(`ElevenLabs API HTTP ${res.status}`);
+                return { status: 'success', voiceId, textLength: text.length, format: 'audio/mpeg' };
+              }
+            },
+            {
+              name: 'elevenlabs_get_voices',
+              description: 'دریافت لیست صداهای در دسترس در حساب کاربری ElevenLabs',
+              parameters: {},
+              execute: async (args, token) => {
+                if (!token) throw new Error('کلید API ElevenLabs الزامی است');
+                const res = await fetch('https://api.elevenlabs.io/v1/voices', {
+                  headers: { 'xi-api-key': token }
+                });
+                if (!res.ok) throw new Error(`ElevenLabs API HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.voices || []).slice(0, 10).map(v => ({ voice_id: v.voice_id, name: v.name, category: v.category }));
+              }
+            }
+          ]
+        },
         firecrawl: {
           name: 'Firecrawl Web Crawler MCP',
           endpointDefault: 'https://api.firecrawl.dev/v1',
@@ -3731,7 +3768,9 @@ body > header,
         if (!def || !def.tools[0]) throw new Error('ابزاری برای این سرور تعریف نشده است');
         const firstTool = def.tools[0];
         const sampleArgs = appId === 'coingecko' ? { coin_id: 'bitcoin', currency: 'usd' }
-          : (appId === 'firecrawl' ? { url: 'https://example.com' } : { query: 'test' });
+          : (appId === 'firecrawl' ? { url: 'https://example.com' }
+          : (appId === 'elevenlabs' ? { text: 'تست موفقیت‌آمیز صدای هوش مصنوعی در نکسوس او اس' }
+          : { query: 'test' }));
         
         const result = await firstTool.execute(sampleArgs, token);
         outputEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
@@ -13905,11 +13944,69 @@ function stopActiveSpeechPlayback(silent = false) {
   activeSpeakingMsgIdx = null;
   activeSpeakingChatId = null;
   activeTtsUtterance = null;
+  if (window._activeElevenLabsAudio) {
+    try {
+      window._activeElevenLabsAudio.pause();
+      window._activeElevenLabsAudio.currentTime = 0;
+    } catch (_) {}
+    window._activeElevenLabsAudio = null;
+  }
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try { window.speechSynthesis.cancel(); } catch (e) {}
   }
   updateSpeakButtonsLabel();
   if (!silent) showToast('⏹ خوانش صوتی متوقف شد');
+}
+
+async function speakWithElevenLabsApi(text, token, callbacks = {}) {
+  const voiceId = appState.appConnections?.elevenlabs?.voiceId || '21m00Tcm4TlvDq8ikWAM';
+  const modelId = appState.appConnections?.elevenlabs?.modelId || 'eleven_multilingual_v2';
+  const cleanSnippet = String(text || '').slice(0, 1500);
+
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': token,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg'
+      },
+      body: JSON.stringify({
+        text: cleanSnippet,
+        model_id: modelId,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75
+        }
+      })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData?.detail?.message || `ElevenLabs HTTP ${res.status}`);
+    }
+
+    const audioBlob = await res.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
+    window._activeElevenLabsAudio = audio;
+
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      window._activeElevenLabsAudio = null;
+      if (callbacks.onEnd) callbacks.onEnd();
+    };
+
+    audio.onerror = () => {
+      URL.revokeObjectURL(audioUrl);
+      window._activeElevenLabsAudio = null;
+      if (callbacks.onError) callbacks.onError(new Error('خطا در پخش صدای ElevenLabs'));
+    };
+
+    await audio.play();
+  } catch (err) {
+    if (callbacks.onError) callbacks.onError(err);
+  }
 }
 
 
@@ -14028,129 +14125,134 @@ function speakAgentMessage(msgIndex, explicitChat = null) {
     return;
   }
 
+  const elevenlabsToken = getAppConnectionToken('elevenlabs') || appState.appConnections?.elevenlabs?.token || (typeof secrets !== 'undefined' ? secrets.connectionTokens?.elevenlabs : '');
+  if (elevenlabsToken && appState.appConnections?.elevenlabs?.mcpEnabled !== false) {
+    activeSpeakingMsgIdx = msgIndex;
+    activeSpeakingChatId = chat.id || null;
+    updateSpeakButtonsLabel();
+    showToast('🎙️ در حال تولید صدای فوق‌طبیعی ElevenLabs...');
 
-
-
-  const detectedLang = detectBestTtsLanguage(cleanText);
-  refreshSpeechVoicesCache();
-  const langPrefix = detectedLang.slice(0, 2).toLowerCase();
-  const matchedVoice = cachedSpeechVoices.find(v => String(v.lang || '').toLowerCase().startsWith(langPrefix)) || null;
-
-
-
-
-  const chunks = splitTextForAndroidTts(splitStringByCodePoints(cleanText, 3600)[0] || '', 220);
-  const sessionId = ++activeTtsSessionId;
-  activeSpeakingMsgIdx = msgIndex;
-  activeSpeakingChatId = chat.id || null;
-  updateSpeakButtonsLabel();
-
-
-
-
-  try {
-    if (typeof window.speechSynthesis.resume === 'function') {
-      window.speechSynthesis.resume();
-    }
-  } catch (e) {}
-
-
-
-
-  let chunkIdx = 0;
-  const playNextChunk = () => {
-    if (sessionId !== activeTtsSessionId) return;
-    if (phase4VoiceIsInactive()) { stopActiveSpeechPlayback(true); return; }
-    if (activeTtsWatchdogTimer) {
-      clearTimeout(activeTtsWatchdogTimer);
-      activeTtsWatchdogTimer = null;
-    }
-    if (sessionId !== activeTtsSessionId || chunkIdx >= chunks.length) {
-      if (sessionId === activeTtsSessionId) {
-        activeSpeakingMsgIdx = null;
-        activeSpeakingChatId = null;
-        activeTtsUtterance = null;
-        updateSpeakButtonsLabel();
+    speakWithElevenLabsApi(cleanText, elevenlabsToken, {
+      onEnd: () => {
+        stopActiveSpeechPlayback(true);
+      },
+      onError: (err) => {
+        showToast(`⚠️ خطای ElevenLabs (${err.message})؛ سوییچ به صدای سیستم`);
+        startSystemTtsPlayback();
       }
-      return;
-    }
-    const chunkText = chunks[chunkIdx++];
-    let utter;
-    try { utter = new UtteranceCtor(chunkText); }
-    catch (err) {
-      stopActiveSpeechPlayback(true);
-      showToast('ایجاد موتور خوانش صوتی ناموفق بود');
-      return;
-    }
-    activeTtsUtterance = utter;
-    utter.lang = detectedLang;
-    if (matchedVoice) utter.voice = matchedVoice;
-    utter.rate = 1.04;
+    });
+    return;
+  }
 
+  startSystemTtsPlayback();
 
+  function startSystemTtsPlayback() {
+    const detectedLang = detectBestTtsLanguage(cleanText);
+    refreshSpeechVoicesCache();
+    const langPrefix = detectedLang.slice(0, 2).toLowerCase();
+    const matchedVoice = cachedSpeechVoices.find(v => String(v.lang || '').toLowerCase().startsWith(langPrefix)) || null;
 
+    const chunks = splitTextForAndroidTts(splitStringByCodePoints(cleanText, 3600)[0] || '', 220);
+    const sessionId = ++activeTtsSessionId;
+    activeSpeakingMsgIdx = msgIndex;
+    activeSpeakingChatId = chat.id || null;
+    updateSpeakButtonsLabel();
 
-    let settled = false;
-    const advanceChunk = (isErr = false, fromWatchdog = false) => {
-      if (settled || sessionId !== activeTtsSessionId) return;
-      settled = true;
+    try {
+      if (typeof window.speechSynthesis.resume === 'function') {
+        window.speechSynthesis.resume();
+      }
+    } catch (e) {}
+
+    let chunkIdx = 0;
+    const playNextChunk = () => {
+      if (sessionId !== activeTtsSessionId) return;
+      if (phase4VoiceIsInactive()) { stopActiveSpeechPlayback(true); return; }
       if (activeTtsWatchdogTimer) {
         clearTimeout(activeTtsWatchdogTimer);
         activeTtsWatchdogTimer = null;
       }
-      if (activeTtsUtterance === utter) activeTtsUtterance = null;
-      if (isErr) {
+      if (sessionId !== activeTtsSessionId || chunkIdx >= chunks.length) {
         if (sessionId === activeTtsSessionId) {
           activeSpeakingMsgIdx = null;
           activeSpeakingChatId = null;
+          activeTtsUtterance = null;
           updateSpeakButtonsLabel();
         }
         return;
       }
-      if (fromWatchdog) {
-        try { window.speechSynthesis.cancel(); } catch (e) {}
-        activeTtsWatchdogTimer = setTimeout(() => {
+      const chunkText = chunks[chunkIdx++];
+      let utter;
+      try { utter = new UtteranceCtor(chunkText); }
+      catch (err) {
+        stopActiveSpeechPlayback(true);
+        showToast('ایجاد موتور خوانش صوتی ناموفق بود');
+        return;
+      }
+      activeTtsUtterance = utter;
+      utter.lang = detectedLang;
+      if (matchedVoice) utter.voice = matchedVoice;
+      utter.rate = 1.04;
+
+      let settled = false;
+      const advanceChunk = (isErr = false, fromWatchdog = false) => {
+        if (settled || sessionId !== activeTtsSessionId) return;
+        settled = true;
+        if (activeTtsWatchdogTimer) {
+          clearTimeout(activeTtsWatchdogTimer);
           activeTtsWatchdogTimer = null;
-          if (sessionId === activeTtsSessionId) playNextChunk();
-        }, 65);
-      } else {
-        playNextChunk();
+        }
+        if (activeTtsUtterance === utter) activeTtsUtterance = null;
+        if (isErr) {
+          if (sessionId === activeTtsSessionId) {
+            activeSpeakingMsgIdx = null;
+            activeSpeakingChatId = null;
+            updateSpeakButtonsLabel();
+          }
+          return;
+        }
+        if (fromWatchdog) {
+          try { window.speechSynthesis.cancel(); } catch (e) {}
+          activeTtsWatchdogTimer = setTimeout(() => {
+            activeTtsWatchdogTimer = null;
+            if (sessionId === activeTtsSessionId) playNextChunk();
+          }, 65);
+        } else {
+          playNextChunk();
+        }
+      };
+
+      const maxDurationMs = Math.min(28000, Math.max(8000, chunkText.length * 105));
+      activeTtsWatchdogTimer = setTimeout(() => {
+        if (sessionId !== activeTtsSessionId) return;
+        stopActiveSpeechPlayback(true);
+        showToast('موتور خوانش پاسخ نداد؛ زبان و صدای نصب‌شده دستگاه را بررسی کنید');
+      }, maxDurationMs);
+
+      utter.onend = () => advanceChunk(false, false);
+      utter.onerror = () => {
+        if (sessionId !== activeTtsSessionId || settled) return;
+        advanceChunk(true, false);
+        showToast('خوانش صوتی ناموفق بود؛ تنظیمات موتور و صدای دستگاه را بررسی کنید');
+      };
+      try { window.speechSynthesis.speak(utter); }
+      catch (err) {
+        advanceChunk(true, false);
+        try { window.speechSynthesis.cancel(); } catch (cancelError) {}
+        showToast('شروع خوانش صوتی ممکن نشد');
       }
     };
 
-
-    const maxDurationMs = Math.min(28000, Math.max(8000, chunkText.length * 105));
-    activeTtsWatchdogTimer = setTimeout(() => {
-      if (sessionId !== activeTtsSessionId) return;
-      stopActiveSpeechPlayback(true);
-      showToast('موتور خوانش پاسخ نداد؛ زبان و صدای نصب‌شده دستگاه را بررسی کنید');
-    }, maxDurationMs);
-
-
-    utter.onend = () => advanceChunk(false, false);
-    utter.onerror = () => {
-      if (sessionId !== activeTtsSessionId || settled) return;
-      advanceChunk(true, false);
-      showToast('خوانش صوتی ناموفق بود؛ تنظیمات موتور و صدای دستگاه را بررسی کنید');
-    };
-    try { window.speechSynthesis.speak(utter); }
-    catch (err) {
-      advanceChunk(true, false);
-      try { window.speechSynthesis.cancel(); } catch (cancelError) {}
-      showToast('شروع خوانش صوتی ممکن نشد');
+    showToast(`🔊 در حال خواندن صوتی پیام ${msg.senderName || 'ایجنت'} (${detectedLang === 'fa-IR' ? 'فارسی' : 'English'})...`);
+    if (hadActiveSpeechBeforeCancel) {
+      activeTtsWatchdogTimer = setTimeout(() => {
+        if (sessionId !== activeTtsSessionId) return;
+        activeTtsWatchdogTimer = null;
+        if (sessionId === activeTtsSessionId) playNextChunk();
+      }, 65);
+    } else {
+      playNextChunk();
     }
-  };
-
-
-  showToast(`🔊 در حال خواندن صوتی پیام ${msg.senderName || 'ایجنت'} (${detectedLang === 'fa-IR' ? 'فارسی' : 'English'})...`);
-  if (hadActiveSpeechBeforeCancel) {
-    activeTtsWatchdogTimer = setTimeout(() => {
-      if (sessionId !== activeTtsSessionId) return;
-      activeTtsWatchdogTimer = null;
-      if (sessionId === activeTtsSessionId) playNextChunk();
-    }, 65);
-  } else {
-    playNextChunk();
   }
 
 
