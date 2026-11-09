@@ -3690,6 +3690,272 @@ body > header,
               }
             }
           ]
+        },
+        clickup: {
+          name: 'ClickUp Project Management MCP',
+          endpointDefault: 'https://api.clickup.com/api/v2',
+          tools: [
+            {
+              name: 'clickup_get_tasks',
+              description: 'دریافت وظایف و تسک‌های فعال از تیم ClickUp',
+              parameters: { team_id: 'string (اختیاری)', limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.clickup || {};
+                const t = token || conn.token;
+                const teamId = args.team_id || conn.teamId;
+                if (!t) throw new Error('توکن API برای ClickUp الزامی است');
+                const targetTeam = teamId || (conn.teams?.[0]?.id);
+                if (!targetTeam) throw new Error('شناسه تیم ClickUp یافت نشد');
+                const res = await fetch(`https://api.clickup.com/api/v2/team/${encodeURIComponent(targetTeam)}/task?subtasks=false&include_closed=false`, {
+                  headers: { 'Authorization': t }
+                });
+                if (!res.ok) throw new Error(`ClickUp HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.tasks || []).slice(0, args.limit || 5).map(tk => ({ id: tk.id, name: tk.name, status: tk.status?.status, priority: tk.priority?.priority, url: tk.url }));
+              }
+            },
+            {
+              name: 'clickup_create_task',
+              description: 'ایجاد تسک جدید در فهرست (List) کلیک‌آپ',
+              parameters: { list_id: 'string (شناسه لیست)', name: 'string (عنوان وظیفه)', description: 'string' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.clickup || {};
+                const t = token || conn.token;
+                const listId = args.list_id || conn.listId;
+                if (!t || !listId) throw new Error('توکن یا شناسه لیست ClickUp یافت نشد');
+                const res = await fetch(`https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task`, {
+                  method: 'POST',
+                  headers: { 'Authorization': t, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: args.name || 'وظیفه جدید از نکسوس', description: args.description || 'ثبت شده توسط ایجنت هوش مصنوعی' })
+                });
+                if (!res.ok) throw new Error(`ClickUp Task HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        monday: {
+          name: 'monday.com Workspace MCP',
+          endpointDefault: 'https://api.monday.com/v2',
+          tools: [
+            {
+              name: 'monday_list_boards',
+              description: 'مشاهده بوردها و پروژه‌های کاری فعال در monday.com',
+              parameters: { limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.monday || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن API ماندِی الزامی است');
+                const query = `query { boards(limit: ${args.limit || 5}) { id name state board_kind } }`;
+                const res = await fetch('https://api.monday.com/v2', {
+                  method: 'POST',
+                  headers: { 'Authorization': t, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ query })
+                });
+                if (!res.ok) throw new Error(`monday.com HTTP ${res.status}`);
+                const data = await res.json();
+                return data.data?.boards || [];
+              }
+            },
+            {
+              name: 'monday_create_item',
+              description: 'ایجاد آیتم یا ردیف وظیفه جدید در بورد monday.com',
+              parameters: { board_id: 'string (شناسه بورد)', item_name: 'string (عنوان وظیفه)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.monday || {};
+                const t = token || conn.token;
+                const boardId = args.board_id || conn.boardId;
+                if (!t || !boardId) throw new Error('توکن یا شناسه بورد monday.com الزامی است');
+                const query = `mutation { create_item (board_id: ${JSON.stringify(String(boardId))}, item_name: ${JSON.stringify(args.item_name || 'تسک نکسوس')}) { id name } }`;
+                const res = await fetch('https://api.monday.com/v2', {
+                  method: 'POST',
+                  headers: { 'Authorization': t, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ query })
+                });
+                if (!res.ok) throw new Error(`monday.com Create HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        intercom: {
+          name: 'Intercom Customer Messaging MCP',
+          endpointDefault: 'https://api.intercom.io',
+          tools: [
+            {
+              name: 'intercom_list_conversations',
+              description: 'دریافت آخرین گفتگوها و تیکت‌های پشتیبانی کاربران از Intercom',
+              parameters: { limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.intercom || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن Intercom Access Token الزامی است');
+                const res = await fetch('https://api.intercom.io/conversations?per_page=' + (args.limit || 5), {
+                  headers: { 'Authorization': `Bearer ${t}`, 'Accept': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`Intercom HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.conversations || []).map(cv => ({ id: cv.id, title: cv.title || cv.source?.body?.slice(0, 60), state: cv.state, open: cv.open, created_at: cv.created_at }));
+              }
+            }
+          ]
+        },
+        revenuecat: {
+          name: 'RevenueCat In-App Purchases MCP',
+          endpointDefault: 'https://api.revenuecat.com/v1',
+          tools: [
+            {
+              name: 'revenuecat_get_subscriber',
+              description: 'استعلام وضعیت سابسکرایب، اشتراک‌ها و تاریخچه پرداخت‌های کاربر در اپلیکیشن ورزشی اندروید',
+              parameters: { app_user_id: 'string (شناسه کاربر در اپلیکیشن)' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.revenuecat || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن API رسمی RevenueCat الزامی است');
+                const userId = args.app_user_id || conn.defaultUserId || 'user_ali';
+                const res = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+                  headers: { 'Authorization': `Bearer ${t}`, 'X-Platform': 'android' }
+                });
+                if (!res.ok) throw new Error(`RevenueCat HTTP ${res.status}`);
+                const data = await res.json();
+                return data.subscriber || {};
+              }
+            },
+            {
+              name: 'revenuecat_check_entitlement',
+              description: 'بررسی فعال بودن دسترسی حرفه‌ای (مانند pro_workout_60fps)',
+              parameters: { app_user_id: 'string', entitlement_id: 'string' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.revenuecat || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن RevenueCat الزامی است');
+                const userId = args.app_user_id || conn.defaultUserId || 'user_ali';
+                const ent = args.entitlement_id || 'pro_workout_60fps';
+                const res = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`RevenueCat HTTP ${res.status}`);
+                const data = await res.json();
+                const activeEnts = data.subscriber?.entitlements || {};
+                const match = activeEnts[ent];
+                return { entitlement: ent, is_active: Boolean(match && (!match.expires_date || new Date(match.expires_date) > new Date())), expires_date: match?.expires_date || null };
+              }
+            }
+          ]
+        },
+        outlook_cal: {
+          name: 'Microsoft Outlook Calendar MCP',
+          endpointDefault: 'https://graph.microsoft.com/v1.0',
+          tools: [
+            {
+              name: 'outlook_list_events',
+              description: 'واکشی رویدادها و جلسات پیش‌رو از تقویم Microsoft Outlook',
+              parameters: { limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.outlook_cal || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن Microsoft Graph الزامی است');
+                const res = await fetch(`https://graph.microsoft.com/v1.0/me/events?$top=${args.limit || 5}&$orderby=start/dateTime`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`Microsoft Graph HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.value || []).map(ev => ({ id: ev.id, subject: ev.subject, start: ev.start?.dateTime, end: ev.end?.dateTime, location: ev.location?.displayName }));
+              }
+            },
+            {
+              name: 'outlook_create_event',
+              description: 'ثبت جلسه و رویداد جدید در تقویم Outlook',
+              parameters: { subject: 'string', start_iso: 'string', end_iso: 'string' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.outlook_cal || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن Microsoft Graph الزامی است');
+                const payload = {
+                  subject: args.subject || 'جلسه نکسوس',
+                  start: { dateTime: args.start_iso || new Date().toISOString(), timeZone: 'UTC' },
+                  end: { dateTime: args.end_iso || new Date(Date.now() + 3600000).toISOString(), timeZone: 'UTC' }
+                };
+                const res = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(`Outlook Create HTTP ${res.status}`);
+                return await res.json();
+              }
+            }
+          ]
+        },
+        outlook_mail: {
+          name: 'Microsoft Outlook Mail MCP',
+          endpointDefault: 'https://graph.microsoft.com/v1.0',
+          tools: [
+            {
+              name: 'outlook_list_messages',
+              description: 'دریافت ایمیل‌های اخیر اینباکس مایکروسافت اوت‌لوک',
+              parameters: { limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.outlook_mail || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن Microsoft Graph الزامی است');
+                const res = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$top=${args.limit || 5}&$select=subject,from,receivedDateTime,bodyPreview`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
+                if (!res.ok) throw new Error(`Outlook Mail HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.value || []).map(m => ({ id: m.id, subject: m.subject, from: m.from?.emailAddress?.address, preview: m.bodyPreview, date: m.receivedDateTime }));
+              }
+            },
+            {
+              name: 'outlook_send_mail',
+              description: 'ارسال ایمیل از طریق اکانت کاری Microsoft Outlook',
+              parameters: { to: 'string (ایمیل گیرنده)', subject: 'string', body: 'string' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.outlook_mail || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('توکن Microsoft Graph الزامی است');
+                const payload = {
+                  message: {
+                    subject: args.subject || 'پیام از EG Nexus OS',
+                    body: { contentType: 'Text', content: args.body || 'سلام، این پیام خودکار از سیستم نکسوس ارسال شده است.' },
+                    toRecipients: [{ emailAddress: { address: args.to } }]
+                  }
+                };
+                const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(`Outlook Send HTTP ${res.status}`);
+                return { status: 'sent', to: args.to };
+              }
+            }
+          ]
+        },
+        apollo: {
+          name: 'Apollo.io B2B Intelligence MCP',
+          endpointDefault: 'https://api.apollo.io/v1',
+          tools: [
+            {
+              name: 'apollo_search_people',
+              description: 'جستجوی لیدها، مدیران و متخصصین کسب‌وکار بر اساس عنوان شغلی و سازمان در پایگاه Apollo.io',
+              parameters: { query: 'string (عنوان شغلی یا نام سازمان)', limit: 'number' },
+              execute: async (args, token) => {
+                const conn = appState.appConnections?.apollo || {};
+                const t = token || conn.token;
+                if (!t) throw new Error('کلید API آپولو (Apollo API Key) الزامی است');
+                const res = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+                  method: 'POST',
+                  headers: { 'Cache-Control': 'no-cache', 'Content-Type': 'application/json', 'X-Api-Key': t },
+                  body: JSON.stringify({ q_keywords: args.query || 'Product Manager', page: 1, per_page: args.limit || 5 })
+                });
+                if (!res.ok) throw new Error(`Apollo HTTP ${res.status}`);
+                const data = await res.json();
+                return (data.people || []).map(p => ({ id: p.id, name: p.name, title: p.title, organization: p.organization?.name, linkedin_url: p.linkedin_url }));
+              }
+            }
+          ]
         }
       },
 
@@ -7313,6 +7579,1066 @@ body > header,
       } catch (e) {}
     }
 
+    // REAL CLICKUP REST API v2 ENGINE
+    // ============================================================================
+    function openClickUpConnectModal() {
+      const conn = appState.appConnections?.clickup || {};
+      const currentToken = getAppConnectionToken('clickup') || '';
+      const currentTeam = conn.teamId || '';
+
+      renderIntegrationModal('اتصال ClickUp', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-purple-600/20 to-pink-600/20 border border-purple-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🎯</span>
+              <b class="text-white text-sm">اتصال به ClickUp REST API v2</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              مدیریت اسپرینت‌ها، لیست تسک‌ها و وضعیت اجرای پروژه‌ها با Personal API Token رسمی کلیک‌آپ.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              ClickUp Personal API Token:
+              <input id="clickupTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="pk_..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: Settings → Apps → Generate API Token</span>
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              شناسه تیم (Team ID - اختیاری):
+              <input id="clickupTeamIdInput" type="text" value="${escapeHtml(currentTeam)}" placeholder="خودکار شناسایی می‌شود" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir" />
+            </label>
+          </div>
+
+          <div id="clickupConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectClickUpLive()" class="py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.clickup.com/settings/apps')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              دریافت توکن ClickUp ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectClickUpLive() {
+      const tokenInput = document.getElementById('clickupTokenInput');
+      const teamInput = document.getElementById('clickupTeamIdInput');
+      const statusEl = document.getElementById('clickupConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن شخصی ClickUp را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با سرورهای ClickUp API...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://api.clickup.com/api/v2/team', {
+          headers: { 'Authorization': token }
+        });
+        if (!res.ok) throw new Error(`ClickUp HTTP ${res.status}`);
+        const data = await res.json();
+        const teams = data.teams || [];
+        const targetTeam = teams[0] || {};
+        const teamId = (teamInput && teamInput.value.trim()) || targetTeam.id || '';
+
+        const conn = appState.appConnections.clickup || {};
+        conn.token = token;
+        conn.teamId = teamId;
+        conn.teams = teams;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `clickup_${teamId || Date.now()}`,
+          name: targetTeam.name || 'ClickUp Workspace',
+          email: 'ClickUp Team',
+          avatar: 'C',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.clickup = conn;
+        if (!appState.addedAppIds.includes('clickup')) {
+          appState.addedAppIds.push('clickup');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `تیم «${targetTeam.name || teamId}» با موفقیت متصل شد ✓`;
+        }
+        showToast('ClickUp با موفقیت متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('clickup');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال به ClickUp: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncClickUpTasksLive() {
+      const conn = appState.appConnections?.clickup || {};
+      const t = conn.token;
+      const teamId = conn.teamId || conn.teams?.[0]?.id;
+      if (!t || !teamId) return;
+
+      try {
+        const res = await fetch(`https://api.clickup.com/api/v2/team/${encodeURIComponent(teamId)}/task?subtasks=false&include_closed=false`, {
+          headers: { 'Authorization': t }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.tasks = data.tasks || [];
+        appState.appConnections.clickup = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('clickupTasksContainer')) {
+          renderLiveWorkspacePanel('clickup');
+        }
+      } catch (e) {}
+    }
+
+    async function createClickUpTaskLive() {
+      const nameInp = document.getElementById('clickupTaskNameInput');
+      const name = nameInp ? nameInp.value.trim() : '';
+      if (!name) { showToast('عنوان وظیفه الزامی است'); return; }
+
+      const conn = appState.appConnections?.clickup || {};
+      const t = conn.token;
+      const listId = conn.listId;
+      if (!t) { showToast('ابتدا ClickUp را متصل کنید'); return; }
+
+      try {
+        let targetList = listId;
+        if (!targetList) {
+          const teamId = conn.teamId || conn.teams?.[0]?.id;
+          if (teamId) {
+            const spRes = await fetch(`https://api.clickup.com/api/v2/team/${encodeURIComponent(teamId)}/space`, { headers: { 'Authorization': t } });
+            if (spRes.ok) {
+              const spData = await spRes.json();
+              const spId = spData.spaces?.[0]?.id;
+              if (spId) {
+                const fRes = await fetch(`https://api.clickup.com/api/v2/space/${encodeURIComponent(spId)}/list`, { headers: { 'Authorization': t } });
+                if (fRes.ok) {
+                  const fData = await fRes.json();
+                  targetList = fData.lists?.[0]?.id;
+                  conn.listId = targetList;
+                  saveState();
+                }
+              }
+            }
+          }
+        }
+
+        if (!targetList) throw new Error('لیست مقصدی در ClickUp یافت نشد؛ شناسه List را در تنظیمات وارد کنید');
+
+        const res = await fetch(`https://api.clickup.com/api/v2/list/${encodeURIComponent(targetList)}/task`, {
+          method: 'POST',
+          headers: { 'Authorization': t, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description: 'ثبت خودکار از EG Nexus OS' })
+        });
+        if (!res.ok) throw new Error(`ClickUp HTTP ${res.status}`);
+        showToast('تسک در ClickUp ثبت شد ✓');
+        if (nameInp) nameInp.value = '';
+        await syncClickUpTasksLive();
+      } catch (err) {
+        showToast(`خطای ثبت وظیفه: ${err.message}`);
+      }
+    }
+
+    // REAL MONDAY.COM GRAPHQL API ENGINE
+    // ============================================================================
+    function openMondayConnectModal() {
+      const conn = appState.appConnections?.monday || {};
+      const currentToken = getAppConnectionToken('monday') || '';
+      const currentBoard = conn.boardId || '';
+
+      renderIntegrationModal('اتصال monday.com', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-rose-500/20 to-amber-500/20 border border-amber-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">📊</span>
+              <b class="text-white text-sm">اتصال به monday.com GraphQL API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              پایش بوردها، ایجاد آیتم‌ها و ردیف‌های کاری تیمی و همگام‌سازی بی‌درنگ با پلتفرم رسمی Work OS.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              monday.com API Token:
+              <input id="mondayTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="eyJhbGciOi..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: Avatar → Developers → My Access Tokens</span>
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              شناسه پیش‌فرض بورد (Board ID - اختیاری):
+              <input id="mondayBoardIdInput" type="text" value="${escapeHtml(currentBoard)}" placeholder="خودکار لود می‌شود" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir" />
+            </label>
+          </div>
+
+          <div id="mondayConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectMondayLive()" class="py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://auth.monday.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              پنل monday ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectMondayLive() {
+      const tokenInput = document.getElementById('mondayTokenInput');
+      const boardInput = document.getElementById('mondayBoardIdInput');
+      const statusEl = document.getElementById('mondayConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن API اکانت monday.com را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با monday.com GraphQL API...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const query = 'query { me { id name email } boards(limit: 5) { id name state } }';
+        const res = await fetch('https://api.monday.com/v2', {
+          method: 'POST',
+          headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        if (!res.ok) throw new Error(`monday.com HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.errors && data.errors.length) throw new Error(data.errors[0].message);
+
+        const me = data.data?.me || {};
+        const boards = data.data?.boards || [];
+        const boardId = (boardInput && boardInput.value.trim()) || boards[0]?.id || '';
+
+        const conn = appState.appConnections.monday || {};
+        conn.token = token;
+        conn.me = me;
+        conn.boards = boards;
+        conn.boardId = boardId;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `monday_${me.id || Date.now()}`,
+          name: me.name || 'monday User',
+          email: me.email || 'monday Workspace',
+          avatar: 'M',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.monday = conn;
+        if (!appState.addedAppIds.includes('monday')) {
+          appState.addedAppIds.push('monday');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${me.name || 'کاربر'}! (${boards.length} بورد یافت شد) ✓`;
+        }
+        showToast('monday.com متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('monday');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncMondayBoardsLive() {
+      const conn = appState.appConnections?.monday || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const query = 'query { boards(limit: 6) { id name state items_count } }';
+        const res = await fetch('https://api.monday.com/v2', {
+          method: 'POST',
+          headers: { 'Authorization': t, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.boards = data.data?.boards || [];
+        appState.appConnections.monday = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('mondayBoardsContainer')) {
+          renderLiveWorkspacePanel('monday');
+        }
+      } catch (e) {}
+    }
+
+    async function createMondayItemLive() {
+      const nameInp = document.getElementById('mondayItemNameInput');
+      const name = nameInp ? nameInp.value.trim() : '';
+      if (!name) { showToast('عنوان آیتم الزامی است'); return; }
+
+      const conn = appState.appConnections?.monday || {};
+      const t = conn.token;
+      const boardId = conn.boardId || conn.boards?.[0]?.id;
+      if (!t || !boardId) { showToast('ابتدا monday.com را متصل کنید'); return; }
+
+      try {
+        const query = `mutation { create_item (board_id: ${JSON.stringify(String(boardId))}, item_name: ${JSON.stringify(name)}) { id name } }`;
+        const res = await fetch('https://api.monday.com/v2', {
+          method: 'POST',
+          headers: { 'Authorization': t, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        if (!res.ok) throw new Error(`monday.com HTTP ${res.status}`);
+        showToast('آیتم جدید در monday.com ثبت شد ✓');
+        if (nameInp) nameInp.value = '';
+        await syncMondayBoardsLive();
+      } catch (err) {
+        showToast(`خطای ثبت آیتم: ${err.message}`);
+      }
+    }
+
+    // REAL INTERCOM REST API ENGINE
+    // ============================================================================
+    function openIntercomConnectModal() {
+      const currentToken = getAppConnectionToken('intercom') || '';
+
+      renderIntegrationModal('اتصال Intercom', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-600/20 to-teal-500/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">💬</span>
+              <b class="text-white text-sm">اتصال به Intercom REST API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              رصد تیکت‌های پشتیبانی، مکالمات زنده کاربران با تیم و ارسال پاسخ‌های خودکار هوشمند.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Intercom Access Token:
+              <input id="intercomTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="dG9r..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: Intercom Developer Hub → Your App → Access Token</span>
+            </label>
+          </div>
+
+          <div id="intercomConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectIntercomLive()" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://developers.intercom.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              کنسول توسعه Intercom ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectIntercomLive() {
+      const tokenInput = document.getElementById('intercomTokenInput');
+      const statusEl = document.getElementById('intercomConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن دسترسی اینترکام را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با سرورهای Intercom...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://api.intercom.io/admins', {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+        });
+        if (!res.ok) throw new Error(`Intercom HTTP ${res.status}`);
+        const data = await res.json();
+        const admin = data.admins?.[0] || {};
+
+        const conn = appState.appConnections.intercom || {};
+        conn.token = token;
+        conn.admin = admin;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `intercom_${admin.id || Date.now()}`,
+          name: admin.name || 'Intercom Admin',
+          email: admin.email || 'Intercom Workspace',
+          avatar: 'I',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.intercom = conn;
+        if (!appState.addedAppIds.includes('intercom')) {
+          appState.addedAppIds.push('intercom');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${admin.name || admin.email}! اتصال Intercom برقرار شد ✓`;
+        }
+        showToast('Intercom متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('intercom');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncIntercomConversationsLive() {
+      const conn = appState.appConnections?.intercom || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch('https://api.intercom.io/conversations?per_page=5', {
+          headers: { 'Authorization': `Bearer ${t}`, 'Accept': 'application/json' }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.conversations = data.conversations || [];
+        appState.appConnections.intercom = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('intercomConvsContainer')) {
+          renderLiveWorkspacePanel('intercom');
+        }
+      } catch (e) {}
+    }
+
+    // REAL REVENUECAT IN-APP PURCHASES ENGINE
+    // ============================================================================
+    function openRevenueCatConnectModal() {
+      const conn = appState.appConnections?.revenuecat || {};
+      const currentToken = getAppConnectionToken('revenuecat') || '';
+      const currentUserId = conn.defaultUserId || 'user_ali';
+
+      renderIntegrationModal('اتصال RevenueCat', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-red-600/20 to-amber-600/20 border border-red-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🐱</span>
+              <b class="text-white text-sm">اتصال به RevenueCat REST API v1</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              پایش حق اشتراک‌ها، بررسی وضعیت دسترسی Pro و درون‌پرداخت‌های اپلیکیشن ورزشی اندروید.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              RevenueCat Secret API Key:
+              <input id="revenuecatTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="sk_..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: Project Settings → API Keys → Secret Key</span>
+            </label>
+            <label class="block text-xs font-bold text-slate-200">
+              شناسه کاربر تست در اپ (App User ID):
+              <input id="revenuecatUserIdInput" type="text" value="${escapeHtml(currentUserId)}" placeholder="user_ali" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir" />
+            </label>
+          </div>
+
+          <div id="revenuecatConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectRevenueCatLive()" class="py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.revenuecat.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              داشبورد RevenueCat ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectRevenueCatLive() {
+      const tokenInput = document.getElementById('revenuecatTokenInput');
+      const userInput = document.getElementById('revenuecatUserIdInput');
+      const statusEl = document.getElementById('revenuecatConnectStatus');
+
+      const token = tokenInput ? tokenInput.value.trim() : '';
+      const userId = (userInput ? userInput.value.trim() : '') || 'user_ali';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً کلید Secret API اختصاصی RevenueCat را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال استعلام اطلاعات مشترک از سرورهای RevenueCat...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'X-Platform': 'android' }
+        });
+        if (!res.ok) throw new Error(`RevenueCat HTTP ${res.status}`);
+        const data = await res.json();
+        const sub = data.subscriber || {};
+
+        const conn = appState.appConnections.revenuecat || {};
+        conn.token = token;
+        conn.defaultUserId = userId;
+        conn.subscriber = sub;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `rc_${Date.now()}`,
+          name: `RevenueCat (${userId})`,
+          email: 'In-App Billing Hub',
+          avatar: 'R',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.revenuecat = conn;
+        if (!appState.addedAppIds.includes('revenuecat')) {
+          appState.addedAppIds.push('revenuecat');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = 'حساب RevenueCat با موفقیت تایید و متصل شد ✓';
+        }
+        showToast('RevenueCat متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('revenuecat');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncRevenueCatSubscriberLive() {
+      const conn = appState.appConnections?.revenuecat || {};
+      const t = conn.token;
+      const userId = conn.defaultUserId || 'user_ali';
+      if (!t) return;
+
+      try {
+        const res = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+          headers: { 'Authorization': `Bearer ${t}`, 'X-Platform': 'android' }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.subscriber = data.subscriber || {};
+        appState.appConnections.revenuecat = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('revenuecatSubContainer')) {
+          renderLiveWorkspacePanel('revenuecat');
+        }
+      } catch (e) {}
+    }
+
+    // REAL MICROSOFT OUTLOOK CALENDAR ENGINE
+    // ============================================================================
+    function openOutlookCalConnectModal() {
+      const currentToken = getAppConnectionToken('outlook_cal') || '';
+
+      renderIntegrationModal('اتصال Outlook Calendar', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">📅</span>
+              <b class="text-white text-sm">اتصال به Microsoft Graph Calendar API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              همگام‌سازی جلسات کاری، ثبت رویدادها در تقویم مایکروسافت ۳۶۵ و دسترسی مستقیم هوش مصنوعی.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Microsoft Graph OAuth Access Token:
+              <input id="outlookCalTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="EwB..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">توکن دسترسی با اسکوپ Calendars.ReadWrite</span>
+            </label>
+          </div>
+
+          <div id="outlookCalConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectOutlookCalLive()" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://portal.azure.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              پرتال مایکروسافت ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectOutlookCalLive() {
+      const tokenInput = document.getElementById('outlookCalTokenInput');
+      const statusEl = document.getElementById('outlookCalConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن دسترسی مایکروسافت را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال برقراری ارتباط با Microsoft Graph...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`Microsoft Graph HTTP ${res.status}`);
+        const user = await res.json();
+
+        const conn = appState.appConnections.outlook_cal || {};
+        conn.token = token;
+        conn.user = user;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `ms_cal_${user.id || Date.now()}`,
+          name: user.displayName || 'Microsoft User',
+          email: user.mail || user.userPrincipalName || 'Outlook Calendar',
+          avatar: 'O',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.outlook_cal = conn;
+        if (!appState.addedAppIds.includes('outlook_cal')) {
+          appState.addedAppIds.push('outlook_cal');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${user.displayName || user.mail}! تقویم متصل شد ✓`;
+        }
+        showToast('Outlook Calendar متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('outlook_cal');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncOutlookCalEventsLive() {
+      const conn = appState.appConnections?.outlook_cal || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch('https://graph.microsoft.com/v1.0/me/events?$top=5&$orderby=start/dateTime', {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.events = data.value || [];
+        appState.appConnections.outlook_cal = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('outlookCalEventsContainer')) {
+          renderLiveWorkspacePanel('outlook_cal');
+        }
+      } catch (e) {}
+    }
+
+    async function createOutlookCalEventLive() {
+      const subjectInp = document.getElementById('outlookCalEventSubjectInput');
+      const startInp = document.getElementById('outlookCalEventStartInput');
+      const subject = subjectInp ? subjectInp.value.trim() : '';
+      if (!subject) { showToast('عنوان رویداد الزامی است'); return; }
+
+      const conn = appState.appConnections?.outlook_cal || {};
+      const t = conn.token;
+      if (!t) { showToast('ابتدا تقویم را متصل کنید'); return; }
+
+      try {
+        const startDate = startInp && startInp.value ? new Date(startInp.value).toISOString() : new Date().toISOString();
+        const endDate = new Date(new Date(startDate).getTime() + 3600000).toISOString();
+        const payload = {
+          subject: subject,
+          start: { dateTime: startDate, timeZone: 'UTC' },
+          end: { dateTime: endDate, timeZone: 'UTC' }
+        };
+
+        const res = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Microsoft Graph HTTP ${res.status}`);
+        showToast('جلسه در تقویم Outlook ثبت شد ✓');
+        if (subjectInp) subjectInp.value = '';
+        await syncOutlookCalEventsLive();
+      } catch (err) {
+        showToast(`خطای ثبت جلسه: ${err.message}`);
+      }
+    }
+
+    // REAL MICROSOFT OUTLOOK MAIL ENGINE
+    // ============================================================================
+    function openOutlookMailConnectModal() {
+      const currentToken = getAppConnectionToken('outlook_mail') || getAppConnectionToken('outlook_cal') || '';
+
+      renderIntegrationModal('اتصال Outlook Mail', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-indigo-600/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">✉️</span>
+              <b class="text-white text-sm">اتصال به Microsoft Graph Mail API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              مشاهده ایمیل‌های ورودی، ارسال مستقیم ایمیل و اتصال اینباکس با پروتکل رسمی مایکروسافت گراف.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Microsoft Graph Access Token:
+              <input id="outlookMailTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="EwB..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">توکن با اسکوپ Mail.ReadWrite یا Mail.Send</span>
+            </label>
+          </div>
+
+          <div id="outlookMailConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectOutlookMailLive()" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://outlook.live.com/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              وب‌میل اوت‌لوک ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectOutlookMailLive() {
+      const tokenInput = document.getElementById('outlookMailTokenInput');
+      const statusEl = document.getElementById('outlookMailConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً توکن مایکروسافت را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال ارتباط با اینباکس مایکروسافت...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`Microsoft Graph HTTP ${res.status}`);
+        const user = await res.json();
+
+        const conn = appState.appConnections.outlook_mail || {};
+        conn.token = token;
+        conn.user = user;
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `ms_mail_${user.id || Date.now()}`,
+          name: user.displayName || 'Outlook Mailbox',
+          email: user.mail || user.userPrincipalName || 'Outlook Email',
+          avatar: 'O',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.outlook_mail = conn;
+        if (!appState.addedAppIds.includes('outlook_mail')) {
+          appState.addedAppIds.push('outlook_mail');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `اینباکس ${user.mail || user.displayName} با موفقیت متصل شد ✓`;
+        }
+        showToast('Outlook Mail متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('outlook_mail');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function syncOutlookMailLive() {
+      const conn = appState.appConnections?.outlook_mail || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=5&$select=subject,from,receivedDateTime,bodyPreview', {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.messages = data.value || [];
+        appState.appConnections.outlook_mail = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('outlookMessagesContainer')) {
+          renderLiveWorkspacePanel('outlook_mail');
+        }
+      } catch (e) {}
+    }
+
+    async function sendOutlookMailLive() {
+      const toInp = document.getElementById('outlookComposeToInput');
+      const subInp = document.getElementById('outlookComposeSubjectInput');
+      const bodyInp = document.getElementById('outlookComposeBodyInput');
+
+      const to = toInp ? toInp.value.trim() : '';
+      const subject = subInp ? subInp.value.trim() : 'پیام از نکسوس';
+      const body = bodyInp ? bodyInp.value.trim() : '';
+
+      if (!to || !body) { showToast('گیرنده و متن ایمیل الزامی است'); return; }
+
+      const conn = appState.appConnections?.outlook_mail || {};
+      const t = conn.token;
+      if (!t) { showToast('ابتدا Outlook Mail را متصل کنید'); return; }
+
+      try {
+        const payload = {
+          message: {
+            subject: subject,
+            body: { contentType: 'Text', content: body },
+            toRecipients: [{ emailAddress: { address: to } }]
+          }
+        };
+
+        const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Microsoft Graph HTTP ${res.status}`);
+        showToast('ایمیل با موفقیت ارسال شد ✓');
+        if (toInp) toInp.value = '';
+        if (subInp) subInp.value = '';
+        if (bodyInp) bodyInp.value = '';
+        await syncOutlookMailLive();
+      } catch (err) {
+        showToast(`خطای ارسال: ${err.message}`);
+      }
+    }
+
+    // REAL APOLLO.IO B2B LEAD ENGINE
+    // ============================================================================
+    function openApolloConnectModal() {
+      const currentToken = getAppConnectionToken('apollo') || '';
+
+      renderIntegrationModal('اتصال Apollo.io', `
+        <div class="space-y-3.5" dir="rtl">
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-indigo-600/20 to-purple-600/20 border border-indigo-500/30 text-xs space-y-1.5 text-right">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🚀</span>
+              <b class="text-white text-sm">اتصال به Apollo.io B2B Intelligence API</b>
+            </div>
+            <p class="text-slate-300 leading-relaxed text-[11px]">
+              استخراج لیدهای تجاری، جستجوی مدیران سازمان‌ها و اطلاعات تماس معتبر با کلید رسمی Apollo.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-right">
+            <label class="block text-xs font-bold text-slate-200">
+              Apollo API Key:
+              <input id="apolloTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="apollo_api_key..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">دریافت از: Settings → Integrations → API Keys</span>
+            </label>
+          </div>
+
+          <div id="apolloConnectStatus" class="hidden rounded-xl p-2.5 text-xs"></div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="verifyAndConnectApolloLive()" class="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs transition">
+              🔍 اعتبارسنجی و اتصال
+            </button>
+            <button onclick="openExternalProviderUrl('https://app.apollo.io/')" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition">
+              داشبورد آپولو ↗
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    async function verifyAndConnectApolloLive() {
+      const tokenInput = document.getElementById('apolloTokenInput');
+      const statusEl = document.getElementById('apolloConnectStatus');
+      const token = tokenInput ? tokenInput.value.trim() : '';
+
+      if (!token) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.textContent = 'لطفاً کلید API آپولو را وارد کنید.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      try {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+          statusEl.textContent = '⏳ در حال تست اتصال به Apollo.io...';
+          statusEl.classList.remove('hidden');
+        }
+
+        const res = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+          method: 'POST',
+          headers: { 'Cache-Control': 'no-cache', 'Content-Type': 'application/json', 'X-Api-Key': token },
+          body: JSON.stringify({ q_keywords: 'Technology', page: 1, per_page: 2 })
+        });
+        if (!res.ok) throw new Error(`Apollo HTTP ${res.status}`);
+        const data = await res.json();
+
+        const conn = appState.appConnections.apollo || {};
+        conn.token = token;
+        conn.people = data.people || [];
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `apollo_${Date.now()}`,
+          name: 'Apollo.io B2B Intelligence',
+          email: 'Lead Prospector',
+          avatar: 'A',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.apollo = conn;
+        if (!appState.addedAppIds.includes('apollo')) {
+          appState.addedAppIds.push('apollo');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = 'اتصال به موتور هوشمند Apollo با موفقیت برقرار شد ✓';
+        }
+        showToast('Apollo.io متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('apollo');
+        }, 1200);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
+          statusEl.innerHTML = `خطا در اتصال: ${escapeHtml(err.message)}`;
+        }
+      }
+    }
+
+    async function searchApolloLeadsLive() {
+      const qInp = document.getElementById('apolloSearchInput');
+      const q = qInp ? qInp.value.trim() : '';
+
+      const conn = appState.appConnections?.apollo || {};
+      const t = conn.token;
+      if (!t) return;
+
+      try {
+        const res = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+          method: 'POST',
+          headers: { 'Cache-Control': 'no-cache', 'Content-Type': 'application/json', 'X-Api-Key': t },
+          body: JSON.stringify({ q_keywords: q || 'Founder', page: 1, per_page: 5 })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        conn.people = data.people || [];
+        appState.appConnections.apollo = conn;
+        saveState();
+        const panel = document.getElementById('appWorkspacePanel');
+        if (panel && document.getElementById('apolloLeadsContainer')) {
+          renderLiveWorkspacePanel('apollo');
+        }
+      } catch (e) {}
+    }
+
     function openProviderConnectSheet(appId) {
       if (appId === 'github') return openGitHubConnectModal();
       if (appId === 'clash_royale') return openClashRoyaleConfigModal();
@@ -7330,6 +8656,13 @@ body > header,
       if (appId === 'posthog') return openPostHogConnectModal();
       if (appId === 'box') return openBoxConnectModal();
       if (appId === 'paypal') return openPayPalConnectModal();
+      if (appId === 'clickup') return openClickUpConnectModal();
+      if (appId === 'monday') return openMondayConnectModal();
+      if (appId === 'intercom') return openIntercomConnectModal();
+      if (appId === 'revenuecat') return openRevenueCatConnectModal();
+      if (appId === 'outlook_cal') return openOutlookCalConnectModal();
+      if (appId === 'outlook_mail') return openOutlookMailConnectModal();
+      if (appId === 'apollo') return openApolloConnectModal();
       if (isGoogleProvider(appId)) return openGoogleAccountChooser(appId);
       const app = APPS_CATALOG.find(a => a.id === appId); if (!app) return;
       if (app.type === 'MCP') return openMcpServerConfigSheet(appId);
@@ -8791,6 +10124,357 @@ body > header,
           </div>
         `;
       }
+      else if (appId === 'clickup') {
+        const conn = appState.appConnections?.clickup || {};
+        const tasks = Array.isArray(conn.tasks) ? conn.tasks : [];
+
+        const tasksHtml = tasks.length ? tasks.map(tk => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white truncate">${escapeHtml(tk.name || 'Task')}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(tk.priority || 'Normal')} · ${escapeHtml(tk.status || 'open')}</div>
+            </div>
+            <a href="${escapeHtml(tk.url || '#')}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">نمایش ↗</a>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">تسک فعالی یافت نشد؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-purple-600/20 to-pink-600/20 border border-purple-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🎯</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">ClickUp Workspace</div>
+                    <div class="text-[10px] text-purple-300 font-mono">${escapeHtml(conn.teams?.[0]?.name || conn.teamId || 'Team')}</div>
+                  </div>
+                </div>
+                <button onclick="syncClickUpTasksLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">➕ ایجاد وظیفه جدید در ClickUp</div>
+              <input id="clickupTaskNameInput" placeholder="عنوان وظیفه..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <button onclick="createClickUpTaskLive()" class="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-extrabold transition">
+                ثبت مستقیم تسک
+              </button>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📋 لیست وظایف تیم:</span>
+                <span class="text-[10px] text-purple-400 font-mono">REST API v2</span>
+              </div>
+              <div id="clickupTasksContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${tasksHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'monday') {
+        const conn = appState.appConnections?.monday || {};
+        const boards = Array.isArray(conn.boards) ? conn.boards : [];
+
+        const boardsHtml = boards.length ? boards.map(b => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white truncate">${escapeHtml(b.name || 'Board')}</div>
+              <div class="text-[10px] text-slate-400 font-mono">شناسه: ${escapeHtml(b.id)} · وضعیت: ${escapeHtml(b.state || 'active')}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              ${escapeHtml(b.items_count != null ? b.items_count + ' آیتم' : 'بورد فعال')}
+            </span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">بوردی یافت نشد؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-rose-500/20 to-amber-500/20 border border-amber-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">📊</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">monday.com Work OS</div>
+                    <div class="text-[10px] text-amber-300">${escapeHtml(conn.me?.name || conn.me?.email || 'Workspace')}</div>
+                  </div>
+                </div>
+                <button onclick="syncMondayBoardsLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">➕ افزودن آیتم به بورد monday</div>
+              <input id="mondayItemNameInput" placeholder="عنوان آیتم یا تسک..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <button onclick="createMondayItemLive()" class="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-extrabold transition">
+                ثبت آیتم در بورد
+              </button>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📋 بوردهای فعال تیم:</span>
+                <span class="text-[10px] text-amber-400 font-mono">GraphQL API</span>
+              </div>
+              <div id="mondayBoardsContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${boardsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'intercom') {
+        const conn = appState.appConnections?.intercom || {};
+        const convs = Array.isArray(conn.conversations) ? conn.conversations : [];
+
+        const convsHtml = convs.length ? convs.map(cv => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white truncate">${escapeHtml(cv.title || cv.source?.body?.slice(0, 50) || 'مکالمه کاربر')}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(cv.id)} · ${cv.open ? 'باز' : 'بسته'}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${cv.open ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-500/20 text-slate-400'}">
+              ${escapeHtml(cv.state || 'open')}
+            </span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">مکالمه‌ای یافت نشد؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-blue-600/20 to-teal-500/20 border border-blue-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">💬</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Intercom Support Inbox</div>
+                    <div class="text-[10px] text-teal-300 font-mono">${escapeHtml(conn.admin?.name || conn.admin?.email || 'Help Desk')}</div>
+                  </div>
+                </div>
+                <button onclick="syncIntercomConversationsLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📨 آخرین پیام‌های کاربران:</span>
+                <span class="text-[10px] text-teal-400 font-mono">Intercom REST API</span>
+              </div>
+              <div id="intercomConvsContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${convsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'revenuecat') {
+        const conn = appState.appConnections?.revenuecat || {};
+        const sub = conn.subscriber || {};
+        const ents = sub.entitlements || {};
+        const activeEntList = Object.keys(ents).map(k => ({ key: k, ...ents[k] }));
+
+        const entsHtml = activeEntList.length ? activeEntList.map(e => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white font-mono">${escapeHtml(e.key)}</div>
+              <div class="text-[10px] text-slate-400">انقضا: ${escapeHtml(e.expires_date ? new Date(e.expires_date).toLocaleDateString('fa-IR') : 'دائمی (Lifetime)')}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              فعال ✓
+            </span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">اشتراک فعالی برای این کاربر ثبت نشده است.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-red-600/20 to-amber-600/20 border border-red-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🐱</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">RevenueCat In-App Purchases</div>
+                    <div class="text-[10px] text-amber-300 font-mono">کاربر: ${escapeHtml(conn.defaultUserId || 'user_ali')}</div>
+                  </div>
+                </div>
+                <button onclick="syncRevenueCatSubscriberLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 استعلام اشتراک
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>💎 دسترسی‌های فعال کاربر (Entitlements):</span>
+                <span class="text-[10px] text-amber-400 font-mono">Android v159 Bridge</span>
+              </div>
+              <div id="revenuecatSubContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${entsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'outlook_cal') {
+        const conn = appState.appConnections?.outlook_cal || {};
+        const events = Array.isArray(conn.events) ? conn.events : [];
+
+        const eventsHtml = events.length ? events.map(ev => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white truncate">${escapeHtml(ev.subject || 'جلسه بدون عنوان')}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(ev.start?.dateTime ? new Date(ev.start.dateTime).toLocaleString('fa-IR') : 'زمان نامشخص')}</div>
+            </div>
+            <span class="text-[10px] text-blue-300">${escapeHtml(ev.location?.displayName || 'آنلاین')}</span>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">رویدادی لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">📅</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Microsoft Outlook Calendar</div>
+                    <div class="text-[10px] text-sky-300">${escapeHtml(conn.user?.mail || conn.user?.displayName || 'Outlook Account')}</div>
+                  </div>
+                </div>
+                <button onclick="syncOutlookCalEventsLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">➕ ثبت رویداد در Outlook</div>
+              <input id="outlookCalEventSubjectInput" placeholder="عنوان جلسه یا رویداد..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <div class="flex items-center gap-2" dir="ltr">
+                <input id="outlookCalEventStartInput" type="datetime-local" class="flex-1 bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white code-block-dir" />
+                <button onclick="createOutlookCalEventLive()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition">
+                  ثبت جلسه
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>🗓️ جلسات و رویدادهای پیش‌رو:</span>
+                <span class="text-[10px] text-sky-400 font-mono">Microsoft Graph v1.0</span>
+              </div>
+              <div id="outlookCalEventsContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${eventsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'outlook_mail') {
+        const conn = appState.appConnections?.outlook_mail || {};
+        const msgs = Array.isArray(conn.messages) ? conn.messages : [];
+
+        const msgsHtml = msgs.length ? msgs.map(m => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white truncate">${escapeHtml(m.subject || 'بدون موضوع')}</div>
+              <div class="text-[10px] text-slate-400 font-mono code-block-dir truncate">${escapeHtml(m.from?.emailAddress?.address || m.from || '')}</div>
+              <div class="text-[10px] text-slate-500 truncate">${escapeHtml(m.bodyPreview || '')}</div>
+            </div>
+            <div class="text-[9px] text-slate-500 font-mono">${escapeHtml(m.receivedDateTime ? new Date(m.receivedDateTime).toLocaleDateString('fa-IR') : '')}</div>
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">ایمیلی لود نشده است؛ دکمه همگام‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-blue-700/20 to-indigo-600/20 border border-blue-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">✉️</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Microsoft Outlook Mail</div>
+                    <div class="text-[10px] text-indigo-300">${escapeHtml(conn.user?.mail || conn.user?.displayName || 'Outlook Account')}</div>
+                  </div>
+                </div>
+                <button onclick="syncOutlookMailLive()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold transition">
+                  🔄 همگام‌سازی
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
+              <div class="text-xs font-bold text-white">✉️ ارسال مستقیم ایمیل</div>
+              <input id="outlookComposeToInput" type="email" placeholder="ایمیل گیرنده..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white code-block-dir" />
+              <input id="outlookComposeSubjectInput" placeholder="موضوع ایمیل..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white" />
+              <textarea id="outlookComposeBodyInput" rows="2" placeholder="متن پیام..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"></textarea>
+              <button onclick="sendOutlookMailLive()" class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition">
+                ارسال ایمیل از اکانت مایکروسافت
+              </button>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>📬 ایمیل‌های اخیر اینباکس:</span>
+                <span class="text-[10px] text-indigo-400 font-mono">Microsoft Graph</span>
+              </div>
+              <div id="outlookMessagesContainer" class="space-y-1.5 max-h-44 overflow-y-auto">
+                ${msgsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      else if (appId === 'apollo') {
+        const conn = appState.appConnections?.apollo || {};
+        const people = Array.isArray(conn.people) ? conn.people : [];
+
+        const peopleHtml = people.length ? people.map(p => `
+          <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0 flex-1 space-y-0.5">
+              <div class="font-bold text-white">${escapeHtml(p.name || 'مخاطب')}</div>
+              <div class="text-[10px] text-indigo-300 font-mono">${escapeHtml(p.title || 'سمت سازمانی')} · ${escapeHtml(p.organization?.name || 'شرکت')}</div>
+            </div>
+            ${p.linkedin_url ? `<a href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">لینکدین ↗</a>` : ''}
+          </div>
+        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">لیدی یافت نشد؛ جستجو کنید یا دکمه تازه‌سازی را بزنید.</div>';
+
+        body = `
+          <div class="space-y-3" dir="rtl">
+            <div class="rounded-2xl bg-gradient-to-l from-indigo-600/20 to-purple-600/20 border border-indigo-500/30 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">🚀</span>
+                  <div>
+                    <div class="text-xs font-extrabold text-white">Apollo.io B2B Intelligence</div>
+                    <div class="text-[10px] text-indigo-300 font-mono">استخراج هوشمند لیدهای تجاری</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1.5" dir="ltr">
+                <input id="apolloSearchInput" placeholder="جستجوی عنوان شغلی یا سازمان (e.g. CEO, Founder)..." class="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white code-block-dir" onkeydown="if(event.key==='Enter') searchApolloLeadsLive()" />
+                <button onclick="searchApolloLeadsLive()" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition">
+                  🔍 جستجو
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold text-white">
+                <span>👥 نتایج لیدهای B2B:</span>
+                <span class="text-[10px] text-indigo-400 font-mono">Apollo API</span>
+              </div>
+              <div id="apolloLeadsContainer" class="space-y-1.5 max-h-48 overflow-y-auto">
+                ${peopleHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      }
       else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
       panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
       if (appId === 'gcal') setTimeout(syncGoogleCalendarEvents, 100);
@@ -8809,6 +10493,13 @@ body > header,
       if (appId === 'posthog') setTimeout(syncPostHogFlagsLive, 100);
       if (appId === 'box') setTimeout(syncBoxFilesLive, 100);
       if (appId === 'paypal') setTimeout(syncPayPalBalancesLive, 100);
+      if (appId === 'clickup') setTimeout(syncClickUpTasksLive, 100);
+      if (appId === 'monday') setTimeout(syncMondayBoardsLive, 100);
+      if (appId === 'intercom') setTimeout(syncIntercomConversationsLive, 100);
+      if (appId === 'revenuecat') setTimeout(syncRevenueCatSubscriberLive, 100);
+      if (appId === 'outlook_cal') setTimeout(syncOutlookCalEventsLive, 100);
+      if (appId === 'outlook_mail') setTimeout(syncOutlookMailLive, 100);
+      if (appId === 'apollo') setTimeout(searchApolloLeadsLive, 100);
     }
 
     function openAppDetailView(appId) {
