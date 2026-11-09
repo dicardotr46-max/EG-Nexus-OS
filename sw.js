@@ -57,7 +57,7 @@ self.addEventListener('fetch', (event) => {
         const res = await fetch(req);
         if (res && res.status === 200) {
           const cache = await caches.open(CACHE_NAME);
-          cache.put(req, res.clone());
+          await cache.put(req, res.clone());
         }
         return res;
       } catch (error) {
@@ -65,6 +65,12 @@ self.addEventListener('fetch', (event) => {
       }
     })();
 
-    return cached || fetchPromise;
+    if (cached) {
+      if (typeof event.waitUntil === 'function') {
+        event.waitUntil(fetchPromise);
+      }
+      return cached;
+    }
+    return fetchPromise;
   })());
 });

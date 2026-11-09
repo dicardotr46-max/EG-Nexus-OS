@@ -530,7 +530,10 @@ body > header,
     <div id="studioTab_code" class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 p-3 overflow-y-auto">
       <div class="flex flex-col bg-cue-card border border-cue-border rounded-2xl overflow-hidden min-h-[320px]">
         <div class="px-3 py-2 bg-black/40 border-b border-cue-border flex items-center justify-between text-xs">
-          <span class="font-bold text-slate-300">ویرایشگر کد مشترک ایجنت‌ها (HTML/CSS/JS)</span>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-300">ویرایشگر کد مشترک ایجنت‌ها (HTML/CSS/JS)</span>
+            <span id="studioCodeMetricsBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-white/5 text-slate-400 border border-white/10">0 خط کد</span>
+          </div>
           <div class="flex gap-1.5">
             <button onclick="loadWorkoutTemplateInStudio()" class="px-2 py-0.5 rounded-lg bg-blue-500/20 text-blue-300 text-[10px] font-bold">🏋️ قالب اپ ورزشی</button>
             <button onclick="runStudioLivePreview()" class="px-2.5 py-0.5 rounded-lg bg-emerald-500 text-black text-[10px] font-extrabold">▶ اجرا</button>
@@ -8727,7 +8730,7 @@ body > header,
     function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
     function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
-    function continueGoogleManualAccount(appId) { const email = document.getElementById('googleAccountEmail')?.value.trim() || ''; const name = document.getElementById('googleAccountName')?.value.trim() || email.split('@')[0] || 'Google account'; const token = document.getElementById('googleAccessToken')?.value.trim() || ''; const clientId = document.getElementById('googleClientId')?.value.trim() || ''; if (!email || !email.includes('@')) { setGoogleIdentityStatus('Enter a valid Google account email.', 'error'); return; } pendingProviderConnection = { appId, token, clientId }; showGoogleConsentStep({ id: `google_${Date.now()}`, email, name, avatar: (name[0] || 'G').toUpperCase() }, token); }
+    function continueGoogleManualAccount(appId) { const targetAppId = appId || pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(targetAppId); }
     function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google \u00b7 Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">\u2713 ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
     function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected \u2713`); }
 
@@ -9817,6 +9820,7 @@ body > header,
             <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
               <div class="text-xs font-bold text-white">➕ ثبت سریع تیکت در Jira</div>
               <input id="jiraIssueSummaryInput" placeholder="عنوان تیکت / باگ..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500" />
+              <textarea id="jiraIssueDescInput" rows="2" placeholder="توضیحات و جزییات تیکت (اختیاری)..." class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 resize-none"></textarea>
               <div class="grid grid-cols-2 gap-2">
                 <input id="jiraIssueProjectKeyInput" placeholder="Project Key (e.g. KAN)" value="KAN" class="bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono code-block-dir" />
                 <select id="jiraIssueTypeInput" class="bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white">
@@ -22818,7 +22822,7 @@ return "";
 
 
 function decodeQuotedPrintableUtf8(input, charset = "utf-8") {
-  const str = String(input || "").replace(/=\\r?\\n/g, "");
+  const str = String(input || "").replace(/=\r?\n/g, "");
   if (!/=[0-9A-Fa-f]{2}/.test(str)) return str;
   try {
 const bytes = [];
