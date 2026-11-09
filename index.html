@@ -2963,6 +2963,44 @@ body > header,
             }
           ]
         },
+        picsart: {
+          name: 'Picsart Creative Studio MCP',
+          endpointDefault: 'https://api.picsart.io/tools/1.0',
+          tools: [
+            {
+              name: 'picsart_remove_background',
+              description: 'حذف هوشمند پس‌زمینه تصویر و ساخت سوژه PNG برای ادیت تامنیل و کاور',
+              parameters: { image_url: 'string (آدرس کامل تصویر)' },
+              execute: async (args, token) => {
+                if (!token) throw new Error('کلید API برای Picsart در تنظیمات ثبت نشده است');
+                const res = await fetch('https://api.picsart.io/tools/1.0/removebg', {
+                  method: 'POST',
+                  headers: { 'x-picsart-api-key': token, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ image_url: args.image_url, format: 'PNG' })
+                });
+                if (!res.ok) throw new Error(`Picsart API HTTP ${res.status}`);
+                const data = await res.json();
+                return { status: 'success', output_url: data?.data?.url || args.image_url };
+              }
+            },
+            {
+              name: 'picsart_text_to_image',
+              description: 'تولید تصویر گرافیکی و هنری با کیفیت بالا از متن برای تامنیل شورتس و کاور',
+              parameters: { prompt: 'string (توصیف صحنه)' },
+              execute: async (args, token) => {
+                if (!token) throw new Error('کلید API برای Picsart الزامی است');
+                const res = await fetch('https://api.picsart.io/tools/1.0/text2image', {
+                  method: 'POST',
+                  headers: { 'x-picsart-api-key': token, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ prompt: args.prompt, count: 1 })
+                });
+                if (!res.ok) throw new Error(`Picsart API HTTP ${res.status}`);
+                const data = await res.json();
+                return { status: 'success', prompt: args.prompt, images: data?.data || [] };
+              }
+            }
+          ]
+        },
         firecrawl: {
           name: 'Firecrawl Web Crawler MCP',
           endpointDefault: 'https://api.firecrawl.dev/v1',
@@ -3816,7 +3854,8 @@ body > header,
         const sampleArgs = appId === 'coingecko' ? { coin_id: 'bitcoin', currency: 'usd' }
           : (appId === 'firecrawl' ? { url: 'https://example.com' }
           : (appId === 'elevenlabs' ? { text: 'تست موفقیت‌آمیز صدای هوش مصنوعی در نکسوس او اس' }
-          : { query: 'test' }));
+          : (appId === 'picsart' ? { prompt: 'A futuristic android fitness avatar in gym' }
+          : { query: 'test' })));
         
         const result = await firstTool.execute(sampleArgs, token);
         outputEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
