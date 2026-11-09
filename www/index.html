@@ -106,6 +106,8 @@ body > header,
   #phase2ModePillsSlot > * { flex: 0 0 auto; }
 }
 </style>
+<!-- Google Identity Services (GIS) for real OAuth 2.0 -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="bg-cue-bg text-slate-100 min-h-screen flex flex-col select-none">
   <!-- Toast Notification -->
@@ -629,7 +631,7 @@ body > header,
   <!-- ====================================================================== -->
   <!-- JAVASCRIPT ENGINE: PHASE 1 CORE (AVATARS, REA APPS, ORCHESTRATOR)      -->
   <!-- ====================================================================== -->
-
+  
 <!-- EG NEXUS PHASE 3 early preview guard -->
 <script>
     // BEGIN PHASE 3 EARLY PREVIEW GUARD
@@ -3310,6 +3312,100 @@ body > header,
     }
     let pendingProviderConnection = null;
     function isGoogleProvider(appId) { return GOOGLE_APP_IDS.has(appId); }
+
+    // ============================================================================
+    // REAL GOOGLE OAUTH 2.0 via Google Identity Services (GIS)
+    // ============================================================================
+    const GOOGLE_OAUTH_WEB_CLIENT_ID = '873567387448-ocr10n1mvqeuupqltl4frpeutiqpos4p.apps.googleusercontent.com';
+
+    const GOOGLE_OAUTH_SCOPES = {
+      gmail:      'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      gcal:       'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      gworkspace: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      google_ads: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      fitbit:     'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+    };
+
+    let _gisTokenClient = null;
+
+    function getGoogleScopes(appId) {
+      return GOOGLE_OAUTH_SCOPES[appId] || 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+    }
+
+    function initGisTokenClient(appId, callback) {
+      if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+        showToast('⏳ Google OAuth is loading, please try again…');
+        return null;
+      }
+      _gisTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_OAUTH_WEB_CLIENT_ID,
+        scope: getGoogleScopes(appId),
+        callback: callback,
+        error_callback: (err) => {
+          console.error('GIS OAuth error:', err);
+          showToast(`❌ Google sign-in failed: ${err?.type || 'unknown error'}`);
+        }
+      });
+      return _gisTokenClient;
+    }
+
+    async function fetchGoogleUserInfo(accessToken) {
+      try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        console.error('Failed to fetch Google user info:', err);
+        return null;
+      }
+    }
+
+    function completeGoogleOAuthConnection(appId, tokenResponse) {
+      const accessToken = tokenResponse.access_token;
+      if (!accessToken) {
+        showToast('❌ No access token received from Google');
+        return;
+      }
+      // Show loading state
+      showToast('🔄 Getting account info from Google…');
+      fetchGoogleUserInfo(accessToken).then(userInfo => {
+        if (!userInfo || !userInfo.email) {
+          showToast('❌ Could not retrieve Google account info');
+          return;
+        }
+        const account = {
+          id: `google_${userInfo.sub || Date.now()}`,
+          email: userInfo.email,
+          name: userInfo.name || userInfo.email.split('@')[0],
+          avatar: (userInfo.name?.[0] || userInfo.email[0] || 'G').toUpperCase(),
+          picture: userInfo.picture || '',
+          connectedAt: new Date().toISOString()
+        };
+        const conn = appState.appConnections[appId] || {};
+        const accounts = getConnectionAccounts(appId).filter(
+          a => a.email.toLowerCase() !== account.email.toLowerCase()
+        );
+        accounts.push(account);
+        appState.appConnections[appId] = {
+          ...conn,
+          accounts,
+          contextEnabled: true,
+          connectedAt: new Date().toISOString(),
+          token: accessToken
+        };
+        // Store token securely in session secrets
+        if (typeof secrets !== 'undefined' && secrets.connectionTokens) {
+          secrets.connectionTokens[appId] = accessToken;
+        }
+        syncAddedAppIds();
+        saveState();
+        closeSettingsPanel();
+        openAppDetailView(appId);
+        showToast(`✅ ${providerLabel(appId)} connected as ${account.email}`);
+      });
+    }
     function getConnectionAccounts(appId) {
       const raw = Array.isArray(appState.appConnections?.[appId]?.accounts) ? appState.appConnections[appId].accounts : [];
       return raw.map((item, idx) => {
@@ -3367,27 +3463,43 @@ body > header,
       closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} connected ✓`);
     }
     function openGoogleAccountChooser(appId) {
-      pendingProviderConnection = { appId, token: '', clientId: '' };
+      pendingProviderConnection = { appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID };
       const accounts = getConnectionAccounts(appId);
-      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left shrink-0"><span class="w-9 h-9 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs shrink-0">Saved</span></button>`).join('');
+      const rows = accounts.map((a, i) => `<button onclick="selectGoogleAccount(${i})" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-left shrink-0"><span class="w-9 h-9 shrink-0 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(a.avatar)}</span><span class="min-w-0 flex-1"><b class="block text-sm text-white truncate">${escapeHtml(a.name)}</b><span class="block text-xs text-slate-400 truncate">${escapeHtml(a.email)}</span></span><span class="text-emerald-300 text-xs shrink-0">Connected</span></button>`).join('');
       renderIntegrationModal('Sign in with Google', `<div class="space-y-3" dir="ltr">
         <div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3">
           <div class="text-sm font-bold text-white">Choose a Google account</div>
-          <div class="text-xs text-slate-300 mt-1">Google will show the accounts already signed in on your device. EG Nexus OS never asks you to type a Gmail password here.</div>
+          <div class="text-xs text-slate-300 mt-1">Sign in securely with your Google account. EG Nexus OS uses Google\u2019s official OAuth 2.0 \u2014 your password is never shared with this app.</div>
         </div>
-        <button onclick="openExternalProviderUrl(providerAuthUrl('${escapeJsAttr(appId)}'))" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shrink-0">Continue with Google</button>
-        ${rows || '<div class="text-xs text-slate-400 p-2">No saved EG Nexus account yet. Continue with Google to choose one.</div>'}
-        <button onclick="openGoogleAccountForm()" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white shrink-0">+ Use another Google account</button>
-        <div class="text-[10px] leading-relaxed text-slate-500">This direct launcher opens Google’s real account chooser. Full API sync requires the app owner to configure a Google OAuth Client ID and callback.</div>
+        <button onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 px-3 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shrink-0 flex items-center justify-center gap-2">
+          <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Continue with Google
+        </button>
+        ${rows}
+        ${accounts.length > 0 ? `<button onclick="startGoogleOAuthFlow('` + '${escapeJsAttr(appId)}' + `')" class="w-full min-h-0 px-3 py-3 rounded-2xl border border-white/10 bg-white/5 text-left text-sm text-white shrink-0">+ Add another Google account</button>` : ''}
+        <div class="text-[10px] leading-relaxed text-slate-500">Secured by Google OAuth 2.0. Your credentials are handled directly by Google\u2019s servers.</div>
         <button onclick="closeSettingsPanel()" class="w-full py-2.5 text-xs text-slate-400 shrink-0">Cancel</button>
       </div>`);
     }
-    function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId || 'gmail'; const account = getConnectionAccounts(appId)[index]; if (account) openExternalProviderUrl(providerAuthUrl(appId)); }
-    function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; openExternalProviderUrl(providerAuthUrl(appId)); }
+    function startGoogleOAuthFlow(appId) {
+      pendingProviderConnection = { appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID };
+      const client = initGisTokenClient(appId, (tokenResponse) => {
+        if (tokenResponse.error) {
+          showToast('\u274c Google authorization denied or failed');
+          return;
+        }
+        completeGoogleOAuthConnection(appId, tokenResponse);
+      });
+      if (client) {
+        client.requestAccessToken({ prompt: 'select_account' });
+      }
+    }
+    function selectGoogleAccount(index) { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
+    function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function continueGoogleManualAccount(appId) { const email = document.getElementById('googleAccountEmail')?.value.trim() || ''; const name = document.getElementById('googleAccountName')?.value.trim() || email.split('@')[0] || 'Google account'; const token = document.getElementById('googleAccessToken')?.value.trim() || ''; const clientId = document.getElementById('googleClientId')?.value.trim() || ''; if (!email || !email.includes('@')) { setGoogleIdentityStatus('Enter a valid Google account email.', 'error'); return; } pendingProviderConnection = { appId, token, clientId }; showGoogleConsentStep({ id: `google_${Date.now()}`, email, name, avatar: (name[0] || 'G').toUpperCase() }, token); }
-    function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
-    function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
+    function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google \u00b7 Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">\u2713 ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
+    function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected \u2713`); }
 
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
