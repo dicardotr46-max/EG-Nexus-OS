@@ -3535,7 +3535,7 @@ body > header,
             ${accountItems.map((acc, i) => `
               <div class="app-account-row px-4 py-3.5 flex items-center justify-between gap-2">
                 <div class="flex items-center gap-3 min-w-0">
-                  <div class="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center uppercase shrink-0">${escapeHtml(acc.avatar || 'U')}</div>
+                  ${acc.picture ? `<img src="${escapeHtml(acc.picture)}" alt="${escapeHtml(acc.name)}" class="w-8 h-8 rounded-full border border-white/10 object-cover shrink-0" />` : `<div class="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center uppercase shrink-0">${escapeHtml(acc.avatar || "U")}</div>`}
                   <div class="min-w-0"><span class="block text-sm text-white app-account-email">${escapeHtml(acc.name)}</span><span class="block text-[10px] text-cue-muted app-account-email">${escapeHtml(acc.email)}</span></div>
                   <span class="text-[10px] text-emerald-300 shrink-0">Connected</span>
                 </div>
@@ -3645,63 +3645,276 @@ body > header,
       if (!res.ok) throw new Error(data?.message || `GitHub API returned HTTP ${res.status}`);
       return data;
     }
-    function openGitHubConnectModal() {
-      const conn = getGitHubConnection();
-      const modal = document.getElementById('settingsSubModal');
-      const content = document.getElementById('settingsSubContent');
-      document.getElementById('settingsSubTitle').innerText = 'GitHub Integration';
-content.innerHTML = `
-        <div class="space-y-3" dir="ltr">
-          <div class="rounded-2xl bg-slate-500/10 border border-white/10 p-3">
-            <div class="text-sm font-bold text-white">Connect GitHub without copying tokens</div>
-            <div class="text-xs text-slate-300 mt-1">Use GitHub’s own secure sign-in page. EG Nexus OS never asks for your GitHub password.</div>
-          </div>
-          <button onclick="openExternalProviderUrl(providerAuthUrl('github'))" class="w-full py-3 rounded-xl bg-white text-black hover:bg-slate-200 font-extrabold text-sm">Continue with GitHub</button>
-          <button id="githubConnectBtn" onclick="connectGitHubRepository()" class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-sm">Connect public EG Nexus repository</button>
-          <div id="githubConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
-          <details class="rounded-xl border border-white/10 bg-cue-bg p-3">
-            <summary class="cursor-pointer text-xs text-slate-300">Advanced repository / private API settings</summary>
-            <div class="space-y-3 mt-3">
-              <label class="block text-xs text-slate-300">GitHub Owner/Username<input id="githubOwnerInput" value="${escapeHtml(conn.owner || 'dicardotr46-max')}" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-              <label class="block text-xs text-slate-300">Repository Name<input id="githubRepoInput" value="${escapeHtml(conn.repo || 'EG-Nexus-OS')}" autocomplete="off" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-              <label class="block text-xs text-slate-300">Personal Access Token <span class="text-slate-500">(optional)</span><input id="githubPatInput" type="password" value="${escapeHtml(getGitHubToken())}" autocomplete="new-password" spellcheck="false" placeholder="github_pat_..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
-            </div>
-          </details>
-          <div class="text-[10px] leading-relaxed text-slate-500">A true GitHub OAuth callback requires an OAuth App Client ID and registered callback URL. Until those are configured, the buttons above use GitHub’s real login/repository pages and the public repository connector.</div>
-          ${isAppGenuinelyConnected('github') ? '<button onclick="disconnectApp(\'github\')" class="w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold">Disconnect repository</button>' : ''}
-        </div>`;
-      modal.classList.remove('hidden');
+    let _discoveredGitHubUser = null;
+    let _discoveredGitHubRepos = [];
+
+    function openGitHubTokenCreatePage() {
+      // Pre-filled description and scopes (repo, workflow) so user doesn't need to guess!
+      const target = 'https://github.com/settings/tokens/new?description=EG-Nexus-OS&scopes=repo,workflow';
+      openExternalProviderUrl(target);
     }
+
     function setGitHubConnectStatus(message, kind = 'info') {
       const el = document.getElementById('githubConnectStatus');
       if (!el) return;
-      el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`;
+      el.className = `rounded-xl px-3 py-2.5 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : (kind === 'success' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-blue-500/15 text-blue-200 border border-blue-500/30')}`;
       el.textContent = message;
+      el.classList.remove('hidden');
     }
+
+    function openGitHubConnectModal() {
+      const conn = getGitHubConnection();
+      const currentToken = getGitHubToken();
+      _discoveredGitHubUser = null;
+      _discoveredGitHubRepos = [];
+      const modal = document.getElementById('settingsSubModal');
+      const content = document.getElementById('settingsSubContent');
+      document.getElementById('settingsSubTitle').innerText = 'اتصال حساب و مخزن GitHub';
+      content.innerHTML = `
+        <div class="space-y-3.5" dir="rtl">
+          <!-- Intro Card -->
+          <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-black border border-white/10 p-3.5">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+              </div>
+              <div>
+                <div class="text-sm font-bold text-white">اتصال هوشمند گیت‌هاب (PAT Auth)</div>
+                <div class="text-[11px] text-slate-300 mt-0.5">اتصال مستقیم به API گیت‌هاب جهت رصد کامیت‌ها و اجرای بیلد APK</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 1: Token Generation Link -->
+          <div class="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-blue-200">گام ۱: دریافت توکن اختصاصی</span>
+              <button type="button" onclick="openGitHubTokenCreatePage()" class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] flex items-center gap-1 transition">
+                <span>ساخت توکن در گیت‌هاب</span>
+                <span class="text-xs">↗</span>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-300 leading-relaxed">با زدن دکمه بالا، گیت‌هاب مستقیماً صفحه ساخت توکن را با دسترسی‌های لازم (<code class="text-emerald-300 font-mono">repo</code> و <code class="text-emerald-300 font-mono">workflow</code>) باز می‌کند. فقط کافیست در انتهای صفحه دکمه <b>Generate token</b> را بزنید و کد را کپی کنید.</p>
+          </div>
+
+          <!-- Step 2: Input and Auto-Discovery -->
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-slate-200">گام ۲: وارد کردن توکن شخصی (Personal Access Token)
+              <input id="githubPatInput" type="password" value="${escapeHtml(currentToken)}" autocomplete="new-password" spellcheck="false" placeholder="ghp_... یا github_pat_..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500" />
+            </label>
+            <button id="githubDiscoverBtn" type="button" onclick="discoverGitHubRepositories()" class="w-full py-3 rounded-xl bg-white text-black hover:bg-slate-200 font-extrabold text-xs transition flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span>بررسی توکن و دریافت خودکار مخازن شما</span>
+            </button>
+          </div>
+
+          <!-- Status Message Area -->
+          <div id="githubConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
+
+          <!-- Step 3: Discovered Repositories Area (Dynamically Filled) -->
+          <div id="githubDiscoveryArea" class="hidden space-y-3 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25">
+            <!-- User Profile Snippet -->
+            <div id="githubUserProfileSnippet" class="flex items-center gap-3 pb-2 border-b border-white/10"></div>
+            <!-- Repo Selector -->
+            <div>
+              <label class="block text-xs font-bold text-white mb-1.5">مخزن مورد نظر را انتخاب کنید:</label>
+              <select id="githubRepoSelect" class="w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-white code-block-dir font-mono focus:outline-none focus:border-emerald-500"></select>
+            </div>
+            <button id="githubFinalizeBtn" type="button" onclick="finalizeGitHubConnection()" class="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs transition">
+              ✓ تأیید و اتصال به این مخزن
+            </button>
+          </div>
+
+          <!-- Collapsible Manual / Public Fallback -->
+          <details class="rounded-xl border border-white/10 bg-cue-bg p-3">
+            <summary class="cursor-pointer text-xs text-slate-300 hover:text-white">تنظیمات دستی یا اتصال مخزن عمومی بدون توکن</summary>
+            <div class="space-y-3 mt-3 pt-2 border-t border-white/10">
+              <label class="block text-xs text-slate-300">نام کاربری مالک (GitHub Owner)<input id="githubOwnerInput" value="${escapeHtml(conn.owner || 'dicardotr46-max')}" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white code-block-dir" /></label>
+              <label class="block text-xs text-slate-300">نام مخزن (Repository Name)<input id="githubRepoInput" value="${escapeHtml(conn.repo || 'EG-Nexus-OS')}" autocomplete="off" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white code-block-dir" /></label>
+              <button id="githubManualConnectBtn" type="button" onclick="connectGitHubRepository()" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs">اتصال دستی مخزن</button>
+            </div>
+          </details>
+
+          ${isAppGenuinelyConnected('github') ? `
+            <div class="pt-2 border-t border-white/10 flex items-center justify-between">
+              <span class="text-xs text-slate-400">مخزن فعال: <b class="text-white font-mono">${escapeHtml(conn.owner || '')}/${escapeHtml(conn.repo || '')}</b></span>
+              <button onclick="disconnectApp('github')" class="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-bold transition">قطع اتصال مخزن</button>
+            </div>
+          ` : ''}
+          <button onclick="closeSettingsPanel()" class="w-full py-2 text-xs text-slate-400 hover:text-white">بستن</button>
+        </div>`;
+      modal.classList.remove('hidden');
+    }
+
+    async function discoverGitHubRepositories() {
+      const token = document.getElementById('githubPatInput')?.value.trim() || '';
+      const btn = document.getElementById('githubDiscoverBtn');
+      const discArea = document.getElementById('githubDiscoveryArea');
+      const statusEl = document.getElementById('githubConnectStatus');
+      if (!token) {
+        setGitHubConnectStatus('لطفاً ابتدا توکن شخصی (PAT) خود را وارد کنید.', 'error');
+        return;
+      }
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏳ در حال اعتبارسنجی با GitHub...</span>'; }
+      setGitHubConnectStatus('در حال برقراری ارتباط امن با سرورهای GitHub...', 'info');
+
+      try {
+        // 1. Fetch user profile
+        const userRes = await fetch('https://api.github.com/user', {
+          headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` }
+        });
+        const userData = await userRes.json().catch(() => null);
+        if (!userRes.ok || !userData?.login) {
+          throw new Error(userData?.message || 'توکن واردشده نامعتبر است یا منقضی شده است (HTTP ' + userRes.status + ')');
+        }
+
+        _discoveredGitHubUser = userData;
+
+        // 2. Fetch user repositories (up to 100 recent repos)
+        const reposRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+          headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` }
+        });
+        const reposData = await reposRes.json().catch(() => []);
+        _discoveredGitHubRepos = Array.isArray(reposData) ? reposData : [];
+
+        // 3. Populate User Profile snippet
+        const snippetEl = document.getElementById('githubUserProfileSnippet');
+        if (snippetEl) {
+          snippetEl.innerHTML = `
+            <img src="${escapeHtml(userData.avatar_url || '')}" alt="${escapeHtml(userData.login)}" class="w-10 h-10 rounded-full border border-emerald-400/40 shrink-0" onerror="this.style.display='none'" />
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-white truncate">${escapeHtml(userData.name || userData.login)} <span class="text-emerald-400 font-mono font-normal">(@${escapeHtml(userData.login)})</span></div>
+              <div class="text-[10px] text-slate-300">${_discoveredGitHubRepos.length} مخزن فعال در دسترس</div>
+            </div>
+          `;
+        }
+
+        // 4. Populate Repository Select
+        const selectEl = document.getElementById('githubRepoSelect');
+        if (selectEl) {
+          const currentRepo = getGitHubConnection().repo || 'EG-Nexus-OS';
+          let optionsHtml = '';
+          let matchFound = false;
+
+          if (_discoveredGitHubRepos.length === 0) {
+            optionsHtml = `<option value="EG-Nexus-OS" data-owner="${escapeHtml(userData.login)}">EG-Nexus-OS</option>`;
+          } else {
+            optionsHtml = _discoveredGitHubRepos.map(r => {
+              const isSelected = r.name.toLowerCase() === currentRepo.toLowerCase();
+              if (isSelected) matchFound = true;
+              return `<option value="${escapeHtml(r.name)}" data-owner="${escapeHtml(r.owner?.login || userData.login)}" ${isSelected ? 'selected' : ''}>${escapeHtml(r.name)} ${r.private ? '🔒' : '🌐'}</option>`;
+            }).join('');
+
+            // If EG-Nexus-OS is not in list but user owns it or wants it
+            if (!matchFound) {
+              optionsHtml = `<option value="${escapeHtml(currentRepo)}" data-owner="${escapeHtml(userData.login)}" selected>${escapeHtml(currentRepo)} ⭐</option>` + optionsHtml;
+            }
+          }
+          selectEl.innerHTML = optionsHtml;
+        }
+
+        // Show discovery area
+        if (discArea) discArea.classList.remove('hidden');
+        setGitHubConnectStatus(`✅ توکن با موفقیت تأیید شد (${userData.login}). لطفاً مخزن موردنظر را انتخاب نمایید.`, 'success');
+      } catch (err) {
+        setGitHubConnectStatus(err?.message || 'خطا در ارتباط با گیت‌هاب', 'error');
+        if (discArea) discArea.classList.add('hidden');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><span>بررسی مجدد توکن</span>';
+        }
+      }
+    }
+
+    async function finalizeGitHubConnection() {
+      const token = document.getElementById('githubPatInput')?.value.trim() || '';
+      const selectEl = document.getElementById('githubRepoSelect');
+      const selectedOption = selectEl?.options[selectEl.selectedIndex];
+      const repo = selectedOption?.value || document.getElementById('githubRepoInput')?.value.trim() || 'EG-Nexus-OS';
+      const owner = selectedOption?.getAttribute('data-owner') || _discoveredGitHubUser?.login || 'dicardotr46-max';
+      const user = _discoveredGitHubUser || { login: owner, name: owner, avatar_url: '' };
+
+      const accounts = [{
+        id: 'github_' + (user.id || user.login),
+        name: user.name || user.login,
+        email: '@' + user.login,
+        avatar: (user.name?.[0] || user.login[0] || 'G').toUpperCase(),
+        picture: user.avatar_url || '',
+        connectedAt: new Date().toISOString()
+      }];
+
+      appState.appConnections.github = {
+        ...getGitHubConnection(),
+        owner,
+        repo,
+        token: token,
+        accounts,
+        mcpEnabled: false,
+        connectedAt: new Date().toISOString()
+      };
+
+      if (typeof secrets !== 'undefined' && secrets.connectionTokens) {
+        secrets.connectionTokens.github = token;
+      }
+
+      syncAddedAppIds();
+      if (!saveState()) {
+        setGitHubConnectStatus('اطلاعات تأیید شد اما ذخیره در حافظه محلی با خطا مواجه گردید.', 'error');
+        return;
+      }
+      closeSettingsPanel();
+      openAppDetailView('github');
+      showToast(`✅ گیت‌هاب با موفقیت به ${owner}/${repo} متصل شد`);
+    }
+
     async function connectGitHubRepository() {
       const owner = document.getElementById('githubOwnerInput')?.value.trim() || '';
       const repo = document.getElementById('githubRepoInput')?.value.trim() || '';
       const token = document.getElementById('githubPatInput')?.value.trim() || '';
-      const btn = document.getElementById('githubConnectBtn');
+      const btn = document.getElementById('githubManualConnectBtn');
       if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(owner) || !/^[A-Za-z0-9._-]{1,100}$/.test(repo)) {
-        setGitHubConnectStatus('Enter a valid GitHub owner and repository name.', 'error'); return;
+        setGitHubConnectStatus('نام مالک و مخزن معتبر وارد نمایید.', 'error'); return;
       }
-      if (btn) { btn.disabled = true; btn.textContent = 'Checking repository…'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'در حال بررسی مخزن…'; }
       try {
         const headers = { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
         const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { headers });
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.message || `GitHub API returned HTTP ${res.status}`);
-        appState.appConnections.github = { ...getGitHubConnection(), owner, repo, token: token || '', accounts: [], mcpEnabled: false, connectedAt: new Date().toISOString() };
+
+        // Also fetch user info if token is provided
+        let accounts = [];
+        if (token) {
+          try {
+            const uRes = await fetch('https://api.github.com/user', { headers });
+            const uData = await uRes.json().catch(() => null);
+            if (uData && uData.login) {
+              accounts = [{
+                id: 'github_' + (uData.id || uData.login),
+                name: uData.name || uData.login,
+                email: '@' + uData.login,
+                avatar: (uData.name?.[0] || uData.login[0] || 'G').toUpperCase(),
+                picture: uData.avatar_url || '',
+                connectedAt: new Date().toISOString()
+              }];
+            }
+          } catch (e) {}
+        }
+
+        appState.appConnections.github = { ...getGitHubConnection(), owner, repo, token: token || '', accounts, mcpEnabled: false, connectedAt: new Date().toISOString() };
+        if (token && typeof secrets !== 'undefined' && secrets.connectionTokens) {
+          secrets.connectionTokens.github = token;
+        }
         syncAddedAppIds();
-        if (!saveState()) throw new Error('The repository was verified, but local state could not be saved.');
+        if (!saveState()) throw new Error('مخزن تأیید شد اما در ذخیره محلی مشکلی پیش آمد.');
         closeSettingsPanel();
         openAppDetailView('github');
         showToast(`GitHub connected: ${owner}/${repo} ✓`);
       } catch (err) {
-        setGitHubConnectStatus(err?.message || 'Could not verify the repository.', 'error');
+        setGitHubConnectStatus(err?.message || 'بررسی مخزن با شکست مواجه شد.', 'error');
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'اتصال دستی مخزن'; }
       }
     }
     function renderGitHubPanelShell(conn) {
