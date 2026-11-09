@@ -1,0 +1,3 @@
+## 2024-05-18 - Optimized Frequent UI Renders on Search Inputs
+**Learning:** In a monolithic architecture like index.html where UI renders re-process large state arrays (like home chats and apps catalog) synchronously on the main thread, high-frequency events like \`oninput\` create severe lag.
+**Action:** Implemented a robust global `debounce` utility directly inside the first `<script>` tag and used it to wrap expensive catalog/chat renders (debouncedRenderHomeChatList and debouncedRenderAppsCatalog), significantly reducing synchronous main-thread blocking during rapid typing without modifying external configurations or removing existing behavior.
