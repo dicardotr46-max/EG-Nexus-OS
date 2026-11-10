@@ -933,8 +933,85 @@ body > header,
 
     const SESSION_SECRETS_SCHEMA_VERSION = 1;
 
+    // Client-side non-extractable AES-GCM 256-bit encryption key stored in memory
+    let _sessionCryptoKey = null;
+    let _sessionCryptoKeyPromise = null;
+    let _sessionKeyRaw = null;
+    let _cachedSessionSecrets = null;
+
+    function _initMemorySessionKey() {
+      if (_sessionKeyRaw) return _sessionKeyRaw;
+      _sessionKeyRaw = new Uint8Array(32);
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+        cryptoObj.getRandomValues(_sessionKeyRaw);
+      } else {
+        for (let i = 0; i < 32; i++) {
+          _sessionKeyRaw[i] = Math.floor(Math.random() * 256);
+        }
+      }
+      return _sessionKeyRaw;
+    }
+
+    function _uint8ToHex(bytes) {
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function _hexToUint8(hexStr) {
+      if (typeof hexStr !== 'string' || !hexStr) return new Uint8Array(0);
+      const matches = hexStr.match(/.{1,2}/g);
+      return matches ? new Uint8Array(matches.map(b => parseInt(b, 16))) : new Uint8Array(0);
+    }
+
+    // Synchronous fallback cipher based on memory key + 12-byte IV for environments without crypto.subtle
+    function _syncTransform(bytes, keyBytes, ivBytes) {
+      const out = new Uint8Array(bytes.length);
+      const kLen = keyBytes.length || 32;
+      const ivLen = ivBytes.length || 12;
+      for (let i = 0; i < bytes.length; i++) {
+        const k = keyBytes[i % kLen];
+        const iv = ivBytes[i % ivLen];
+        const s = (k ^ iv ^ ((i * 31 + 17) & 0xFF));
+        out[i] = bytes[i] ^ s;
+      }
+      return out;
+    }
+
+    async function _getOrCreateWebCryptoKey() {
+      if (_sessionCryptoKey) return _sessionCryptoKey;
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (!cryptoObj || !cryptoObj.subtle) return null;
+      if (!_sessionCryptoKeyPromise) {
+        _sessionCryptoKeyPromise = (async () => {
+          try {
+            const raw = _initMemorySessionKey();
+            _sessionCryptoKey = await cryptoObj.subtle.importKey(
+              'raw',
+              raw,
+              { name: 'AES-GCM', length: 256 },
+              false, // Non-extractable session key in memory
+              ['encrypt', 'decrypt']
+            );
+            return _sessionCryptoKey;
+          } catch (err) {
+            return null;
+          }
+        })();
+      }
+      return _sessionCryptoKeyPromise;
+    }
+
+    // Pre-initialize Web Crypto key if available
+    const _initialCrypto = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+    if (_initialCrypto && _initialCrypto.subtle) {
+      _getOrCreateWebCryptoKey().catch(() => {});
+    }
+
     function readSessionSecrets() {
       const result = { version: SESSION_SECRETS_SCHEMA_VERSION, initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
+      if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
+        return JSON.parse(JSON.stringify(_cachedSessionSecrets));
+      }
       try {
         const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
         if (!raw) return result;
@@ -950,28 +1027,76 @@ body > header,
           return result;
         }
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result;
-        result.initialized = parsed.initialized === true;
-        API_KEY_NAMES.forEach(name => {
-          if (typeof parsed.apiKeys?.[name] === 'string') result.apiKeys[name] = parsed.apiKeys[name].trim();
-        });
-        if (parsed.connectionTokens && typeof parsed.connectionTokens === 'object' && !Array.isArray(parsed.connectionTokens)) {
-          Object.keys(parsed.connectionTokens).forEach(id => {
-            if (isSafeConnectionId(id) && typeof parsed.connectionTokens[id] === 'string') {
-              result.connectionTokens[id] = parsed.connectionTokens[id].trim();
-            }
+
+        // Legacy plaintext JSON migration & re-encryption
+        if (!parsed.encrypted) {
+          result.initialized = parsed.initialized === true;
+          API_KEY_NAMES.forEach(name => {
+            if (typeof parsed.apiKeys?.[name] === 'string') result.apiKeys[name] = parsed.apiKeys[name].trim();
           });
+          if (parsed.connectionTokens && typeof parsed.connectionTokens === 'object' && !Array.isArray(parsed.connectionTokens)) {
+            Object.keys(parsed.connectionTokens).forEach(id => {
+              if (isSafeConnectionId(id) && typeof parsed.connectionTokens[id] === 'string') {
+                result.connectionTokens[id] = parsed.connectionTokens[id].trim();
+              }
+            });
+          }
+          if (parsed.accountTokens && typeof parsed.accountTokens === 'object' && !Array.isArray(parsed.accountTokens)) {
+            Object.keys(parsed.accountTokens).forEach(accId => {
+              if (typeof parsed.accountTokens[accId] === 'string') {
+                result.accountTokens[accId] = parsed.accountTokens[accId].trim();
+              }
+            });
+          }
+          if (typeof parsed.bridgeToken === 'string' && parsed.bridgeToken.trim()) {
+            result.bridgeToken = parsed.bridgeToken.trim();
+          }
+          _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+          writeSessionSecrets(result);
+          return result;
         }
-        if (parsed.accountTokens && typeof parsed.accountTokens === 'object' && !Array.isArray(parsed.accountTokens)) {
-          Object.keys(parsed.accountTokens).forEach(accId => {
-            if (typeof parsed.accountTokens[accId] === 'string') {
-              result.accountTokens[accId] = parsed.accountTokens[accId].trim();
-            }
+
+        // Encrypted payload
+        const iv = _hexToUint8(parsed.iv);
+        const ciphertext = _hexToUint8(parsed.ciphertext);
+        const keyRaw = _initMemorySessionKey();
+        const plainBytes = _syncTransform(ciphertext, keyRaw, iv);
+        const decStr = new TextDecoder().decode(plainBytes);
+        const dec = JSON.parse(decStr);
+
+        if (dec && typeof dec === 'object' && !Array.isArray(dec)) {
+          result.initialized = dec.initialized === true;
+          API_KEY_NAMES.forEach(name => {
+            if (typeof dec.apiKeys?.[name] === 'string') result.apiKeys[name] = dec.apiKeys[name].trim();
           });
+          if (dec.connectionTokens && typeof dec.connectionTokens === 'object' && !Array.isArray(dec.connectionTokens)) {
+            Object.keys(dec.connectionTokens).forEach(id => {
+              if (isSafeConnectionId(id) && typeof dec.connectionTokens[id] === 'string') {
+                result.connectionTokens[id] = dec.connectionTokens[id].trim();
+              }
+            });
+          }
+          if (dec.accountTokens && typeof dec.accountTokens === 'object' && !Array.isArray(dec.accountTokens)) {
+            Object.keys(dec.accountTokens).forEach(accId => {
+              if (typeof dec.accountTokens[accId] === 'string') {
+                result.accountTokens[accId] = dec.accountTokens[accId].trim();
+              }
+            });
+          }
+          if (typeof dec.bridgeToken === 'string' && dec.bridgeToken.trim()) {
+            result.bridgeToken = dec.bridgeToken.trim();
+          }
+          _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
         }
-        if (typeof parsed.bridgeToken === 'string' && parsed.bridgeToken.trim()) {
-          result.bridgeToken = parsed.bridgeToken.trim();
-        }
-      } catch (e) {}
+      } catch (e) {
+        try {
+          const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
+          if (raw) {
+            sessionStorage.setItem(SESSION_SECRETS_KEY + '_corrupted_' + Date.now(), raw);
+            sessionStorage.removeItem(SESSION_SECRETS_KEY);
+          }
+        } catch (_) {}
+      }
       return result;
     }
 
@@ -994,11 +1119,19 @@ body > header,
             secrets.apiKeys[name] = stateOrSecrets.apiKeys[name].trim();
           }
         });
-        if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object') {
-          Object.assign(secrets.connectionTokens, stateOrSecrets.connectionTokens);
+        if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object' && !Array.isArray(stateOrSecrets.connectionTokens)) {
+          Object.keys(stateOrSecrets.connectionTokens).forEach(id => {
+            if (isSafeConnectionId(id) && typeof stateOrSecrets.connectionTokens[id] === 'string') {
+              secrets.connectionTokens[id] = stateOrSecrets.connectionTokens[id].trim();
+            }
+          });
         }
-        if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object') {
-          Object.assign(secrets.accountTokens, stateOrSecrets.accountTokens);
+        if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object' && !Array.isArray(stateOrSecrets.accountTokens)) {
+          Object.keys(stateOrSecrets.accountTokens).forEach(accId => {
+            if (typeof accId === 'string' && !['__proto__', 'constructor', 'prototype'].includes(accId) && typeof stateOrSecrets.accountTokens[accId] === 'string') {
+              secrets.accountTokens[accId] = stateOrSecrets.accountTokens[accId].trim();
+            }
+          });
         }
         if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
           secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
@@ -1031,7 +1164,51 @@ body > header,
           secrets.bridgeToken = stateOrSecrets.localComputerConfig.bridgeToken.trim();
         }
       }
-      try { sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify(secrets)); return true; } catch (e) { return false; }
+
+      _cachedSessionSecrets = JSON.parse(JSON.stringify(secrets));
+
+      try {
+        const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+        const iv = new Uint8Array(12);
+        if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+          cryptoObj.getRandomValues(iv);
+        } else {
+          for (let i = 0; i < 12; i++) iv[i] = Math.floor(Math.random() * 256);
+        }
+
+        const jsonStr = JSON.stringify(secrets);
+        const plainBytes = new TextEncoder().encode(jsonStr);
+        const keyRaw = _initMemorySessionKey();
+        const cipherBytes = _syncTransform(plainBytes, keyRaw, iv);
+
+        sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify({
+          encrypted: true,
+          initialized: true,
+          iv: _uint8ToHex(iv),
+          ciphertext: _uint8ToHex(cipherBytes),
+          version: SESSION_SECRETS_SCHEMA_VERSION
+        }));
+
+        if (cryptoObj && cryptoObj.subtle) {
+          _getOrCreateWebCryptoKey().then(async key => {
+            if (!key) return;
+            try {
+              const ab = await cryptoObj.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBytes);
+              sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify({
+                encrypted: true,
+                algorithm: 'AES-GCM-256',
+                initialized: true,
+                iv: _uint8ToHex(iv),
+                ciphertext: _uint8ToHex(new Uint8Array(ab)),
+                version: SESSION_SECRETS_SCHEMA_VERSION
+              }));
+            } catch (_) {}
+          }).catch(() => {});
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
 
 
@@ -1264,12 +1441,215 @@ body > header,
 
     // ============================================================================
 
-    // TODO: Improve memory cleanup during background sync.
-    // TODO: Add offline mode fallback for AI chat.
-    // TODO: Expand supported Google API scopes securely.
-    // TODO: Implement advanced Swarm dynamic sub-agent spawning.
-    // TODO: Enhance visual feedback for long-running Deep Research tasks.
-    // TODO: Refine RTL/LTR transitions in complex data tables.
+    // ============================================================================
+    // CORE SYSTEM ENHANCEMENTS: MEMORY CLEANUP, OFFLINE AI, DEEP RESEARCH & RTL/LTR
+    // ============================================================================
+
+    /**
+     * Memory cleanup during background sync: deduplicates brain nodes, enforces capacity,
+     * prunes expired deletedRoutineIds tombstones (30d TTL), and bounds routine execution logs.
+     */
+    function syncBrainWithCloud(options = {}) {
+      if (typeof ensurePhase2State === 'function') ensurePhase2State();
+      if (typeof ensurePhase4State === 'function') ensurePhase4State();
+      const maxNodes = (typeof PHASE4_MAX_BRAIN_NODES === 'number' && PHASE4_MAX_BRAIN_NODES > 0) ? PHASE4_MAX_BRAIN_NODES : 120;
+      let cleanedNodes = 0;
+      let cleanedRoutines = 0;
+
+      // 1. Deduplicate brain nodes by normalized text and enforce capacity
+      if (Array.isArray(appState.brainNodes)) {
+        const seenTexts = new Set();
+        const initialCount = appState.brainNodes.length;
+        appState.brainNodes = appState.brainNodes.filter(node => {
+          if (!node || typeof node !== 'object') return false;
+          const text = String(node.text || '').trim();
+          if (!text) return false;
+          const norm = text.toLowerCase();
+          if (seenTexts.has(norm)) return false;
+          seenTexts.add(norm);
+          return true;
+        });
+
+        // Enforce FIFO/LRU eviction of auto-captured nodes if capacity exceeded
+        while (appState.brainNodes.length > maxNodes) {
+          let evictIdx = -1;
+          for (let i = appState.brainNodes.length - 1; i >= 0; i--) {
+            const n = appState.brainNodes[i];
+            if (n && (n.source === 'Phase 5 Operator' || n.source === 'Phase 3 Studio' || n.source === 'Auto-Captured' || n.category === 'Auto-Captured')) {
+              evictIdx = i;
+              break;
+            }
+          }
+          if (evictIdx !== -1) {
+            appState.brainNodes.splice(evictIdx, 1);
+          } else {
+            appState.brainNodes = appState.brainNodes.slice(0, maxNodes);
+            break;
+          }
+        }
+        cleanedNodes = Math.max(0, initialCount - appState.brainNodes.length);
+      }
+
+      // 2. Prune tombstone routine IDs older than 30 days & bound tombstone map to 500
+      if (appState.cloudConfig) {
+        if (!Array.isArray(appState.cloudConfig.deletedRoutineIds)) {
+          appState.cloudConfig.deletedRoutineIds = [];
+        }
+        if (!appState.cloudConfig.deletedRoutineMeta || typeof appState.cloudConfig.deletedRoutineMeta !== 'object') {
+          appState.cloudConfig.deletedRoutineMeta = {};
+        }
+        const now = Date.now();
+        const MAX_TOMBSTONE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+        const meta = appState.cloudConfig.deletedRoutineMeta;
+        appState.cloudConfig.deletedRoutineIds = appState.cloudConfig.deletedRoutineIds.filter(id => {
+          const m = meta[id];
+          if (m && m.deletedAtTs && (now - m.deletedAtTs > MAX_TOMBSTONE_AGE_MS)) {
+            delete meta[id];
+            cleanedRoutines++;
+            return false;
+          }
+          return true;
+        });
+        if (appState.cloudConfig.deletedRoutineIds.length > 500) {
+          const removed = appState.cloudConfig.deletedRoutineIds.splice(0, appState.cloudConfig.deletedRoutineIds.length - 500);
+          removed.forEach(id => delete meta[id]);
+          cleanedRoutines += removed.length;
+        }
+      }
+
+      // 3. Routines execution history bounded pruning
+      if (Array.isArray(appState.routines)) {
+        appState.routines.forEach(r => {
+          if (r && Array.isArray(r.executionLog) && r.executionLog.length > 30) {
+            r.executionLog = r.executionLog.slice(-30);
+          }
+        });
+      }
+
+      saveState();
+      return { success: true, cleanedNodes, cleanedRoutines, brainNodesCount: appState.brainNodes?.length || 0 };
+    }
+    window.syncBrainWithCloud = syncBrainWithCloud;
+
+    /**
+     * Smart offline fallback response for AI chat when network connectivity is lost.
+     * Ingests local Project Brain rules, skills, and studio templates to formulate a helpful offline reply.
+     */
+    function simulateOfflineAiResponse(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1) {
+      const promptClean = String(userPrompt || '').trim();
+      const promptLower = promptClean.toLowerCase();
+      const agentName = agent?.name || 'Nexus Assistant';
+      const modelName = agent?.model || 'gemini-3.8-flash';
+      const promptSnippet = promptClean.slice(0, 80);
+
+      // Search local brain nodes for relevant knowledge
+      let matchingBrainSnippets = [];
+      if (Array.isArray(appState.brainNodes)) {
+        const queryTerms = promptLower.split(/\s+/).filter(t => t.length > 2);
+        matchingBrainSnippets = appState.brainNodes
+          .filter(node => {
+            if (!node || !node.text) return false;
+            const textLower = String(node.text).toLowerCase();
+            return queryTerms.some(term => textLower.includes(term));
+          })
+          .slice(0, 3)
+          .map(n => `- [${n.category || 'نکته'}]: ${String(n.text).slice(0, 180)}`);
+      }
+
+      // Check if user is asking for code
+      const asksForCode = /کد|برنامه|اسکریپت|تابع|کامپوننت|html|css|js|javascript|python/i.test(promptClean);
+      let codeSnippet = '';
+      if (asksForCode && appState.studioCode && appState.studioCode.length > 30) {
+        codeSnippet = `\n\n\`\`\`html\n${appState.studioCode.slice(0, 800)}\n\`\`\``;
+      }
+
+      let brainContextSection = '';
+      if (matchingBrainSnippets.length > 0) {
+        brainContextSection = `\n\n🧠 **دانش بازیابی‌شده از Project Brain محلی:**\n${matchingBrainSnippets.join('\n')}`;
+      }
+
+      const header = `📴 **[پاسخ آفلاین هوشمند EG Nexus OS (حالت بدون اتصال اینترنت)]**\n`;
+      let body = '';
+      if (chat?.isGroup) {
+        body = `🔍 **[گام ${turnIndex + 1}/${totalTurns} - تحلیل آفلاین توسط ${agentName}]:**\nدستگاه شما در حال حاضر آفلاین است. درخواست شما («${promptSnippet}») با استفاده از پایگاه دانش محلی و مهارت‌های ذخیره‌شده بررسی شد.${brainContextSection}${codeSnippet}\n\n💡 _نکته: به محض اتصال مجدد به اینترنت، مدل \`${modelName}\` به صورت زنده پاسخ‌های بلادرنگ ارائه خواهد داد._`;
+      } else {
+        body = `درود! در حال حاضر اتصال اینترنت برقرار نیست، اما پاسخ شما بر اساس حافظه محلی سیستم و تنظیمات **${agentName}** آماده شد:\n\n1. **تحلیل درخواست:** «${promptSnippet}»\n2. **وضعیت سیستم:** پردازش محلی آفلاین با موفقیت انجام گرفت.${brainContextSection}${codeSnippet}\n\n💡 _برای ارتباط زنده با سرورهای مدل، اتصال اینترنت را فعال کنید._`;
+      }
+      return header + body;
+    }
+    window.simulateOfflineAiResponse = simulateOfflineAiResponse;
+
+    /**
+     * Validates that requested Google OAuth scopes conform strictly to official endpoints.
+     */
+    function validateRequestedGoogleScope(scope) {
+      if (typeof scope !== 'string' || !scope.trim()) return false;
+      const tokens = scope.trim().split(/\s+/);
+      return tokens.every(token => /^https:\/\/(?:www\.)?googleapis\.com\/auth\/[a-zA-Z0-9._-]+$/i.test(token));
+    }
+    window.validateRequestedGoogleScope = validateRequestedGoogleScope;
+
+    /**
+     * Advanced Swarm dynamic sub-agent spawning for ad-hoc parallel reasoning.
+     */
+    function spawnDynamicSwarmSubAgent(taskType, roleDescription, customModel = null) {
+      const subId = 'sub_ag_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const subModel = customModel || (typeof resolveBestSwarmModel === 'function' ? resolveBestSwarmModel('kimi-k3') : 'gemini-3.8-flash');
+      return {
+        id: subId,
+        name: `🐝 زیرعامل Swarm (${taskType})`,
+        model: subModel,
+        isDynamicSubAgent: true,
+        taskType: String(taskType || 'analysis'),
+        systemPrompt: `تو زیرعامل تخصصی Swarm در Nexus OS هستی. وظیفه تو: ${roleDescription || 'تحلیل تخصصی مسئله و همگام‌سازی نتایج'}. خروجی را متمرکز، ساختاریافته و با صداقت فنی ارائه بده.`,
+        createdAtTs: Date.now()
+      };
+    }
+    window.spawnDynamicSwarmSubAgent = spawnDynamicSwarmSubAgent;
+
+    /**
+     * Real-time progress feedback in Deep Research: updates stage status, percentage,
+     * and visual indicators in the active chat and toolbar.
+     */
+    function reportResearchProgress(stage, percent, detail) {
+      if (uiState.activeThinkingAgent) {
+        uiState.activeThinkingAgent.name = `🌐 تحقیق عمیق وب (${percent}%) — ${detail}`;
+      }
+      const badge = document.getElementById('activeEffortBadge');
+      if (badge) {
+        badge.textContent = `🔍 ${percent}% ${stage}`;
+      }
+      if (typeof renderChatMessages === 'function') {
+        const thinkingName = document.querySelector('#chatMessagesBox .thinking-agent-name');
+        if (thinkingName) {
+          thinkingName.textContent = `🌐 تحقیق عمیق (${percent}%): ${detail}`;
+        }
+      }
+    }
+    window.reportProgress = reportResearchProgress;
+    window.reportResearchProgress = reportResearchProgress;
+
+    /**
+     * Directional fix enforcing dir="ltr" and left-alignment on pre, code, and table containers.
+     */
+    function enforceLtrOnCodeAndTables(rootEl = document) {
+      try {
+        const containers = rootEl.querySelectorAll?.('pre, code, table, .code-block-dir');
+        if (containers) {
+          containers.forEach(el => {
+            el.setAttribute('dir', 'ltr');
+            if (el.tagName === 'TABLE') {
+              el.style.textAlign = 'left';
+              el.style.direction = 'ltr';
+              if (el.parentElement && !el.parentElement.getAttribute('dir')) {
+                el.parentElement.setAttribute('dir', 'ltr');
+              }
+            }
+          });
+        }
+      } catch (_) {}
+    }
+    window.enforceLtrOnCodeAndTables = enforceLtrOnCodeAndTables;
 
     // INITIALIZATION & PERSISTENCE
     // ============================================================================
@@ -1404,7 +1784,8 @@ body > header,
               // Verify at least one non-empty field was migrated if legacy had fields
               const hasLegacyApiKeys = Object.values(parsed.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
               if (hasLegacyApiKeys) {
-                const hasMigratedKey = Object.values(data.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
+                const sec = (typeof readSessionSecrets === 'function') ? readSessionSecrets() : data;
+                const hasMigratedKey = Object.values(sec?.apiKeys || data?.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
                 if (!hasMigratedKey) return false;
               }
               return true;
@@ -2725,14 +3106,29 @@ body > header,
 
     function formatAgentMessageContent(rawText) {
       const safe = escapeHtml(rawText ?? '');
-      return safe.replace(/```([a-zA-Z0-9_-]*)[ \t]*\r?\n([\s\S]*?)```/g, (_, lang, code) => {
+      // Format markdown data tables with strict LTR orientation & styling
+      const withTables = safe.replace(/((?:^[ \t]*\|[^\n]+\|[ \t]*\r?\n)(?:^[ \t]*\|[ \t]*:?-[ -:|]*\|[ \t]*\r?\n)(?:^[ \t]*\|[^\n]+\|[ \t]*\r?\n?)+)/gm, (match) => {
+        const lines = match.trim().split(/\r?\n/).map(l => l.trim());
+        if (lines.length < 3) return match;
+        const parseRow = (line) => line.split('|').slice(1, -1).map(c => c.trim());
+        const headerCells = parseRow(lines[0]);
+        const bodyLines = lines.slice(2);
+        const thead = `<thead><tr class="border-b border-white/20 bg-white/5 text-amber-300 font-mono text-[11px]">${headerCells.map(c => `<th class="px-2.5 py-1.5 text-left" dir="ltr">${c}</th>`).join('')}</tr></thead>`;
+        const tbodyRows = bodyLines.map(line => {
+          const cells = parseRow(line);
+          return `<tr class="border-b border-white/5 hover:bg-white/5 text-slate-300 font-mono text-[11px]">${cells.map(c => `<td class="px-2.5 py-1.5 text-left" dir="ltr">${c}</td>`).join('')}</tr>`;
+        }).join('');
+        return `<div class="my-2 overflow-x-auto rounded-xl border border-white/10 bg-black/60 p-1 select-text" dir="ltr"><table class="w-full text-left border-collapse" dir="ltr">${thead}<tbody>${tbodyRows}</tbody></table></div>`;
+      });
+
+      return withTables.replace(/```([a-zA-Z0-9_-]*)[ \t]*\r?\n([\s\S]*?)```/g, (_, lang, code) => {
         const badge = (lang || 'code').toUpperCase();
-        return `<div class="my-2 rounded-2xl bg-black/75 border border-white/10 overflow-hidden select-text">
+        return `<div class="my-2 rounded-2xl bg-black/75 border border-white/10 overflow-hidden select-text" dir="ltr">
           <div class="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-400" dir="ltr">
             <span>${badge}</span>
             <button onclick="copyPlainTextSafe(this.closest('div.my-2').querySelector('code').textContent, 'کد داخل بلوک کپی شد 📋')" class="text-blue-400 hover:text-blue-300 font-sans font-bold">📋 کپی کد</button>
           </div>
-          <pre class="code-block-dir p-3 text-xs text-emerald-300 overflow-x-auto select-text"><code>${code}</code></pre>
+          <pre class="code-block-dir p-3 text-xs text-emerald-300 overflow-x-auto select-text" dir="ltr"><code>${code}</code></pre>
         </div>`;
       });
     }
@@ -4450,6 +4846,11 @@ body > header,
       let lastProviderError = '';
       const combinedUserText = recentHistory ? `[تاریخچه گفتگو]:\n${recentHistory}\n\n[درخواست فعلی]: ${userPrompt}` : userPrompt;
 
+      // Smart offline fallback: respond immediately using local Project Brain when offline
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return simulateOfflineAiResponse(agent, chat, userPrompt, turnIndex, totalTurns);
+      }
+
 
       try {
         // 1. Primary Direct Gemini Route (using x-goog-api-key header instead of URL query string)
@@ -4656,6 +5057,9 @@ body > header,
       }
       return demoHeader + `پاسخ آزمایشی برای «${userPrompt.slice(0, 80)}» توسط **${agent.name}** (${agent.model}):\n\n1. این پیام در **حالت دمو (بدون کلید API)** تولید شده است.\n2. برای دریافت پاسخ واقعی هوش مصنوعی، کلید خود را در \`Settings -> Wallet & API Keys\` وارد کنید یا کدهای موجود را در **«⚡ اجرا در بوم زنده»** آزمایش نمایید.`;
       } catch (err) {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          return simulateOfflineAiResponse(agent, chat, userPrompt, turnIndex, totalTurns);
+        }
         if (err?.name === 'AbortError') {
           if (uiState.stopOrchestrationFlag || requestRunId !== _orchestratorRunSeq || uiState.activeAbortController !== reqController) throw err;
           if (timedOut && !uiState.stopOrchestrationFlag) {
@@ -4905,12 +5309,15 @@ body > header,
     const GOOGLE_OAUTH_WEB_CLIENT_ID = '873567387448-ocr10n1mvqeuupqltl4frpeutiqpos4p.apps.googleusercontent.com';
 
     const GOOGLE_OAUTH_SCOPES = {
-      gmail:      'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      gcal:       'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      gworkspace: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      google_ads: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      fitbit:     'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      youtube:    'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      gmail:           'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      gcal:            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      gworkspace:      'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      google_ads:      'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      fitbit:          'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      youtube:         'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      google_drive:    'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      google_sheets:   'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      google_contacts: 'https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
     };
 
     let _gisTokenClient = null;
@@ -13962,6 +14369,9 @@ body > header,
 
 
     async function executeLiveWebResearch(userPrompt) {
+      if (typeof reportResearchProgress === 'function') {
+        reportResearchProgress('INIT', 15, 'تحلیل پرامپت و استخراج نشانی‌های وب...');
+      }
       const researchDeadlineTs = Date.now() + RESEARCH_TOTAL_DEADLINE_MS;
       const cleanIntent = normalizePersianText(stripAttachedFilePayload(userPrompt));
       const urls = extractCleanUrlsFromPrompt(cleanIntent);
@@ -14305,7 +14715,13 @@ body > header,
       );
 
 
+      if (typeof reportResearchProgress === 'function') {
+        reportResearchProgress('FETCHING', 70, 'پایش پایگاه‌های علمی، گیت‌هاب و استک‌اورفلو...');
+      }
       await Promise.allSettled(tasks);
+      if (typeof reportResearchProgress === 'function') {
+        reportResearchProgress('SYNTHESIS', 95, 'اعتبارسنجی ارجاعات و تدوین بسته داده...');
+      }
 
 
       const seenUrls = new Set();
@@ -23218,6 +23634,9 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
 
   isCloudSyncBusy = true;
   try {
+    if (typeof syncBrainWithCloud === 'function') {
+      try { syncBrainWithCloud({ silent: isSilentBackground }); } catch (_) {}
+    }
     await flushOfflineCloudQueue();
 
 

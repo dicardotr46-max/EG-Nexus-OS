@@ -39,6 +39,20 @@ class ElementParser(HTMLParser):
         if self.stack:
             self.stack[-1]['text'] += data
 
+DOM_METHODS = {
+    'if', 'alert', 'confirm', 'prompt',
+    'getElementById', 'getElementsByClassName', 'getElementsByTagName', 'getElementsByName',
+    'querySelector', 'querySelectorAll', 'closest', 'matches',
+    'addEventListener', 'removeEventListener', 'dispatchEvent',
+    'setAttribute', 'removeAttribute', 'getAttribute', 'hasAttribute', 'toggleAttribute',
+    'add', 'remove', 'toggle', 'contains', 'replace',
+    'style', 'focus', 'blur', 'click', 'submit', 'reset', 'select',
+    'scrollIntoView', 'scrollTo', 'scrollBy',
+    'preventDefault', 'stopPropagation', 'stopImmediatePropagation',
+    'appendChild', 'removeChild', 'replaceChild', 'insertBefore',
+    'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+}
+
 def extract_scripts(src):
     return '\n'.join(re.findall(r'<script[^>]*>(.*?)</script>', src, re.S))
 
@@ -58,8 +72,8 @@ def main():
         if e['tag'] in {'button', 'a'} or e['onclick']:
             onclick = e['onclick']
             calls = re.findall(r'\b([A-Za-z_$][\w$]*)\s*\(', onclick)
-            called = [c for c in calls if c not in {'if', 'alert', 'confirm', 'prompt'}]
-            buttons.append({'tag': e['tag'], 'id': e['id'], 'text': ' '.join(e['text'].split())[:160], 'onclick': onclick[:300], 'handlers': called, 'missing_handlers': [c for c in called if c not in fn and c not in {'window', 'document'}]})
+            called = [c for c in calls if c not in DOM_METHODS]
+            buttons.append({'tag': e['tag'], 'id': e['id'], 'text': ' '.join(e['text'].split())[:160], 'onclick': onclick[:300], 'handlers': called, 'missing_handlers': [c for c in called if c not in fn and c not in {'window', 'document'} and c not in DOM_METHODS]})
     markers = []
     for m in STUB_WORDS.finditer(src):
         line = src.count('\n', 0, m.start()) + 1

@@ -1,7 +1,9 @@
-name: EG Nexus OS v5.1 - Auto Audit & APK Factory
+name: EG Nexus OS v5.2 - Auto Audit & APK Factory
 
 on:
   push:
+    branches: [ "main" ]
+  pull_request:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
@@ -42,7 +44,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit & Mandatory Jest Gate
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.1..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.2..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -71,7 +73,7 @@ jobs:
             }
           '
           if [ -f "package.json" ]; then
-            npm install
+            npm ci
             npm run test:syntax
             npm test
           fi
@@ -83,10 +85,9 @@ jobs:
           [ -f manifest.json ] && cp manifest.json build_workspace/www/
           [ -f sw.js ] && cp sw.js build_workspace/www/
           # Use authoritative capacitor.config.json with cleartext & loopback support (Fixes Reviewer #15 & #16)
-          cp capacitor.config.json build_workspace/
+          cp capacitor.config.json package.json package-lock.json build_workspace/
           cd build_workspace
-          npm init -y
-          npm install --save-exact @capacitor/core@8.5.3 @capacitor/cli@8.5.3 @capacitor/android@8.5.3 @capacitor/app@8.0.0 @capacitor/browser@8.0.0 @capacitor/filesystem@8.0.0 @capacitor/share@8.0.0
+          npm ci
 
       - name: 7. Compile Android APK
         run: |
@@ -100,14 +101,14 @@ jobs:
       - name: 8. Upload Ready-to-Install Android APK
         uses: actions/upload-artifact@v4.6.1
         with:
-          name: EG-Nexus-OS-v5.1-Debug-APK
+          name: EG-Nexus-OS-v5.2-Debug-APK
           path: build_workspace/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
   publish-release:
     runs-on: ubuntu-latest
     needs: audit-and-build-apk
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request'
     permissions:
       contents: write
 
@@ -118,17 +119,19 @@ jobs:
       - name: 2. Download Built APK Artifact
         uses: actions/download-artifact@v4.1.9
         with:
-          name: EG-Nexus-OS-v5.1-Debug-APK
+          name: EG-Nexus-OS-v5.2-Debug-APK
 
       - name: 3. Prepare APK and Checksum for Release
         run: |
-          cp app-debug.apk EG-Nexus-OS-v5.1.apk
-          sha256sum EG-Nexus-OS-v5.1.apk > EG-Nexus-OS-v5.1.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.1.apk.sha256)
+          cp app-debug.apk EG-Nexus-OS-v5.2.apk
+          sha256sum EG-Nexus-OS-v5.2.apk > EG-Nexus-OS-v5.2.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.2.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
+          BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=v5.1-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v5.2-${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: 4. Update Git Tags for Release
         run: |
@@ -142,12 +145,14 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v5.1 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v5.2 (${{ env.SHORT_SHA }})"
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            **SHA-256 Checksum:**
+            - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
+            - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
+            - **SHA-256 Checksum:**
             `${{ env.APK_SHA256 }}`
           files: |
-            EG-Nexus-OS-v5.1.apk
-            EG-Nexus-OS-v5.1.apk.sha256
+            EG-Nexus-OS-v5.2.apk
+            EG-Nexus-OS-v5.2.apk.sha256
