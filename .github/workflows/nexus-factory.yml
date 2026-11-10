@@ -120,19 +120,34 @@ jobs:
         with:
           name: EG-Nexus-OS-v5.1-Debug-APK
 
-      - name: 3. Prepare APK for Release
-        run: cp app-debug.apk EG-Nexus-OS-v5.1.apk
+      - name: 3. Prepare APK and Checksum for Release
+        run: |
+          cp app-debug.apk EG-Nexus-OS-v5.1.apk
+          sha256sum EG-Nexus-OS-v5.1.apk > EG-Nexus-OS-v5.1.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.1.apk.sha256)
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
+          echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v5.1-${SHORT_SHA}" >> $GITHUB_ENV
 
-      - name: 4. Update Git Tag to Current Commit
+      - name: 4. Update Git Tags for Release
         run: |
           git tag -f latest-apk ${{ github.sha }}
+          git tag -f "${RELEASE_TAG}" ${{ github.sha }}
           git push -f origin latest-apk
+          git push -f origin "${RELEASE_TAG}"
 
       - name: 5. Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2.2.1
         with:
-          tag_name: latest-apk
+          tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v5.1"
-          body: "Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}."
-          files: EG-Nexus-OS-v5.1.apk
+          name: "EG Nexus OS v5.1 (${{ env.SHORT_SHA }})"
+          body: |
+            Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
+
+            **SHA-256 Checksum:**
+            `${{ env.APK_SHA256 }}`
+          files: |
+            EG-Nexus-OS-v5.1.apk
+            EG-Nexus-OS-v5.1.apk.sha256

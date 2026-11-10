@@ -26,7 +26,7 @@ beforeEach(() => {
     mockCache = {
       addAll: jest.fn().mockResolvedValue(undefined),
       put: jest.fn().mockResolvedValue(undefined),
-      match: jest.fn().mockResolvedValue(undefined)
+      match: jest.fn().mockImplementation((key) => Promise.resolve(key === './index.html' ? new global.Response('<html></html>') : undefined))
     };
 
     mockCaches = {

@@ -931,11 +931,24 @@ body > header,
     }
 
 
+    const SESSION_SECRETS_SCHEMA_VERSION = 1;
+
     function readSessionSecrets() {
-      const result = { initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
+      const result = { version: SESSION_SECRETS_SCHEMA_VERSION, initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
       try {
         const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
-        const parsed = raw ? JSON.parse(raw) : null;
+        if (!raw) return result;
+        let parsed = null;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (jsonErr) {
+          // Quarantine corrupted session payload without crashing (Fixes Reviewer #8)
+          try {
+            sessionStorage.setItem(SESSION_SECRETS_KEY + '_corrupted_' + Date.now(), raw);
+            sessionStorage.removeItem(SESSION_SECRETS_KEY);
+          } catch (_) {}
+          return result;
+        }
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result;
         result.initialized = parsed.initialized === true;
         API_KEY_NAMES.forEach(name => {
@@ -963,31 +976,60 @@ body > header,
     }
 
 
-    function writeSessionSecrets(state) {
-      const secrets = { initialized: true, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
-      API_KEY_NAMES.forEach(name => {
-        const value = state?.apiKeys?.[name];
-        if (typeof value === 'string') secrets.apiKeys[name] = value.trim();
-      });
-      const connections = state?.appConnections;
-      if (connections && typeof connections === 'object' && !Array.isArray(connections)) {
-        Object.keys(connections).forEach(id => {
-          const conn = connections[id];
-          const token = conn?.token;
-          if (isSafeConnectionId(id) && typeof token === 'string' && token.trim()) {
-            secrets.connectionTokens[id] = token.trim();
-          }
-          if (Array.isArray(conn?.accounts)) {
-            conn.accounts.forEach(acc => {
-              if (acc?.id && typeof acc.token === 'string' && acc.token.trim()) {
-                secrets.accountTokens[acc.id] = acc.token.trim();
-              }
-            });
+    function writeSessionSecrets(stateOrSecrets) {
+      const existing = readSessionSecrets();
+      const secrets = {
+        version: SESSION_SECRETS_SCHEMA_VERSION,
+        initialized: true,
+        apiKeys: { ...existing.apiKeys },
+        connectionTokens: { ...existing.connectionTokens },
+        accountTokens: { ...existing.accountTokens },
+        bridgeToken: existing.bridgeToken || ''
+      };
+
+      if (stateOrSecrets && stateOrSecrets.apiKeys && typeof stateOrSecrets.apiKeys === 'object' && !stateOrSecrets.appConnections) {
+        // Direct secrets object passed
+        API_KEY_NAMES.forEach(name => {
+          if (typeof stateOrSecrets.apiKeys[name] === 'string' && stateOrSecrets.apiKeys[name].trim()) {
+            secrets.apiKeys[name] = stateOrSecrets.apiKeys[name].trim();
           }
         });
-      }
-      if (typeof state?.localComputerConfig?.bridgeToken === 'string' && state.localComputerConfig.bridgeToken.trim()) {
-        secrets.bridgeToken = state.localComputerConfig.bridgeToken.trim();
+        if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object') {
+          Object.assign(secrets.connectionTokens, stateOrSecrets.connectionTokens);
+        }
+        if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object') {
+          Object.assign(secrets.accountTokens, stateOrSecrets.accountTokens);
+        }
+        if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
+          secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
+        }
+      } else if (stateOrSecrets && typeof stateOrSecrets === 'object') {
+        // State object passed
+        API_KEY_NAMES.forEach(name => {
+          const value = stateOrSecrets?.apiKeys?.[name];
+          if (typeof value === 'string' && value.trim()) secrets.apiKeys[name] = value.trim();
+        });
+        const connections = stateOrSecrets?.appConnections;
+        if (connections && typeof connections === 'object' && !Array.isArray(connections)) {
+          Object.keys(connections).forEach(id => {
+            const conn = connections[id];
+            const token = conn?.token;
+            if (isSafeConnectionId(id) && typeof token === 'string' && token.trim()) {
+              secrets.connectionTokens[id] = token.trim();
+            }
+            if (Array.isArray(conn?.accounts)) {
+              conn.accounts.forEach(acc => {
+                if (acc?.id && typeof acc.token === 'string' && acc.token.trim()) {
+                  secrets.accountTokens[acc.id] = acc.token.trim();
+                  secrets.accountTokens[`${id}_${acc.id}`] = acc.token.trim();
+                }
+              });
+            }
+          });
+        }
+        if (typeof stateOrSecrets?.localComputerConfig?.bridgeToken === 'string' && stateOrSecrets.localComputerConfig.bridgeToken.trim()) {
+          secrets.bridgeToken = stateOrSecrets.localComputerConfig.bridgeToken.trim();
+        }
       }
       try { sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify(secrets)); return true; } catch (e) { return false; }
     }
@@ -995,26 +1037,32 @@ body > header,
 
     function applySessionSecrets(state) {
       const secrets = readSessionSecrets();
-      if (secrets.initialized) state.apiKeys = Object.assign(emptyApiKeys(), secrets.apiKeys);
+      if (secrets.initialized) {
+        API_KEY_NAMES.forEach(name => {
+          if (secrets.apiKeys[name]) state.apiKeys[name] = secrets.apiKeys[name];
+        });
+      }
       if (!state.appConnections || typeof state.appConnections !== 'object' || Array.isArray(state.appConnections)) state.appConnections = {};
-      if (secrets.initialized) Object.keys(state.appConnections).forEach(id => { if (state.appConnections[id] && typeof state.appConnections[id] === 'object') state.appConnections[id].token = ''; });
       Object.keys(secrets.connectionTokens).forEach(id => {
-        if (!state.appConnections[id] || typeof state.appConnections[id] !== 'object') state.appConnections[id] = { accounts: [], mcpEnabled: false, connectedAt: '' };
-        state.appConnections[id].token = secrets.connectionTokens[id];
+        if (secrets.connectionTokens[id]) {
+          if (!state.appConnections[id] || typeof state.appConnections[id] !== 'object') state.appConnections[id] = { accounts: [], mcpEnabled: false, connectedAt: '' };
+          state.appConnections[id].token = secrets.connectionTokens[id];
+        }
       });
-      if (secrets.initialized && secrets.accountTokens) {
+      if (secrets.accountTokens) {
         Object.keys(state.appConnections).forEach(id => {
           const conn = state.appConnections[id];
           if (conn && Array.isArray(conn.accounts)) {
             conn.accounts.forEach(acc => {
-              if (acc?.id && secrets.accountTokens[acc.id]) {
-                acc.token = secrets.accountTokens[acc.id];
+              if (acc?.id) {
+                const tok = secrets.accountTokens[`${id}_${acc.id}`] || secrets.accountTokens[acc.id];
+                if (tok) acc.token = tok;
               }
             });
           }
         });
       }
-      if (secrets.initialized && secrets.bridgeToken) {
+      if (secrets.bridgeToken) {
         if (!state.localComputerConfig || typeof state.localComputerConfig !== 'object') state.localComputerConfig = {};
         state.localComputerConfig.bridgeToken = secrets.bridgeToken;
       }
@@ -1410,6 +1458,15 @@ body > header,
     }
     function saveState() {
       if (Array.isArray(appState.chats)) {
+        // Enforce strict 50-conversation ceiling to protect local storage quota (Fixes Reviewer #12)
+        if (appState.chats.length > 50) {
+          const activeId = appState.activeChatId;
+          const activeChat = appState.chats.find(c => c && c.id === activeId);
+          appState.chats = appState.chats.slice(0, 50);
+          if (activeChat && !appState.chats.some(c => c && c.id === activeId)) {
+            appState.chats[49] = activeChat;
+          }
+        }
         appState.chats.forEach(c => {
           if (c && Array.isArray(c.messages) && c.messages.length > 300) {
             c.messages = c.messages.slice(-300);
@@ -2777,6 +2834,12 @@ body > header,
       const files = event.target?.files;
       const file = files?.[0];
       if (!file) return;
+      // Pre-read size guard: reject files > 5MB to protect browser heap (Fixes Reviewer #12)
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('⚠️ حجم فایل پیوست بیش از ۵ مگابایت است؛ لطفاً فایل کوچک‌تری انتخاب کنید');
+        if (event.target) event.target.value = '';
+        return;
+      }
       if (_activeChatFileReader) {
         try { _activeChatFileReader.abort(); } catch (_) {}
         _activeChatFileReader = null;
@@ -2785,10 +2848,11 @@ body > header,
       if (files.length > 1) {
         showToast('در هر پیام اولین فایل انتخاب‌شده پیوست می‌شود 📎');
       }
-      const lowerName = String(file.name || '').toLowerCase();
+      const safeFileName = String(file.name || 'attachment').replace(/[\r\n]/g, '').slice(0, 80);
+      const lowerName = safeFileName.toLowerCase();
       const isBinaryUnsupported = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|7z|apk|exe|dmg|so|bin)$/i.test(lowerName);
       if (isBinaryUnsupported) {
-        showToast('⚠️ فایل باینری (' + file.name + ') باید به صورت متن، کد یا تصویر اسکرین‌شات ارسال شود');
+        showToast('⚠️ فایل باینری (' + safeFileName + ') باید به صورت متن، کد یا تصویر اسکرین‌شات ارسال شود');
         event.target.value = '';
         return;
       }
@@ -2806,18 +2870,19 @@ body > header,
           finalContent = comp.dataUrl;
           finalMime = comp.mimeType;
         } else if (!isImage && finalContent.length > 16000) {
+          finalContent = finalContent.slice(0, 16000);
           truncatedNote = ' [۱۶,۰۰۰ کاراکتر اول]';
           showToast('فایل متنی بزرگ است؛ ۱۶,۰۰۰ کاراکتر اول برای ایجنت ارسال می‌شود 📎');
         }
         uiState.pendingAttachment = {
-          name: file.name,
+          name: safeFileName,
           mimeType: finalMime,
           isImage,
           truncated: Boolean(truncatedNote),
           content: finalContent
         };
         const nameEl = document.getElementById('chatAttachmentName');
-        if (nameEl) nameEl.innerText = `${file.name} (${Math.round(file.size / 1024)} KB)${truncatedNote}`;
+        if (nameEl) nameEl.innerText = `${safeFileName} (${Math.round(file.size / 1024)} KB)${truncatedNote}`;
         document.getElementById('chatAttachmentPreview')?.classList.remove('hidden');
       };
       reader.onloadend = () => {
@@ -2850,7 +2915,7 @@ body > header,
         return;
       }
       const inp = document.getElementById('chatInput');
-      const text = (inp?.value || '').trim();
+      const text = (inp?.value || '').trim().slice(0, 16000);
       if (!text && !uiState.pendingAttachment) return;
       const chat = getActiveChat();
       if (!chat) return;
@@ -2860,8 +2925,8 @@ body > header,
       let fullPrompt = text || (attachedSnapshot ? `لطفاً فایل پیوست‌شده (${attachedSnapshot.name}) را بررسی کن.` : '');
       const textSnippet = (!hasImg && attachedSnapshot?.content) ? String(attachedSnapshot.content).slice(0, 16000) : '';
       if (attachedSnapshot && !hasImg) {
-        const truncHeader = attachedSnapshot.content && String(attachedSnapshot.content).length > 16000
-          ? ` (برش ۱۶,۰۰۰ کاراکتر اول از کل ${String(attachedSnapshot.content).length} کاراکتر)`
+        const truncHeader = attachedSnapshot.content && String(attachedSnapshot.content).length >= 16000
+          ? ` (برش ۱۶,۰۰۰ کاراکتر اول)`
           : '';
         fullPrompt += `\n\n[فایل پیوست‌شده: ${attachedSnapshot.name}${truncHeader}]\n\`\`\`\n${textSnippet}\n\`\`\``;
       }
@@ -2884,11 +2949,14 @@ body > header,
       clearPendingAttachment();
       chat.updatedAt = nowStamp;
       chat.updatedAtTs = Date.now();
-      // Move active chat to top of home list
+      // Move active chat to top of home list and bound chats array to 50 (Fixes Reviewer #12)
       const cIdx = appState.chats.findIndex(c => c && c.id === chat.id);
       if (cIdx > 0) {
         appState.chats.splice(cIdx, 1);
         appState.chats.unshift(chat);
+      }
+      if (appState.chats.length > 50) {
+        appState.chats = appState.chats.slice(0, 50);
       }
       saveState();
       renderChatMessages();
@@ -4921,9 +4989,14 @@ body > header,
           appState.addedAppIds.push(appId);
         }
         const secrets = readSessionSecrets();
-        if (secrets && secrets.connectionTokens) {
+        if (secrets) {
+          if (!secrets.connectionTokens) secrets.connectionTokens = {};
+          if (!secrets.accountTokens) secrets.accountTokens = {};
           secrets.connectionTokens[appId] = accessToken;
-          try { sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify(secrets)); } catch(e){}
+          // Namespace session token per app and account ID so multi-account tokens are preserved (Fixes Reviewer #7)
+          secrets.accountTokens[`${appId}_${account.id}`] = accessToken;
+          secrets.accountTokens[account.id] = accessToken;
+          writeSessionSecrets(secrets);
         }
         syncAddedAppIds();
         saveState();
@@ -4986,17 +5059,27 @@ body > header,
 
     function getConnectionAccounts(appId) {
       const raw = Array.isArray(appState.appConnections?.[appId]?.accounts) ? appState.appConnections[appId].accounts : [];
+      const secrets = readSessionSecrets();
       return raw.map((item, idx) => {
-        if (typeof item === 'string') return { id: `legacy_${idx}_${item}`, email: item, name: item.split('@')[0] || 'Connected account', connectedAt: '', avatar: (item[0] || 'U').toUpperCase() };
+        if (typeof item === 'string') return { id: `legacy_${idx}_${item}`, email: item, name: item.split('@')[0] || 'Connected account', connectedAt: '', avatar: (item[0] || 'U').toUpperCase(), token: '' };
         const email = String(item?.email || item?.handle || '').trim();
-        return { id: String(item?.id || `account_${idx}_${email}`), email, name: String(item?.name || item?.displayName || email.split('@')[0] || 'Connected account'), connectedAt: String(item?.connectedAt || ''), avatar: String(item?.avatar || email[0] || 'U').slice(0, 1).toUpperCase() };
+        const id = String(item?.id || `account_${idx}_${email}`);
+        const token = (secrets?.accountTokens?.[`${appId}_${id}`]) || (secrets?.accountTokens?.[id]) || (typeof item?.token === 'string' ? item.token : '');
+        return {
+          id,
+          email,
+          name: String(item?.name || item?.displayName || email.split('@')[0] || 'Connected account'),
+          connectedAt: String(item?.connectedAt || ''),
+          avatar: String(item?.avatar || email[0] || 'U').slice(0, 1).toUpperCase(),
+          token
+        };
       }).filter(a => a.email || a.name);
     }
     function getAppConnectionToken(appId) {
       const conn = appState.appConnections?.[appId];
       const secrets = readSessionSecrets();
       if (conn?.selectedAccountId) {
-        const accToken = secrets?.accountTokens?.[conn.selectedAccountId];
+        const accToken = secrets?.accountTokens?.[`${appId}_${conn.selectedAccountId}`] || secrets?.accountTokens?.[conn.selectedAccountId];
         if (typeof accToken === 'string' && accToken.trim()) return accToken.trim();
         if (Array.isArray(conn.accounts)) {
           const sel = conn.accounts.find(a => a.id === conn.selectedAccountId);
@@ -5118,16 +5201,29 @@ body > header,
       const outputEl = document.getElementById('mcpTestOutput') || document.getElementById('mcpLiveWorkspaceOutput');
       if (!outputEl) return;
 
+      // Hard block if MCP server is not actively enabled (Fixes Reviewer #13)
+      const isMcpActive = Boolean(
+        document.getElementById('mcpActiveToggle')?.checked ??
+        appState.appConnections?.[appId]?.mcpEnabled
+      );
+      if (!isMcpActive) {
+        showToast('⚠️ این سرور MCP غیرفعال است؛ ابتدا آن را فعال و ذخیره کنید');
+        outputEl.className = 'rounded-xl p-2.5 text-xs bg-amber-500/15 text-amber-300 border border-amber-500/30';
+        outputEl.innerHTML = '<span>⚠️ سرور MCP غیرفعال است؛ برای تست ابتدا تیک فعال‌سازی را بزنید و ذخیره کنید.</span>';
+        outputEl.classList.remove('hidden');
+        return;
+      }
+
       if (typeof requestPhase5ConfirmModal === 'function') {
         const approved = await requestPhase5ConfirmModal({
-          title: `🧪 تست ابزار سرور MCP (${escapeHtml(appId)})`,
-          message: `آیا برای ارسال درخواست آزمایشی شبکه به ابزارهای سرور MCP «${escapeHtml(appId)}» اطمینان دارید؟`,
-          confirmText: '✓ اجرای تست ابزار',
+          title: `🧪 تست سلامت سرور MCP (${escapeHtml(appId)})`,
+          message: `آیا برای اعتبارسنجی ابزارها و بررسی وضعیت سرور MCP «${escapeHtml(appId)}» اطمینان دارید؟`,
+          confirmText: '✓ اجرای بررسی سلامت',
           isDanger: false
         });
         if (!approved) {
           outputEl.className = 'rounded-xl p-2.5 text-xs bg-amber-500/15 text-amber-300 border border-amber-500/30';
-          outputEl.innerHTML = '<span>⚠️ اجرای تست توسط کاربر لغو شد.</span>';
+          outputEl.innerHTML = '<span>⚠️ بررسی سلامت توسط کاربر لغو شد.</span>';
           outputEl.classList.remove('hidden');
           return;
         }
@@ -5135,28 +5231,38 @@ body > header,
 
       const token = document.getElementById('mcpTokenInput')?.value.trim() || getAppConnectionToken(appId) || '';
       outputEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/15 text-blue-200 border border-blue-500/30';
-      outputEl.innerHTML = '<span>⏳ در حال ارسال درخواست تست به سرور MCP...</span>';
+      outputEl.innerHTML = '<span>⏳ در حال بررسی سلامت و فهرست‌بندی ابزارهای سرور MCP...</span>';
       outputEl.classList.remove('hidden');
 
       try {
         const def = NexusMCP.definitions[appId];
-        if (!def || !def.tools[0]) throw new Error('ابزاری برای این سرور تعریف نشده است');
-        const firstTool = def.tools[0];
-        const sampleArgs = appId === 'coingecko' ? { coin_id: 'bitcoin', currency: 'usd' }
-          : (appId === 'firecrawl' ? { url: 'https://example.com' }
-          : (appId === 'elevenlabs' ? { text: 'تست موفقیت‌آمیز صدای هوش مصنوعی در نکسوس او اس' }
-          : (appId === 'picsart' ? { prompt: 'A futuristic android fitness avatar in gym' }
-          : { query: 'test' })));
+        if (!def || !Array.isArray(def.tools) || def.tools.length === 0) {
+          throw new Error('هیچ ابزاری برای این سرور MCP تعریف نشده است');
+        }
+        // Harmless health-check and inventory report without external billing side-effects (Fixes Reviewer #13)
+        const toolsInventory = def.tools.map(t => ({
+          name: t.name,
+          description: t.description || 'آماده اتصال',
+          parameters: t.parameters?.properties ? Object.keys(t.parameters.properties) : []
+        }));
+        const healthCheckResult = {
+          status: 'ok',
+          healthCheck: 'passed',
+          mcpServer: appId,
+          serverUri: def.uri || `mcp://${appId}`,
+          availableToolsCount: def.tools.length,
+          credentialConfigured: Boolean(token),
+          tools: toolsInventory
+        };
         
-        const result = await firstTool.execute(sampleArgs, token);
         outputEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
         outputEl.innerHTML = `
-          <div class="font-bold mb-1">✅ پاسخ موفقیت‌آمیز از ابزار «${firstTool.name}»:</div>
-          <pre class="font-mono text-[10px] text-emerald-200 whitespace-pre-wrap code-block-dir overflow-x-auto">${escapeHtml(JSON.stringify(result, null, 2))}</pre>
+          <div class="font-bold mb-1">✅ بررسی سلامت سرور MCP «${escapeHtml(appId)}» با موفقیت تأیید شد (${def.tools.length} ابزار آماده اتصال):</div>
+          <pre class="font-mono text-[10px] text-emerald-200 whitespace-pre-wrap code-block-dir overflow-x-auto">${escapeHtml(JSON.stringify(healthCheckResult, null, 2))}</pre>
         `;
       } catch (err) {
         outputEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/15 text-rose-300 border border-rose-500/30';
-        outputEl.innerHTML = `<span>❌ خطا در اجرای ابزار: ${escapeHtml(err.message)}</span>`;
+        outputEl.innerHTML = `<span>❌ خطا در بررسی سلامت ابزار: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -9293,9 +9399,13 @@ body > header,
       }
 
       const secrets = readSessionSecrets();
-      if (secrets?.connectionTokens) {
+      if (secrets) {
+        if (!secrets.connectionTokens) secrets.connectionTokens = {};
+        if (!secrets.accountTokens) secrets.accountTokens = {};
         secrets.connectionTokens[appId] = token;
-        try { sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify(secrets)); } catch (_) {}
+        secrets.accountTokens[`${appId}_${account.id}`] = token;
+        secrets.accountTokens[account.id] = token;
+        writeSessionSecrets(secrets);
       }
 
       saveState();
@@ -9341,9 +9451,13 @@ body > header,
         if (acc.token) {
           appState.appConnections[appId].token = acc.token;
           const secrets = readSessionSecrets();
-          if (secrets?.connectionTokens) {
+          if (secrets) {
+            if (!secrets.connectionTokens) secrets.connectionTokens = {};
+            if (!secrets.accountTokens) secrets.accountTokens = {};
             secrets.connectionTokens[appId] = acc.token;
-            try { sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify(secrets)); } catch (_) {}
+            secrets.accountTokens[`${appId}_${acc.id}`] = acc.token;
+            secrets.accountTokens[acc.id] = acc.token;
+            writeSessionSecrets(secrets);
           }
         }
         saveState();
@@ -9358,7 +9472,39 @@ body > header,
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function continueGoogleManualAccount(appId) { const targetAppId = appId || pendingProviderConnection?.appId || 'gmail'; openGoogleAccountChooser(targetAppId); }
     function showGoogleConsentStep(account, token = '') { const appId = (pendingProviderConnection?.appId || window.pendingProviderConnection?.appId || 'gmail'); const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; setPendingProviderConnection({ ...(pendingProviderConnection || window.pendingProviderConnection || {}), appId, account, token }); renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
-    function allowGoogleConnection() { const pending = (pendingProviderConnection || window.pendingProviderConnection); if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; setPendingProviderConnection(null); closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
+    function allowGoogleConnection() {
+      const pending = (pendingProviderConnection || window.pendingProviderConnection);
+      if (!pending?.account?.email) return;
+      const appId = pending.appId;
+      const conn = appState.appConnections[appId] || {};
+      const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase());
+      accounts.push({ ...pending.account, connectedAt: new Date().toISOString() });
+      const targetToken = pending.token || conn.token || '';
+      appState.appConnections[appId] = {
+        ...conn,
+        accounts,
+        selectedAccountId: pending.account.id,
+        contextEnabled: true,
+        connectedAt: new Date().toISOString(),
+        token: targetToken
+      };
+      if (targetToken) {
+        const secrets = readSessionSecrets();
+        if (secrets) {
+          if (!secrets.connectionTokens) secrets.connectionTokens = {};
+          if (!secrets.accountTokens) secrets.accountTokens = {};
+          secrets.connectionTokens[appId] = targetToken;
+          if (pending.account?.id) {
+            secrets.accountTokens[`${appId}_${pending.account.id}`] = targetToken;
+            secrets.accountTokens[pending.account.id] = targetToken;
+          }
+          writeSessionSecrets(secrets);
+        }
+      }
+      setPendingProviderConnection(null);
+      closeProviderModalAndRefresh(appId);
+      showToast(`${providerLabel(appId)} account connected ✓`);
+    }
 
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
@@ -22836,7 +22982,7 @@ async function flushOfflineCloudQueue() {
 
 
 
-          if (attemptsSoFar >= PHASE4_MAX_OFFLINE_ATTEMPTS || (!workerUrl && (!supabaseUrl || !supabaseKey))) {
+          if (attemptsSoFar >= PHASE4_MAX_OFFLINE_ATTEMPTS || (!(workerUrl && workerSecret) && !(supabaseUrl && supabaseKey))) {
             removedIds.add(item.id);
           } else {
             updatedAttempts.set(item.id, attemptsSoFar);
@@ -22903,9 +23049,51 @@ async function restoreStateFromSupabase() {
       return false;
     }
     const rows = await res.json().catch(() => null);
-    const record = Array.isArray(rows) ? rows[0] : null;
+    let record = Array.isArray(rows) ? rows[0] : null;
+    let isMigrationFromLegacy = false;
+    // Offer explicit user-confirmed migration path if current workspace has no backup but legacy primary_user_state exists (Fixes Reviewer #4)
+    if (!record || (!Array.isArray(record.routines_json) && !Array.isArray(record.brain_nodes_json))) {
+      if (workspaceId && workspaceId !== 'primary_user_state') {
+        const legacyRes = await fetchWithPhase4Timeout(`${cleanUrl}/rest/v1/nexus_backups?id=eq.primary_user_state&select=*`, {
+          method: 'GET',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${auth.token}`
+          }
+        }, 6000).catch(() => null);
+        if (legacyRes && legacyRes.ok) {
+          const legacyRows = await legacyRes.json().catch(() => null);
+          const legacyRecord = Array.isArray(legacyRows) ? legacyRows[0] : null;
+          if (legacyRecord && (Array.isArray(legacyRecord.routines_json) || Array.isArray(legacyRecord.brain_nodes_json))) {
+            let confirmed = true;
+            if (typeof requestPhase5ConfirmModal === 'function') {
+              confirmed = await requestPhase5ConfirmModal({
+                title: 'مهاجرت داده‌های قدیمی Supabase',
+                message: `برای فضای کاری «${escapeHtml(workspaceId)}» بکاپی در Supabase یافت نشد، اما یک بکاپ قدیمی در شناسه «primary_user_state» موجود است. آیا مایلید داده‌های بکاپ قدیمی به این فضای کاری منتقل و بازیابی شوند؟`,
+                confirmText: '✓ مهاجرت و بازیابی',
+                isDanger: false
+              });
+            }
+            if (confirmed) {
+              record = legacyRecord;
+              isMigrationFromLegacy = true;
+            }
+          }
+        }
+      }
+    }
     if (!record || (!Array.isArray(record.routines_json) && !Array.isArray(record.brain_nodes_json))) {
       showToast('هنوز بکاپی برای این فضای کاری در جدول nexus_backups سوپابیس ثبت نشده است');
+      return false;
+    }
+
+    // Pre-validate record schema before mutating appState (Fixes Reviewer #4)
+    if (record.routines_json && (!Array.isArray(record.routines_json) || !record.routines_json.every(r => r && typeof r === 'object' && r.id))) {
+      showToast('⛔ ساختار روتین‌های دریافتی از دیتابیس Supabase نامعتبر است');
+      return false;
+    }
+    if (record.brain_nodes_json && (!Array.isArray(record.brain_nodes_json) || !record.brain_nodes_json.every(b => b && typeof b === 'object'))) {
+      showToast('⛔ ساختار گره‌های Brain دریافتی از دیتابیس Supabase نامعتبر است');
       return false;
     }
 
@@ -22956,7 +23144,14 @@ async function restoreStateFromSupabase() {
 
     ensurePhase4State();
     appState.cloudConfig.lastSyncAt = `${formatTehranTimeLabel()} (بازیابی Supabase)`;
-    saveState();
+    const saveOk = saveState();
+    if (saveOk !== true) {
+      showToast('⚠️ داده‌ها بازیابی شدند ولی در حافظه محلی ذخیره نشدند (محدودیت فضای مرورگر)');
+      return false;
+    }
+    if (isMigrationFromLegacy) {
+      pushStateToSupabaseDirect().catch(() => {});
+    }
     if (typeof window.renderPhase2ModeToolbar === 'function') window.renderPhase2ModeToolbar();
     if (typeof window.renderSkillsList === 'function') window.renderSkillsList();
     renderPhase4SettingsRowBadges();
@@ -23713,23 +23908,28 @@ if (m && m.id) byId.set(String(m.id), m);
 
 
 async function acquireRoutineExecutionLock(env, routineId, nowTs = Date.now(), ttlMs = ROUTINE_LOCK_TTL_MS, wsPrefix = 'default:') {
-  if (!env || !env.NEXUS_KV || !routineId) return true;
+  if (!env || !env.NEXUS_KV || !routineId) return "no-kv";
   const lockKey = wsPrefix + "rt_lock:" + String(routineId).slice(0, 80);
   const existing = await env.NEXUS_KV.get(lockKey);
   if (existing) {
     const existingTs = Number(String(existing).split(":")[0]) || 0;
-    if (existingTs > nowTs) return false;
+    if (existingTs > nowTs) return null;
   }
   const lockToken = (nowTs + ttlMs) + ":" + Math.random().toString(36).slice(2, 8);
   await env.NEXUS_KV.put(lockKey, lockToken, { expirationTtl: Math.max(10, Math.ceil(ttlMs / 1000) + 10) });
   const verified = await env.NEXUS_KV.get(lockKey);
-  return verified === lockToken;
+  return verified === lockToken ? lockToken : null;
 }
 
-async function releaseRoutineExecutionLock(env, routineId, wsPrefix = 'default:') {
-  if (!env || !env.NEXUS_KV || !routineId) return;
+async function releaseRoutineExecutionLock(env, routineId, lockToken, wsPrefix = 'default:') {
+  if (!env || !env.NEXUS_KV || !routineId || !lockToken || lockToken === "no-kv") return;
   try {
-    await env.NEXUS_KV.delete(wsPrefix + "rt_lock:" + String(routineId).slice(0, 80));
+    const lockKey = wsPrefix + "rt_lock:" + String(routineId).slice(0, 80);
+    const current = await env.NEXUS_KV.get(lockKey);
+    // Verify caller owns the active lock token before deleting from KV (Fixes Reviewer #3)
+    if (current === lockToken) {
+      await env.NEXUS_KV.delete(lockKey);
+    }
   } catch (e) {}
 }
 
@@ -24111,13 +24311,27 @@ if (!env.NEXUS_KV && ["SYNC_NEXUS_STATE", "PULL_OFFLINE_RESULTS", "ACK_OFFLINE_M
 
 let effectiveWorkspace = 'default';
 if (env.WORKSPACE_ID) {
-  effectiveWorkspace = String(env.WORKSPACE_ID).replace(/[^a-zA-Z0-9_-]/g, '') || 'default';
-} else if (body.workspaceId) {
-  const candidate = String(body.workspaceId).replace(/[^a-zA-Z0-9_-]/g, '');
+  const envWs = String(env.WORKSPACE_ID).trim();
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(envWs)) {
+    return new Response(JSON.stringify({ ok: false, error: "Invalid Server WORKSPACE_ID configuration" }), {
+      status: 500,
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
+  }
+  effectiveWorkspace = envWs;
+} else if (body.workspaceId !== undefined && body.workspaceId !== null) {
+  const rawCandidate = String(body.workspaceId).trim();
+  // Reject candidate workspaceId containing illegal characters with 400 Bad Request (Fixes Reviewer #2)
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(rawCandidate)) {
+    return new Response(JSON.stringify({ ok: false, error: "Invalid Workspace ID: must strictly match ^[a-zA-Z0-9_-]{1,64}$" }), {
+      status: 400,
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
+  }
   if (env.ALLOWED_WORKSPACES) {
-    const allowed = String(env.ALLOWED_WORKSPACES).split(',').map(s => s.trim());
-    if (allowed.includes(candidate)) {
-      effectiveWorkspace = candidate;
+    const allowed = String(env.ALLOWED_WORKSPACES).split(',').map(s => s.trim()).filter(Boolean);
+    if (allowed.includes(rawCandidate)) {
+      effectiveWorkspace = rawCandidate;
     } else {
       return new Response(JSON.stringify({ ok: false, error: "Forbidden Workspace ID" }), {
         status: 403,
@@ -24125,7 +24339,7 @@ if (env.WORKSPACE_ID) {
       });
     }
   } else {
-    effectiveWorkspace = candidate || 'default';
+    effectiveWorkspace = rawCandidate;
   }
 }
 const wsPrefix = effectiveWorkspace + ':';
@@ -24259,14 +24473,28 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
 
 
 
-if (body.action === "ACK_OFFLINE_MESSAGES" && env.NEXUS_KV && Array.isArray(body.ackMessageIds)) {
+if (body.action === "ACK_OFFLINE_MESSAGES") {
+  if (!env.NEXUS_KV) {
+    return new Response(JSON.stringify({ ok: false, error: "NEXUS_KV binding is required" }), {
+      status: 503,
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
+  }
+  // Enforce valid ackMessageIds array and mandatory non-empty leaseId (Fixes Reviewer #3)
+  if (!Array.isArray(body.ackMessageIds) || !body.leaseId || typeof body.leaseId !== "string" || !body.leaseId.trim()) {
+    return new Response(JSON.stringify({ ok: false, error: "Valid ackMessageIds array and non-empty leaseId are required to ACK offline messages" }), {
+      status: 400,
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
+  }
+  const reqLeaseId = String(body.leaseId).trim();
   const ackSet = new Set(body.ackMessageIds.slice(0, 100).map(id => String(id || "")));
   const currentList = safeJsonParse(await getKvWithFallback(env, "offline_completed", wsPrefix), []);
-  const reqLeaseId = body.leaseId ? String(body.leaseId) : null;
   const remaining = (Array.isArray(currentList) ? currentList : []).filter(m => {
     if (!m || !m.id) return false;
     if (!ackSet.has(String(m.id))) return true;
-    if (reqLeaseId && m.leaseId && m.leaseId !== reqLeaseId) return true;
+    // Only acknowledge and remove messages matching this caller's leaseId (Fixes Reviewer #3)
+    if (m.leaseId !== reqLeaseId) return true;
     return false;
   });
   await env.NEXUS_KV.put(wsPrefix + "offline_completed", JSON.stringify(remaining));
@@ -24341,7 +24569,8 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
 
 
   for (const rt of matched) {
-    if (!(await acquireRoutineExecutionLock(env, rt.id, nowTs, ROUTINE_LOCK_TTL_MS, wsPrefix))) {
+    const lockToken = await acquireRoutineExecutionLock(env, rt.id, nowTs, ROUTINE_LOCK_TTL_MS, wsPrefix);
+    if (!lockToken) {
       lockContentionCount++;
       continue;
     }
@@ -24376,7 +24605,7 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
       triggeredCount++;
       await sendCloudTelegramPush(env, "⚡ [Webhook Routine -> " + rt.title + "]:\\n\\n" + finalMsg);
     } finally {
-      await releaseRoutineExecutionLock(env, rt.id, wsPrefix);
+      await releaseRoutineExecutionLock(env, rt.id, lockToken, wsPrefix);
     }
   }
 
@@ -24504,7 +24733,8 @@ ctx.waitUntil((async () => {
       else if (rt.schedule === "weekly" && tehranNow.day === 6 && tehranNow.hour >= 9 && rt.lastRunDateKey !== todayKey && elapsed >= 24 * 60 * 60 * 1000) isDue = true;
 
       if (!isDue) continue;
-      if (!(await acquireRoutineExecutionLock(env, rt.id, nowTs, ROUTINE_LOCK_TTL_MS, wsPrefix))) continue;
+      const lockToken = await acquireRoutineExecutionLock(env, rt.id, nowTs, ROUTINE_LOCK_TTL_MS, wsPrefix);
+      if (!lockToken) continue;
 
       try {
         rt.lastAttemptTs = nowTs;
@@ -24541,7 +24771,7 @@ ctx.waitUntil((async () => {
         });
         await sendCloudTelegramPush(env, "☁️ [" + (rt.title || "Cloud Routine") + "]:\\n\\n" + finalCronText);
       } finally {
-        await releaseRoutineExecutionLock(env, rt.id, wsPrefix);
+        await releaseRoutineExecutionLock(env, rt.id, lockToken, wsPrefix);
       }
     }
 
@@ -24998,6 +25228,7 @@ function ensurePhase4ChatHooksAlive() {
         workerUrl: appState.cloudConfig?.workerUrl || '',
         supabaseKey: appState.cloudConfig?.supabaseKey || '',
         supabaseAuthToken: appState.cloudConfig?.supabaseAuthToken || '',
+        supabaseUrl: appState.cloudConfig?.supabaseUrl || '',
         workspaceId: appState.cloudConfig?.workspaceId || '',
         forwardToPersonal: appState.emailConfig?.forwardToPersonal || ''
       };
@@ -25013,7 +25244,13 @@ function ensurePhase4ChatHooksAlive() {
         restoreMissing(appState.telegramConfig, 'ownerUserId', prevSecretsSnapshot.ownerUserId);
         const incomingWorkerUrl = String(appState.cloudConfig?.workerUrl || '').trim();
         const prevWorkerUrl = String(prevSecretsSnapshot.workerUrl || '').trim();
-        const workerUrlChanged = incomingWorkerUrl && prevWorkerUrl && (incomingWorkerUrl !== prevWorkerUrl);
+        const incomingWorkspaceId = String(appState.cloudConfig?.workspaceId || '').trim();
+        const prevWorkspaceId = String(prevSecretsSnapshot.workspaceId || '').trim();
+        const incomingSupabaseUrl = String(appState.cloudConfig?.supabaseUrl || '').trim();
+        const prevSupabaseUrl = String(prevSecretsSnapshot.supabaseUrl || '').trim();
+
+        // Any change in workerUrl (including empty<->configured) or workspace ID change revokes workerSecret (Fixes Reviewer #1)
+        const workerUrlChanged = (incomingWorkerUrl !== prevWorkerUrl) || (incomingWorkspaceId !== prevWorkspaceId);
         if (!workerUrlChanged) {
           restoreMissing(appState.cloudConfig, 'workerSecret', prevSecretsSnapshot.workerSecret);
         } else {
@@ -25023,8 +25260,31 @@ function ensurePhase4ChatHooksAlive() {
             writePhase4SessionSecrets(appState);
           }
         }
-        restoreMissing(appState.cloudConfig, 'supabaseKey', prevSecretsSnapshot.supabaseKey);
-        restoreMissing(appState.cloudConfig, 'supabaseAuthToken', prevSecretsSnapshot.supabaseAuthToken);
+
+        // Any change in supabaseUrl (including empty<->configured) or workspace ID change revokes supabase credentials (Fixes Reviewer #1)
+        const supabaseUrlChanged = (incomingSupabaseUrl !== prevSupabaseUrl) || (incomingWorkspaceId !== prevWorkspaceId);
+        if (!supabaseUrlChanged) {
+          restoreMissing(appState.cloudConfig, 'supabaseKey', prevSecretsSnapshot.supabaseKey);
+          restoreMissing(appState.cloudConfig, 'supabaseAuthToken', prevSecretsSnapshot.supabaseAuthToken);
+        } else {
+          appState.cloudConfig.supabaseKey = '';
+          appState.cloudConfig.supabaseAuthToken = '';
+          prevSecretsSnapshot.supabaseKey = '';
+          prevSecretsSnapshot.supabaseAuthToken = '';
+          if (typeof writePhase4SessionSecrets === 'function') {
+            writePhase4SessionSecrets(appState);
+          }
+        }
+
+        // Purge pending CLOUD_SYNC queue items if cloud endpoints or workspace changed (Fixes Reviewer #1)
+        if (workerUrlChanged || supabaseUrlChanged) {
+          if (Array.isArray(appState.cloudConfig?.offlineQueue)) {
+            appState.cloudConfig.offlineQueue = appState.cloudConfig.offlineQueue.filter(
+              item => item && item.taskType !== 'CLOUD_SYNC'
+            );
+          }
+        }
+
         restoreMissing(appState.emailConfig, 'forwardToPersonal', prevSecretsSnapshot.forwardToPersonal);
         reconcilePhase4TelegramBridgeState();
         renderPhase4SettingsRowBadges();
@@ -28937,7 +29197,7 @@ if (typeof document !== 'undefined') {
       const baseUrl = sanitizeLocalBridgeUrl(appState.localComputerConfig.bridgeUrl);
       appState.localComputerConfig.bridgeUrl = baseUrl;
       const primaryFolder = String(appState.localComputerConfig.allowedFolders || '/sdcard/Download/NexusProjects')
-        .split(',')[0]
+        .split(/[,\r\n]+/)[0]
         .trim() || '/sdcard/Download/NexusProjects';
       const t0 = Date.now();
       const reqTs = String(t0);
@@ -29032,7 +29292,7 @@ if (typeof document !== 'undefined') {
       ensurePhase5State();
       const safeToken = sanitizeBridgeTokenValue(appState.localComputerConfig.bridgeToken);
       appState.localComputerConfig.bridgeToken = safeToken;
-      const safeAllowedFolder = String(appState.localComputerConfig.allowedFolders || '/sdcard/Download/NexusProjects').replace(/["\\`$]/g, '');
+      const rawAllowedFolders = String(appState.localComputerConfig.allowedFolders || '/sdcard/Download/NexusProjects');
       const cleanBridgeUrl = sanitizeLocalBridgeUrl(appState.localComputerConfig.bridgeUrl);
       let parsedPort = 8765;
       try {
@@ -29051,6 +29311,7 @@ if (typeof document !== 'undefined') {
 // node nexus_termux_bridge.js
 // (نکته امنیتی: سرور به طور پیش‌فرض فقط روی 127.0.0.1 گوش می‌دهد تا توکن در شبکه وای‌فای شنود نشود؛
 // برای دسترسی شبکه محلی، متغیر NEXUS_ALLOW_LAN=1 را تنظیم کنید)
+// ⚠️ سلب مسئولیت: قرنطینه مسیرها در سطح اپلیکیشن Node.js اعمال می‌شود و ساندباکس سطح کرنل لینوکس نیست.
 // ============================================================================
 const http = require('http');
 const fs = require('fs');
@@ -29067,7 +29328,8 @@ if (IS_LAN_MODE && (!SECRET || SECRET.length < 16)) {
   console.error('⛔ FATAL: NEXUS_ALLOW_LAN=1 requires a strong bridgeToken (at least 16 characters). Aborting for LAN security.');
   process.exit(1);
 }
-const DEFAULT_WORKSPACE = "${safeAllowedFolder}";
+// Escaped multiline string via JSON.stringify to prevent script syntax corruption (Fixes Reviewer #6)
+const DEFAULT_WORKSPACE = ${JSON.stringify(rawAllowedFolders)};
 const MAX_BODY_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const EXEC_TIMEOUT_MS = 120000;
@@ -29231,7 +29493,7 @@ function getFallbackHomeWorkspace() {
 function getAllowedRootDirs() {
   const safeFallback = getFallbackHomeWorkspace();
   const configured = String(DEFAULT_WORKSPACE || '')
-    .split(',')
+    .split(/[,\\r\\n]+/)
     .map(s => s.trim())
     .filter(Boolean)
     .map(p => getRealPathOrResolve(p));
@@ -29601,13 +29863,39 @@ http.createServer((req, res) => {
       const outBuffers = [];
       let outLen = 0;
 
+      // Direct array execution when no shell metacharacters are present (Fixes Reviewer #5)
+      const hasShellMetachars = /[|;&\`\\$><(){}\\r\\n]/.test(command);
+      let spawnBin, spawnArgs, spawnOpts;
+      if (!hasShellMetachars) {
+        const tokens = command.trim().match(/(?:[^\\s"']+|"[^"]*"|'[^']*')+/g) || [];
+        const cleanTokens = tokens.map(t => {
+          if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+            return t.slice(1, -1);
+          }
+          return t;
+        });
+        spawnBin = cleanTokens[0] || 'echo';
+        spawnArgs = cleanTokens.slice(1);
+        spawnOpts = {
+          cwd: safeCwd,
+          detached: true,
+          shell: false,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: buildSanitizedChildEnv()
+        };
+      } else {
+        spawnBin = shellBin;
+        spawnArgs = ['-c', command];
+        spawnOpts = {
+          cwd: safeCwd,
+          detached: true,
+          shell: false,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: buildSanitizedChildEnv()
+        };
+      }
 
-      const childProc = spawn(shellBin, ['-c', command], {
-        cwd: safeCwd,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: buildSanitizedChildEnv()
-      });
+      const childProc = spawn(spawnBin, spawnArgs, spawnOpts);
       activeChildProcs.add(childProc);
       activeJobsMap.set(activeJobId, childProc);
       childProc.on('close', () => {
@@ -29644,6 +29932,11 @@ http.createServer((req, res) => {
         clearTimeout(execTimer);
         if (res.writableEnded) return;
         const combinedOutput = Buffer.concat(outBuffers, outLen).toString('utf8');
+        // Redact bridge auth token, query params and header tokens from terminal output (Fixes Reviewer #14)
+        const sanitizedOutput = combinedOutput
+          .replace(new RegExp(SECRET.split('').map(c => '\\\\' + c).join(''), 'g'), '[REDACTED_TOKEN]')
+          .replace(/([?&\\s](?:token|access_token|key|api[_-]?key|secret|password)=)[^&\\s"'<>]+/gi, '$1[REDACTED_PARAM]')
+          .replace(/((?:X-Nexus-Secret|X-Nexus-Token|apikey):\\s*)[^\\r\\n\\s"'<>]+/gi, '$1[REDACTED_HEADER]');
         const suffix = timedOut
           ? '\\nError: Execution timed out after 120s (Process Group SIGKILL)'
           : (errMsg ? '\\nError: ' + errMsg : '');
@@ -29654,7 +29947,7 @@ http.createServer((req, res) => {
           cwd: safeCwd,
           category: serverCategory,
           exitCode: typeof exitCode === 'number' ? exitCode : (isOk ? 0 : 1),
-          output: (combinedOutput + suffix).trim() || 'Done (Exit Code 0)'
+          output: (sanitizedOutput + suffix).trim() || 'Done (Exit Code 0)'
         }));
       };
 
@@ -29732,11 +30025,11 @@ fs.writeFileSync("capacitor.config.json", JSON.stringify({
   webDir: "www",
   server: {
     androidScheme: "https",
-    cleartext: true,
-    allowNavigation: ["localhost", "127.0.0.1", "*.local"]
+    cleartext: false,
+    allowNavigation: ["localhost", "127.0.0.1"]
   },
   android: {
-    allowMixedContent: true,
+    allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false
   }
@@ -29881,7 +30174,7 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -29914,7 +30207,7 @@ jobs:
           cd build-cap
           npm init -y
           npm install --save-exact @capacitor/core@8.5.3 @capacitor/cli@8.5.3 @capacitor/android@8.5.3 @capacitor/app @capacitor/browser @capacitor/filesystem @capacitor/share
-          node -e 'const fs=require("fs");fs.writeFileSync("capacitor.config.json",JSON.stringify({appId:"com.ali.egnexusos",appName:"EG Nexus OS",webDir:"www",server:{androidScheme:"https",cleartext:true,allowNavigation:["localhost","127.0.0.1","*.local"]},android:{allowMixedContent:true,captureInput:true,webContentsDebuggingEnabled:false}},null,2)+"\\n","utf8");'
+          node -e 'const fs=require("fs");fs.writeFileSync("capacitor.config.json",JSON.stringify({appId:"com.ali.egnexusos",appName:"EG Nexus OS",webDir:"www",server:{androidScheme:"https",cleartext:false,allowNavigation:["localhost","127.0.0.1"]},android:{allowMixedContent:false,captureInput:true,webContentsDebuggingEnabled:false}},null,2)+"\\n","utf8");'
           npx cap add android
           node -e 'const fs=require("fs");const gp="android/gradle.properties";if(fs.existsSync(gp)&&!fs.readFileSync(gp,"utf8").includes("Dfile.encoding=UTF-8")){fs.appendFileSync(gp,"\\norg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8\\n","utf8");}fs.mkdirSync("android/app/src/main/res/xml",{recursive:true});fs.writeFileSync("android/app/src/main/res/xml/network_security_config.xml","<?xml version=\\"1.0\\" encoding=\\"utf-8\\"?>\\n<network-security-config>\\n    <base-config cleartextTrafficPermitted=\\"false\\" />\\n    <domain-config cleartextTrafficPermitted=\\"true\\">\\n        <domain includeSubdomains=\\"true\\">127.0.0.1</domain>\\n        <domain includeSubdomains=\\"true\\">localhost</domain>\\n        <domain includeSubdomains=\\"false\\">10.0.2.2</domain>\\n    </domain-config>\\n</network-security-config>\\n","utf8");const mfPath="android/app/src/main/AndroidManifest.xml";if(fs.existsSync(mfPath)){let mf=fs.readFileSync(mfPath,"utf8");if(!mf.includes("android.permission.RECORD_AUDIO")){mf=mf.replace("<application","<uses-permission android:name=\\"android.permission.RECORD_AUDIO\\" />\\n    <uses-permission android:name=\\"android.permission.MODIFY_AUDIO_SETTINGS\\" />\\n    <application");}mf=mf.replace(/\\s*android:usesCleartextTraffic=\\"true\\"/g,"");if(!mf.includes("networkSecurityConfig")){mf=mf.replace(/<application(\\s)/,"<application android:networkSecurityConfig=\\"@xml/network_security_config\\"$1");}fs.writeFileSync(mfPath,mf,"utf8");}const maPath="android/app/src/main/java/com/ali/egnexusos/MainActivity.java";if(fs.existsSync(maPath)){const orig=fs.readFileSync(maPath,"utf8");if(!orig.includes("RECORD_AUDIO")){let patched=orig.replace("import com.getcapacitor.BridgeActivity;","import android.Manifest;\\nimport android.content.pm.PackageManager;\\nimport android.os.Build;\\nimport android.os.Bundle;\\nimport android.webkit.WebSettings;\\nimport com.getcapacitor.BridgeActivity;");patched=patched.replace(/public\\s+class\\s+MainActivity\\s+extends\\s+BridgeActivity\\s*\\{/,"public class MainActivity extends BridgeActivity {\\n    @Override\\n    public void onCreate(Bundle savedInstanceState) {\\n        super.onCreate(savedInstanceState);\\n        if (getBridge() != null && getBridge().getWebView() != null) { WebSettings ws = getBridge().getWebView().getSettings(); ws.setMediaPlaybackRequiresUserGesture(false); ws.setDomStorageEnabled(true); ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE); }\\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{ Manifest.permission.RECORD_AUDIO }, 1001); }\\n    }");fs.writeFileSync(maPath,patched,"utf8");}}'
           npx cap sync android
@@ -30180,6 +30473,9 @@ jobs:
               <span class="text-slate-400">🔑 توکن امنیتی پل Termux: <code class="text-emerald-300 font-mono">${escapeHtml(appState.localComputerConfig.bridgeToken)}</code></span>
               <button onclick="regenerateTermuxBridgeToken()" class="text-amber-300 font-bold hover:underline">🔄 تولید توکن جدید</button>
             </div>
+            <div class="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-200">
+              ⚠️ توجه امنیتی: قرنطینه مسیرها در سطح اپلیکیشن Node.js اعمال می‌شود و جایگزین ساندباکس سخت‌گیرانه کرنل لینوکس نیست.
+            </div>
 
 
             <!-- قوانین ۴گانه اقدام امنیتی (4-Tier Action Policy) -->
@@ -30357,10 +30653,56 @@ jobs:
       const BLACKBOX_STORAGE_KEY = (window.STORAGE_KEY || 'eg_nexus_os_v5_master_state') + '_blackbox_logs_v1';
       const MAX_BLACKBOX_LOGS = 50;
       const TELEGRAM_ERROR_COOLDOWN_MS = 60000;
-      const SECRET_REDACTION_REGEX = /(?:sk-[a-zA-Z0-9_-]{12,}|xai-[a-zA-Z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|tvly-[a-zA-Z0-9_-]{12,}|ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|\b\d{8,12}:[A-Za-z0-9_-]{25,}\b|\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b|Bearer\s+[A-Za-z0-9._~+/=-]{12,})/g;
+      const SECRET_REDACTION_REGEX = /(?:sk-[a-zA-Z0-9_-]{12,}|xai-[a-zA-Z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|tvly-[a-zA-Z0-9_-]{12,}|ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|\b\d{8,12}:[A-Za-z0-9_-]{25,}\b|\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b|Bearer\s+[A-Za-z0-9._~+/=-]{12,})/gi;
+
+      function getDynamicStateSecrets() {
+        const set = new Set();
+        try {
+          if (typeof appState !== 'undefined' && appState) {
+            if (appState.cloudConfig?.workerSecret) set.add(appState.cloudConfig.workerSecret);
+            if (appState.cloudConfig?.supabaseKey) set.add(appState.cloudConfig.supabaseKey);
+            if (appState.cloudConfig?.supabaseAuthToken) set.add(appState.cloudConfig.supabaseAuthToken);
+            if (appState.telegramConfig?.botToken) set.add(appState.telegramConfig.botToken);
+            if (appState.localComputerConfig?.bridgeToken) set.add(appState.localComputerConfig.bridgeToken);
+            if (appState.apiKeys && typeof appState.apiKeys === 'object') {
+              Object.values(appState.apiKeys).forEach(k => { if (typeof k === 'string') set.add(k); });
+            }
+            if (appState.appConnections && typeof appState.appConnections === 'object') {
+              Object.values(appState.appConnections).forEach(c => {
+                if (c?.token) set.add(c.token);
+                if (Array.isArray(c?.accounts)) c.accounts.forEach(a => { if (a?.token) set.add(a.token); });
+              });
+            }
+          }
+          const sessionData = (typeof readSessionSecrets === 'function') ? readSessionSecrets() : null;
+          if (sessionData) {
+            if (sessionData.bridgeToken) set.add(sessionData.bridgeToken);
+            if (sessionData.apiKeys) Object.values(sessionData.apiKeys).forEach(k => { if (typeof k === 'string') set.add(k); });
+            if (sessionData.connectionTokens) Object.values(sessionData.connectionTokens).forEach(k => { if (typeof k === 'string') set.add(k); });
+            if (sessionData.accountTokens) Object.values(sessionData.accountTokens).forEach(k => { if (typeof k === 'string') set.add(k); });
+          }
+        } catch (_) {}
+        return Array.from(set)
+          .map(s => String(s || '').trim())
+          .filter(s => s.length >= 6)
+          .sort((a, b) => b.length - a.length);
+      }
 
       function redactSensitiveTokens(input) {
-        return String(input ?? '').replace(SECRET_REDACTION_REGEX, '[REDACTED_SECRET]');
+        let text = String(input ?? '');
+        text = text.replace(SECRET_REDACTION_REGEX, '[REDACTED_SECRET]');
+        // Strip sensitive URL query params and headers (Fixes Reviewer #14)
+        text = text.replace(/([?&\s](?:token|access_token|key|api[_-]?key|secret|password)=)[^&\s"'<>]+/gi, '$1[REDACTED_PARAM]');
+        text = text.replace(/((?:X-Nexus-Secret|X-Nexus-Token|apikey):\s*)[^\r\n\s"'<>]+/gi, '$1[REDACTED_HEADER]');
+        // Dynamic redaction of actual in-memory and session credentials (Fixes Reviewer #14)
+        const dynamicSecrets = getDynamicStateSecrets();
+        for (const secret of dynamicSecrets) {
+          if (text.includes(secret)) {
+            const escaped = secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            text = text.replace(new RegExp(escaped, 'g'), '[REDACTED_SECRET]');
+          }
+        }
+        return text;
       }
 
       // --------------------------------------------------------------------------

@@ -10,21 +10,9 @@ const CORE_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    try {
-      const cache = await caches.open(CACHE_NAME);
-      try {
-        await cache.addAll(CORE_ASSETS);
-      } catch (err) {
-        console.warn('[SW] Non-fatal asset pre-cache error; attempting resilient fallback:', err);
-        if (typeof cache.add === 'function') {
-          await Promise.allSettled(
-            CORE_ASSETS.map(asset => cache.add(asset).catch(() => {}))
-          );
-        }
-      }
-    } catch (e) {
-      console.warn('[SW] Caches open failed during install:', e);
-    }
+    const cache = await caches.open(CACHE_NAME);
+    // Atomic pre-cache: fail installation if core assets cannot be securely cached (Fixes Reviewer #11)
+    await cache.addAll(CORE_ASSETS);
     try {
       await self.skipWaiting();
     } catch (e) {}
@@ -35,9 +23,16 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     try {
       const keys = await caches.keys();
-      // Only delete previous versions of EG Nexus OS caches, never other apps on the same origin (Fixes Reviewer #28)
-      const oldCaches = keys.filter(key => key.startsWith('eg-nexus-os-') && key !== CACHE_NAME);
-      await Promise.all(oldCaches.map(key => caches.delete(key)));
+      // Ensure the new active cache exists and contains the offline shell before purging previous caches (Fixes Reviewer #11)
+      if (keys.includes(CACHE_NAME)) {
+        const currentCache = await caches.open(CACHE_NAME);
+        const shell = await currentCache.match('./index.html').catch(() => null);
+        if (shell) {
+          // Only delete previous versions of EG Nexus OS caches, never other apps on the same origin (Fixes Reviewer #28)
+          const oldCaches = keys.filter(key => key.startsWith('eg-nexus-os-') && key !== CACHE_NAME);
+          await Promise.all(oldCaches.map(key => caches.delete(key)));
+        }
+      }
     } catch (e) {
       console.warn('[SW] Caches cleanup failed during activate:', e);
     }
