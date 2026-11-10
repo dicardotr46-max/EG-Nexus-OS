@@ -34,7 +34,7 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: 5. Automated Code & Syntax Integrity Audit
+      - name: 5. Automated Code & Syntax Integrity Audit & Mandatory Jest Gate
         run: |
           echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.1..."
           if [ ! -f "index.html" ]; then
@@ -66,6 +66,7 @@ jobs:
           '
           if [ -f "package.json" ]; then
             npm run test:syntax
+            npm test
           fi
 
       - name: 6. Prepare Clean Capacitor Environment & Web Assets
@@ -74,20 +75,11 @@ jobs:
           cp index.html build_workspace/www/
           [ -f manifest.json ] && cp manifest.json build_workspace/www/ || true
           [ -f sw.js ] && cp sw.js build_workspace/www/ || true
+          # Use authoritative capacitor.config.json with cleartext & loopback support (Fixes Reviewer #15 & #16)
+          cp capacitor.config.json build_workspace/
           cd build_workspace
           npm init -y
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
-          cat << 'EOF' > capacitor.config.json
-          {
-            "appId": "com.ali.egnexusos",
-            "appName": "EG Nexus OS",
-            "webDir": "www",
-            "backgroundColor": "#0b0d14",
-            "android": {
-              "adjustMarginsForEdgeToEdge": "auto"
-            }
-          }
-          EOF
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/app@latest @capacitor/browser@latest @capacitor/filesystem@latest @capacitor/share@latest
 
       - name: 7. Compile Android APK
         run: |

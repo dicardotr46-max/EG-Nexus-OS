@@ -34,13 +34,16 @@ self.addEventListener('fetch', (event) => {
   // Bypass external API calls (Gemini, OpenRouter, Tavily, Telegram, Local Termux Bridge, Supabase)
   if (url.origin !== self.location.origin) return;
 
-  // Navigation requests: Network-first with instant fallback to cached index.html (Fixes Reviewer #27)
+  // Navigation requests: Network-first with instant fallback to cached index.html (Fixes Reviewer #20 & #27 - Never cache 404/500 errors)
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
         const res = await fetch(req);
-        const cache = await caches.open(CACHE_NAME);
-        cache.put('./index.html', res.clone());
+        const isSuccessful = !res.status || ((res.ok || res.status === 200) && res.status >= 200 && res.status < 300);
+        if (res && isSuccessful) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put('./index.html', res.clone());
+        }
         return res;
       } catch (error) {
         const cachedShell = await caches.match('./index.html');
@@ -62,7 +65,7 @@ self.addEventListener('fetch', (event) => {
     const fetchPromise = (async () => {
       try {
         const res = await fetch(req);
-        if (res && res.status === 200) {
+        if (res && (res.ok || res.status === 200) && res.status >= 200 && res.status < 300) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(req, res.clone());
         }

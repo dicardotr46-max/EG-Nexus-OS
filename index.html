@@ -836,14 +836,15 @@ body > header,
     window.appState = appState;
     let _nexusIdCounter = 0;
     let _orchestratorRunSeq = 0;
-    const activeApiControllers = new Set();
+    const activeApiControllers = new Set(); window.activeApiControllers = activeApiControllers;
 
 
     // Request ownership is deliberately separate from UI state: a stopped request
     // must never resume its fallback/demo path after a newer run has started.
+    // In parallel Swarm execution, multiple sub-agents run concurrently within the same runSeq (Fixes Reviewer #1)
     function isCurrentApiRequest(controller, runId) {
       return Boolean(controller && !controller.signal.aborted && !uiState.stopOrchestrationFlag
-        && _orchestratorRunSeq === runId && uiState.activeAbortController === controller);
+        && _orchestratorRunSeq === runId);
     }
 
 
@@ -931,7 +932,7 @@ body > header,
 
 
     function readSessionSecrets() {
-      const result = { initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {} };
+      const result = { initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, bridgeToken: '' };
       try {
         const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
@@ -947,13 +948,16 @@ body > header,
             }
           });
         }
+        if (typeof parsed.bridgeToken === 'string' && parsed.bridgeToken.trim()) {
+          result.bridgeToken = parsed.bridgeToken.trim();
+        }
       } catch (e) {}
       return result;
     }
 
 
     function writeSessionSecrets(state) {
-      const secrets = { initialized: true, apiKeys: emptyApiKeys(), connectionTokens: {} };
+      const secrets = { initialized: true, apiKeys: emptyApiKeys(), connectionTokens: {}, bridgeToken: '' };
       API_KEY_NAMES.forEach(name => {
         const value = state?.apiKeys?.[name];
         if (typeof value === 'string') secrets.apiKeys[name] = value.trim();
@@ -966,6 +970,9 @@ body > header,
             secrets.connectionTokens[id] = token.trim();
           }
         });
+      }
+      if (typeof state?.localComputerConfig?.bridgeToken === 'string' && state.localComputerConfig.bridgeToken.trim()) {
+        secrets.bridgeToken = state.localComputerConfig.bridgeToken.trim();
       }
       try { sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify(secrets)); return true; } catch (e) { return false; }
     }
@@ -980,6 +987,10 @@ body > header,
         if (!state.appConnections[id] || typeof state.appConnections[id] !== 'object') state.appConnections[id] = { accounts: [], mcpEnabled: false, connectedAt: '' };
         state.appConnections[id].token = secrets.connectionTokens[id];
       });
+      if (secrets.initialized && secrets.bridgeToken) {
+        if (!state.localComputerConfig || typeof state.localComputerConfig !== 'object') state.localComputerConfig = {};
+        state.localComputerConfig.bridgeToken = secrets.bridgeToken;
+      }
       return state;
     }
 
@@ -1164,7 +1175,11 @@ body > header,
       try { return window.localStorage?.getItem(String(key)) || null; } catch (e) { return null; }
     }
     function nexusStorageSet(key, value) {
-      try { window.localStorage?.setItem(String(key), String(value)); return true; } catch (e) { return false; }
+      try {
+        if (!window.localStorage) return false;
+        window.localStorage.setItem(String(key), String(value));
+        return true;
+      } catch (e) { return false; }
     }
     function nexusStorageRemove(key) {
       try { window.localStorage?.removeItem(String(key)); return true; } catch (e) { return false; }
@@ -1183,10 +1198,14 @@ body > header,
         }
       } catch (e) {
         console.warn('localStorage read or parse failed, quarantining corrupted copy and starting fresh', e);
+        let quarantined = false;
         if (raw) {
-          try { nexusStorageSet(STORAGE_KEY + '_corrupted_quarantine_' + Date.now(), raw); } catch (_) {}
+          try { quarantined = nexusStorageSet(STORAGE_KEY + '_corrupted_quarantine_' + Date.now(), raw); } catch (_) {}
         }
-        nexusStorageRemove(STORAGE_KEY);
+        // Only remove active key if quarantine succeeded or raw was empty (Fixes Reviewer #8)
+        if (quarantined || !raw) {
+          nexusStorageRemove(STORAGE_KEY);
+        }
       }
 
       try {
@@ -1246,15 +1265,19 @@ body > header,
             (candidate.chats || []).forEach(c => {
               (c?.messages || []).slice(0, -4).forEach(m => { if (m) m.attachmentImage = ''; });
             });
+            let retrySaved = false;
             try {
-              try { nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
+              retrySaved = nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate));
             } catch (retryError) {
               const retryIsQuota = retryError && (retryError.name === 'QuotaExceededError' || retryError.name === 'NS_ERROR_DOM_QUOTA_REACHED' || retryError.code === 22 || retryError.code === 1014);
               if (!retryIsQuota) throw retryError;
               (candidate.chats || []).forEach(c => { (c?.messages || []).forEach(m => { if (m) m.attachmentImage = ''; }); });
-              try { nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate)); } catch(e) {}
+              retrySaved = nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate));
             }
-            savedOk = true;
+            if (retrySaved) {
+              savedOk = true;
+              showToast('ظرفیت ذخیره پر بود؛ نسخه دیسکی تصاویر سبک شد. نسخه کامل تا بستن صفحه برای بکاپ در حافظه است');
+            }
             showToast('ظرفیت ذخیره پر بود؛ نسخه دیسکی تصاویر سبک شد. نسخه کامل تا بستن صفحه برای بکاپ در حافظه است');
           } catch (retryError) {}
         }
@@ -2562,10 +2585,12 @@ body > header,
     }
 
 
+    let _chatFileUploadSeq = 0;
     function handleChatFileUpload(event) {
       const files = event.target?.files;
       const file = files?.[0];
       if (!file) return;
+      const currentUploadSeq = ++_chatFileUploadSeq;
       if (files.length > 1) {
         showToast('در هر پیام اولین فایل انتخاب‌شده پیوست می‌شود 📎');
       }
@@ -2579,6 +2604,7 @@ body > header,
       const isImage = file.type.startsWith('image/');
       const reader = new FileReader();
       reader.onload = async () => {
+        if (currentUploadSeq !== _chatFileUploadSeq) return; // Stale file selection check (Fixes Reviewer #28)
         let finalContent = String(reader.result || '');
         let finalMime = file.type || (isImage ? 'image/png' : 'text/plain');
         let truncatedNote = '';
@@ -2683,6 +2709,9 @@ body > header,
 
 
     function resolveApprovalGate(approved) {
+      if (uiState._isResolvingApproval) return;
+      uiState._isResolvingApproval = true;
+      setTimeout(() => { uiState._isResolvingApproval = false; }, 320);
       if (!Array.isArray(uiState.pendingApprovalQueue)) uiState.pendingApprovalQueue = [];
       const item = uiState.pendingApprovalQueue.shift();
       if (uiState.pendingApprovalQueue.length === 0) {
@@ -3088,7 +3117,9 @@ body > header,
                 const t = token || conn.token;
                 const igId = conn.igUserId || conn.accounts?.[0]?.id;
                 if (!t || !igId) throw new Error('اکانت اینستاگرام تجاری متصل نیست یا توکن نامعتبر است');
-                const res = await fetch(`https://graph.facebook.com/v20.0/${igId}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count&access_token=${t}`);
+                const res = await fetch(`https://graph.facebook.com/v20.0/${igId}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
                 if (!res.ok) throw new Error(`Meta Graph API HTTP ${res.status}`);
                 return await res.json();
               }
@@ -3434,7 +3465,9 @@ body > header,
                 const actId = conn.actId;
                 if (!t || !actId) throw new Error('توکن دسترسی یا شناسه حساب تبلیغاتی Meta (act_...) یافت نشد');
                 const preset = args.date_preset || 'last_30d';
-                const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,cpc,ctr&date_preset=${encodeURIComponent(preset)}&access_token=${encodeURIComponent(t)}`);
+                const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,cpc,ctr&date_preset=${encodeURIComponent(preset)}`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
                 if (!res.ok) throw new Error(`Meta Ads API HTTP ${res.status}`);
                 const data = await res.json();
                 return data.data?.[0] || { spend: '0', impressions: '0', clicks: '0' };
@@ -3450,7 +3483,9 @@ body > header,
                 const actId = conn.actId;
                 if (!t || !actId) throw new Error('شناسه حساب تبلیغاتی متا الزامی است');
                 const limit = args.limit || 5;
-                const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/campaigns?fields=id,name,status,objective&limit=${limit}&access_token=${encodeURIComponent(t)}`);
+                const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/campaigns?fields=id,name,status,objective&limit=${limit}`, {
+                  headers: { 'Authorization': `Bearer ${t}` }
+                });
                 if (!res.ok) throw new Error(`Meta Ads API HTTP ${res.status}`);
                 const data = await res.json();
                 return data.data || [];
@@ -4060,9 +4095,10 @@ body > header,
         .map(id => APPS_CATALOG.find(a => a.id === id)?.name)
         .filter(Boolean)
         .join(', ');
+      const isContextOff = (val) => val === false || val === 'false' || val === 0 || val === '0' || val === 'off';
       const connectedAppsContext = connectedAppIds.map(id => {
         const conn = appState.appConnections?.[id] || {};
-        if (conn.contextEnabled === false) return null;
+        if (isContextOff(conn.contextEnabled)) return null;
         const app = APPS_CATALOG.find(a => a.id === id);
         const accounts = getConnectionAccounts(id).map(a => `${a.name} <${a.email}>`).join(', ') || 'account connected';
         const metrics = Array.isArray(conn.metrics) ? conn.metrics.slice(0, 3).map(m => `${m.metric}: ${m.value}`).join('; ') : '';
@@ -4716,14 +4752,8 @@ body > header,
     }
     function getAppConnectionToken(appId) {
       const secrets = readSessionSecrets();
-      let tok = String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
-      if (!tok && GOOGLE_APP_IDS.has(appId)) {
-        for (const gid of GOOGLE_APP_IDS) {
-          const alt = String(secrets?.connectionTokens?.[gid] || appState.appConnections?.[gid]?.token || '').trim();
-          if (alt) { tok = alt; break; }
-        }
-      }
-      return tok;
+      // Strictly return token for the requested service; do not fall back to unrelated Google services with mismatched scopes (Fixes Reviewer #23)
+      return String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
     }
     function getAppPrivacyUrl(app) { return PROVIDER_PRIVACY_URLS[app.id] || app.website || '#'; }
     function openProviderUrl(appId) { openExternalProviderUrl(PROVIDER_LAUNCH_URLS[appId] || APPS_CATALOG.find(a => a.id === appId)?.website); }
@@ -4981,7 +5011,9 @@ body > header,
       } catch (err) {
         try {
           const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-          const pRes = await fetch(proxyUrl, { headers });
+          // Never forward Authorization bearer tokens to 3rd-party public proxies (Fixes Reviewer #24)
+          const safeBattleProxyHeaders = { 'Accept': 'application/json' };
+          const pRes = await fetch(proxyUrl, { headers: safeBattleProxyHeaders });
           if (pRes.ok) battles = await pRes.json();
           else throw err;
         } catch (_) {
@@ -5535,7 +5567,9 @@ body > header,
       if (!t || !igUserId) return [];
 
       try {
-        const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=${limit}&access_token=${encodeURIComponent(t)}`);
+        const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=${limit}`, {
+          headers: { 'Authorization': `Bearer ${t}` }
+        });
         if (!res.ok) return [];
         const data = await res.json();
         const items = Array.isArray(data?.data) ? data.data : [];
@@ -6235,7 +6269,7 @@ body > header,
 
         if (statusEl) {
           statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-          statusEl.innerHTML = `✓ کاربر <b>${escapeHtml(viewer.name)}</b> (${teams[0]?.name || 'تیم'}) متصل شد`;
+          statusEl.innerHTML = `✓ کاربر <b>${escapeHtml(viewer.name)}</b> (${escapeHtml(teams[0]?.name || 'تیم')}) متصل شد`;
         }
         showToast('Linear متصل شد ✓');
         setTimeout(() => {
@@ -8897,7 +8931,7 @@ body > header,
               <span>ورود از طریق پنجره گوگل (Google OAuth Pop-up)</span>
             </button>
             <div class="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">
-              ⚠️ توجه: در مرورگرهای موبایل ممکن است صفحه تایید گوگل سفید بماند؛ در این صورت از فرم اتصال مستقیم بالا استفاده کنید.
+              ⚠️ نکته: در مرورگر موبایل، پس از زدن «ادامه دادن»، کروم اجازه بستن خودکار تب را به گوگل نمی‌دهد و صفحه سفید می‌ماند؛ در این حالت تب سفید را ببندید یا از فرم اتصال مستقیم بالا استفاده کنید.
             </div>
           </div>
 
@@ -8972,6 +9006,19 @@ body > header,
       });
       if (client) {
         showToast('⏳ در حال باز کردن پنجره ورود گوگل...');
+        const handleReturnFromGoogle = () => {
+          setTimeout(() => {
+            window.removeEventListener('focus', handleReturnFromGoogle);
+            document.removeEventListener('visibilitychange', handleReturnFromGoogle);
+            const pAppId = window.pendingProviderConnection?.appId || appId;
+            const accounts = getConnectionAccounts(pAppId);
+            if (accounts.length === 0) {
+              showToast('💡 در صورت تایید در گوگل، ایمیل خود را در فرم بالا بزنید و «اتصال مستقیم» را لمس کنید.', 6000);
+            }
+          }, 800);
+        };
+        window.addEventListener('focus', handleReturnFromGoogle, { once: true });
+        document.addEventListener('visibilitychange', handleReturnFromGoogle, { once: true });
         client.requestAccessToken({ prompt: 'select_account' });
       }
     }
@@ -8984,14 +9031,14 @@ body > header,
         openAppDetailView(appId);
         showToast(`حساب ${acc.name || acc.email} انتخاب شد ✓`);
       } else {
-        startGoogleOAuthFlow(appId);
+        openGoogleAccountChooser(appId);
       }
     }
-    function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(appId); }
+    function openGoogleAccountForm() { const appId = pendingProviderConnection?.appId || 'gmail'; openGoogleAccountChooser(appId); }
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
-    function continueGoogleManualAccount(appId) { const targetAppId = appId || pendingProviderConnection?.appId || 'gmail'; startGoogleOAuthFlow(targetAppId); }
-    function showGoogleConsentStep(account, token = '') { const appId = pendingProviderConnection?.appId || 'gmail'; const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; pendingProviderConnection = { ...(pendingProviderConnection || {}), account, token }; renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
-    function allowGoogleConnection() { const pending = pendingProviderConnection; if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; pendingProviderConnection = null; closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
+    function continueGoogleManualAccount(appId) { const targetAppId = appId || pendingProviderConnection?.appId || 'gmail'; openGoogleAccountChooser(targetAppId); }
+    function showGoogleConsentStep(account, token = '') { const appId = (pendingProviderConnection?.appId || window.pendingProviderConnection?.appId || 'gmail'); const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; setPendingProviderConnection({ ...(pendingProviderConnection || window.pendingProviderConnection || {}), appId, account, token }); renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
+    function allowGoogleConnection() { const pending = (pendingProviderConnection || window.pendingProviderConnection); if (!pending?.account?.email) return; const appId = pending.appId; const conn = appState.appConnections[appId] || {}; const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== pending.account.email.toLowerCase()); accounts.push({ ...pending.account, connectedAt: new Date().toISOString() }); appState.appConnections[appId] = { ...conn, accounts, contextEnabled: true, connectedAt: new Date().toISOString(), token: pending.token || conn.token || '' }; setPendingProviderConnection(null); closeProviderModalAndRefresh(appId); showToast(`${providerLabel(appId)} account connected ✓`); }
 
     function syncGoogleAccountsToState() { ['gmail', 'gcal', 'gworkspace'].forEach(id => { if (appState.appConnections[id]) appState.appConnections[id].accounts = getConnectionAccounts(id); }); }
     function accountWorkspaceContext(appId) { const conn = appState.appConnections?.[appId] || {}; const accounts = getConnectionAccounts(appId); return `${providerLabel(appId)} connected accounts: ${accounts.map(a => `${a.name} <${a.email}>`).join(', ') || 'none'}. Context injection: ${conn.contextEnabled === false ? 'off' : 'on'}.`; }
@@ -9097,7 +9144,7 @@ body > header,
                   <button onclick="injectSingleDriveFileContext('${escapeJsAttr(f.id)}')" class="min-h-0 px-2 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[10px] hover:bg-purple-500/25" title="تزریق به حافظه">
                     📥 AI
                   </button>
-                  <a href="${escapeHtml(f.webViewLink)}" target="_blank" rel="noopener noreferrer" class="min-h-0 px-2 py-1 rounded-lg bg-white/5 text-blue-400 text-[10px] hover:underline">
+                  <a href="${escapeHtml(sanitizeSafeUrl(f.webViewLink))}" target="_blank" rel="noopener noreferrer" class="min-h-0 px-2 py-1 rounded-lg bg-white/5 text-blue-400 text-[10px] hover:underline">
                     نمایش ↗
                   </a>
                 </div>
@@ -9230,7 +9277,7 @@ body > header,
             listEl.innerHTML = items.map(ev => {
               const dt = ev.start?.dateTime ? new Date(ev.start.dateTime) : (ev.start?.date ? new Date(ev.start.date) : null);
               const dateLabel = dt ? formatGcalDateLabel(dt) : 'تاریخ نامشخص';
-              return `<div class="p-2 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs"><div class="min-w-0 pr-2"><div class="font-bold text-white truncate">${escapeHtml(ev.summary || 'رویداد بدون عنوان')}</div><div class="text-[10px] text-cue-muted">${escapeHtml(dateLabel)}</div></div>${ev.htmlLink ? `<a href="${escapeHtml(ev.htmlLink)}" target="_blank" rel="noopener noreferrer" class="text-blue-400 text-[10px] hover:underline shrink-0">نمایش ↗</a>` : ''}</div>`;
+              return `<div class="p-2 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs"><div class="min-w-0 pr-2"><div class="font-bold text-white truncate">${escapeHtml(ev.summary || 'رویداد بدون عنوان')}</div><div class="text-[10px] text-cue-muted">${escapeHtml(dateLabel)}</div></div>${ev.htmlLink ? `<a href="${escapeHtml(sanitizeSafeUrl(ev.htmlLink))}" target="_blank" rel="noopener noreferrer" class="text-blue-400 text-[10px] hover:underline shrink-0">نمایش ↗</a>` : ''}</div>`;
             }).join('');
           }
         }
@@ -9538,7 +9585,7 @@ body > header,
                   <span class="text-pink-400">${typeIcon} ${m.media_type || ''}</span>
                 </div>
               </div>
-              ${m.permalink ? `<a href="${escapeHtml(m.permalink)}" target="_blank" rel="noopener noreferrer" class="text-pink-400 text-[10px] hover:underline shrink-0">نمایش ↗</a>` : ''}
+              ${m.permalink ? `<a href="${escapeHtml(sanitizeSafeUrl(m.permalink))}" target="_blank" rel="noopener noreferrer" class="text-pink-400 text-[10px] hover:underline shrink-0">نمایش ↗</a>` : ''}
             </div>
           `;
         }).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">پستی در حافظه لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
@@ -9797,7 +9844,7 @@ body > header,
             <div class="text-[10px] text-slate-400 truncate">${escapeHtml(iss.culprit || '')}</div>
             <div class="flex items-center justify-between pt-1 text-[10px]">
               <span class="text-slate-500">${escapeHtml(iss.lastSeen ? new Date(iss.lastSeen).toLocaleDateString('fa-IR') : '')}</span>
-              ${iss.permalink ? `<a href="${escapeHtml(iss.permalink)}" target="_blank" rel="noopener noreferrer" class="text-purple-400 hover:underline">مشاهده در Sentry ↗</a>` : ''}
+              ${iss.permalink ? `<a href="${escapeHtml(sanitizeSafeUrl(iss.permalink))}" target="_blank" rel="noopener noreferrer" class="text-purple-400 hover:underline">مشاهده در Sentry ↗</a>` : ''}
             </div>
           </div>
         `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">خطای بازیابی‌نشده‌ای ثبت نشده یا همگام‌سازی نشده است.</div>';
@@ -10397,7 +10444,7 @@ body > header,
               <div class="font-bold text-white truncate">${escapeHtml(tk.name || 'Task')}</div>
               <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(tk.priority || 'Normal')} · ${escapeHtml(tk.status || 'open')}</div>
             </div>
-            <a href="${escapeHtml(tk.url || '#')}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">نمایش ↗</a>
+            <a href="${escapeHtml(sanitizeSafeUrl(tk.url || '#'))}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">نمایش ↗</a>
           </div>
         `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">تسک فعالی یافت نشد؛ دکمه همگام‌سازی را بزنید.</div>';
 
@@ -10701,7 +10748,7 @@ body > header,
               <div class="font-bold text-white">${escapeHtml(p.name || 'مخاطب')}</div>
               <div class="text-[10px] text-indigo-300 font-mono">${escapeHtml(p.title || 'سمت سازمانی')} · ${escapeHtml(p.organization?.name || 'شرکت')}</div>
             </div>
-            ${p.linkedin_url ? `<a href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">لینکدین ↗</a>` : ''}
+            ${p.linkedin_url ? `<a href="${escapeHtml(sanitizeSafeUrl(p.linkedin_url))}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">لینکدین ↗</a>` : ''}
           </div>
         `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">لیدی یافت نشد؛ جستجو کنید یا دکمه تازه‌سازی را بزنید.</div>';
 
@@ -19697,11 +19744,32 @@ function schedulePhase4AutoCloudSync(delayMs = 1500) {
 
 async function fetchWithPhase4Timeout(url, options = {}, timeoutMs = 8500) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer = setTimeout(() => {
+    try { controller.abort(); } catch (e) {}
+  }, timeoutMs);
+
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const origJson = res.json.bind(res);
+    const origText = res.text.bind(res);
+    res.json = async () => {
+      try {
+        return await origJson();
+      } finally {
+        if (timer) { clearTimeout(timer); timer = null; }
+      }
+    };
+    res.text = async () => {
+      try {
+        return await origText();
+      } finally {
+        if (timer) { clearTimeout(timer); timer = null; }
+      }
+    };
+    return res;
+  } catch (err) {
+    if (timer) { clearTimeout(timer); timer = null; }
+    throw err;
   }
 }
 
@@ -19948,9 +20016,10 @@ function initPhase4Runtime() {
 
   if (routineSchedulerInterval) clearInterval(routineSchedulerInterval);
   routineSchedulerInterval = setInterval(() => {
+    // Battery and background performance guard (Fixes Reviewer #29)
+    if (typeof document !== 'undefined' && document.hidden) return;
     ensurePhase4ChatHooksAlive();
     drainPhase4PendingTasksQueue();
-    if (typeof document !== 'undefined' && document.hidden) return;
     checkDueRoutinesInBackground();
   }, 30000);
 
@@ -22317,8 +22386,8 @@ async function flushOfflineCloudQueue() {
 
 
           if (workerUrl) {
-            const headers = { 'Content-Type': 'application/json' };
-            if (workerSecret) headers['X-Nexus-Secret'] = workerSecret;
+            if (!workerSecret) continue; // Skip sync if workerSecret is not configured (Fixes Reviewer #11)
+            const headers = { 'Content-Type': 'application/json', 'X-Nexus-Secret': workerSecret };
             const res = await fetchWithPhase4Timeout(workerUrl, {
               method: 'POST',
               headers,
@@ -23629,10 +23698,12 @@ if (!env.NEXUS_KV && ["SYNC_NEXUS_STATE", "PULL_OFFLINE_RESULTS", "ACK_OFFLINE_M
 
 
 
+const wsPrefix = (body.workspaceId ? String(body.workspaceId).replace(/[^a-zA-Z0-9_-]/g, '') : 'default') + ':';
+
 if (body.action === "SYNC_NEXUS_STATE") {
-  let serverRoutines = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get("routines") : "[]", []);
-  const kvDeletedIds = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get("deleted_routine_ids") : "[]", []);
-  const kvDeletedMeta = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get("deleted_routine_meta") : "{}", {});
+  let serverRoutines = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "routines") : "[]", []);
+  const kvDeletedIds = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "deleted_routine_ids") : "[]", []);
+  const kvDeletedMeta = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "deleted_routine_meta") : "{}", {});
   const clientDeletedIds = Array.isArray(body.deletedRoutineIds) ? body.deletedRoutineIds.slice(0, MAX_TOMBSTONES) : [];
   const clientDeletedMeta = (body.deletedRoutineMeta && typeof body.deletedRoutineMeta === "object") ? body.deletedRoutineMeta : {};
 
@@ -23658,9 +23729,9 @@ if (body.action === "SYNC_NEXUS_STATE") {
 
 
   if (env.NEXUS_KV) {
-    await env.NEXUS_KV.put("deleted_routine_ids", JSON.stringify(combinedDeletedIds));
-    await env.NEXUS_KV.put("deleted_routine_meta", JSON.stringify(combinedDeletedMeta));
-    await env.NEXUS_KV.put("routines", JSON.stringify(serverRoutines));
+    await env.NEXUS_KV.put(wsPrefix + "deleted_routine_ids", JSON.stringify(combinedDeletedIds));
+    await env.NEXUS_KV.put(wsPrefix + "deleted_routine_meta", JSON.stringify(combinedDeletedMeta));
+    await env.NEXUS_KV.put(wsPrefix + "routines", JSON.stringify(serverRoutines));
     if (Array.isArray(body.brainNodes)) {
       const safeBrain = body.brainNodes.slice(0, 120).map(n => ({
         id: String(n?.id || ""),
@@ -23668,7 +23739,7 @@ if (body.action === "SYNC_NEXUS_STATE") {
         text: String(n?.text || "").slice(0, 600),
         createdAt: String(n?.createdAt || "")
       })).filter(n => n.text);
-      await env.NEXUS_KV.put("brain_nodes", JSON.stringify(safeBrain));
+      await env.NEXUS_KV.put(wsPrefix + "brain_nodes", JSON.stringify(safeBrain));
     }
   }
   return new Response(JSON.stringify({
@@ -23686,9 +23757,9 @@ if (body.action === "SYNC_NEXUS_STATE") {
 
 
 if (body.action === "PULL_OFFLINE_RESULTS") {
-  let serverRoutines = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get("routines") : "[]", []);
-  const kvDeletedIds = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get("deleted_routine_ids") : "[]", []);
-  const kvDeletedMeta = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get("deleted_routine_meta") : "{}", {});
+  let serverRoutines = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "routines") : "[]", []);
+  const kvDeletedIds = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "deleted_routine_ids") : "[]", []);
+  const kvDeletedMeta = safeJsonParse(env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "deleted_routine_meta") : "{}", {});
   const clientDeletedIds = Array.isArray(body.deletedRoutineIds) ? body.deletedRoutineIds.slice(0, MAX_TOMBSTONES) : [];
   const clientDeletedMeta = (body.deletedRoutineMeta && typeof body.deletedRoutineMeta === "object") ? body.deletedRoutineMeta : {};
 
@@ -23707,15 +23778,15 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
 
   if (env.NEXUS_KV && Array.isArray(body.routines)) {
     serverRoutines = mergeCloudAndClientRoutines(serverRoutines, body.routines, combinedDeletedIds, combinedDeletedMeta);
-    await env.NEXUS_KV.put("deleted_routine_ids", JSON.stringify(combinedDeletedIds));
-    await env.NEXUS_KV.put("deleted_routine_meta", JSON.stringify(combinedDeletedMeta));
-    await env.NEXUS_KV.put("routines", JSON.stringify(serverRoutines));
+    await env.NEXUS_KV.put(wsPrefix + "deleted_routine_ids", JSON.stringify(combinedDeletedIds));
+    await env.NEXUS_KV.put(wsPrefix + "deleted_routine_meta", JSON.stringify(combinedDeletedMeta));
+    await env.NEXUS_KV.put(wsPrefix + "routines", JSON.stringify(serverRoutines));
   }
 
 
 
 
-  const raw = env.NEXUS_KV ? await env.NEXUS_KV.get("offline_completed") : "[]";
+  const raw = env.NEXUS_KV ? await env.NEXUS_KV.get(wsPrefix + "offline_completed") : "[]";
   const allCompleted = safeJsonParse(raw, []);
   const deliverable = [];
   const updatedList = (Array.isArray(allCompleted) ? allCompleted : []).map(m => {
@@ -23731,7 +23802,7 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
 
 
   if (env.NEXUS_KV && deliverable.length > 0) {
-    await env.NEXUS_KV.put("offline_completed", JSON.stringify(updatedList));
+    await env.NEXUS_KV.put(wsPrefix + "offline_completed", JSON.stringify(updatedList));
   }
   return new Response(JSON.stringify({
     ok: true,
@@ -23749,9 +23820,9 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
 
 if (body.action === "ACK_OFFLINE_MESSAGES" && env.NEXUS_KV && Array.isArray(body.ackMessageIds)) {
   const ackSet = new Set(body.ackMessageIds.slice(0, 100).map(id => String(id || "")));
-  const currentList = safeJsonParse(await env.NEXUS_KV.get("offline_completed"), []);
+  const currentList = safeJsonParse(await env.NEXUS_KV.get(wsPrefix + "offline_completed"), []);
   const remaining = (Array.isArray(currentList) ? currentList : []).filter(m => m && m.id && !ackSet.has(String(m.id)));
-  await env.NEXUS_KV.put("offline_completed", JSON.stringify(remaining));
+  await env.NEXUS_KV.put(wsPrefix + "offline_completed", JSON.stringify(remaining));
   return new Response(JSON.stringify({ ok: true, remainingCount: remaining.length }), {
     headers: { ...cors, "Content-Type": "application/json" }
   });
