@@ -932,7 +932,7 @@ body > header,
 
 
     function readSessionSecrets() {
-      const result = { initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, bridgeToken: '' };
+      const result = { initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
       try {
         const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
@@ -948,6 +948,13 @@ body > header,
             }
           });
         }
+        if (parsed.accountTokens && typeof parsed.accountTokens === 'object' && !Array.isArray(parsed.accountTokens)) {
+          Object.keys(parsed.accountTokens).forEach(accId => {
+            if (typeof parsed.accountTokens[accId] === 'string') {
+              result.accountTokens[accId] = parsed.accountTokens[accId].trim();
+            }
+          });
+        }
         if (typeof parsed.bridgeToken === 'string' && parsed.bridgeToken.trim()) {
           result.bridgeToken = parsed.bridgeToken.trim();
         }
@@ -957,7 +964,7 @@ body > header,
 
 
     function writeSessionSecrets(state) {
-      const secrets = { initialized: true, apiKeys: emptyApiKeys(), connectionTokens: {}, bridgeToken: '' };
+      const secrets = { initialized: true, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
       API_KEY_NAMES.forEach(name => {
         const value = state?.apiKeys?.[name];
         if (typeof value === 'string') secrets.apiKeys[name] = value.trim();
@@ -965,9 +972,17 @@ body > header,
       const connections = state?.appConnections;
       if (connections && typeof connections === 'object' && !Array.isArray(connections)) {
         Object.keys(connections).forEach(id => {
-          const token = connections[id]?.token;
+          const conn = connections[id];
+          const token = conn?.token;
           if (isSafeConnectionId(id) && typeof token === 'string' && token.trim()) {
             secrets.connectionTokens[id] = token.trim();
+          }
+          if (Array.isArray(conn?.accounts)) {
+            conn.accounts.forEach(acc => {
+              if (acc?.id && typeof acc.token === 'string' && acc.token.trim()) {
+                secrets.accountTokens[acc.id] = acc.token.trim();
+              }
+            });
           }
         });
       }
@@ -987,6 +1002,18 @@ body > header,
         if (!state.appConnections[id] || typeof state.appConnections[id] !== 'object') state.appConnections[id] = { accounts: [], mcpEnabled: false, connectedAt: '' };
         state.appConnections[id].token = secrets.connectionTokens[id];
       });
+      if (secrets.initialized && secrets.accountTokens) {
+        Object.keys(state.appConnections).forEach(id => {
+          const conn = state.appConnections[id];
+          if (conn && Array.isArray(conn.accounts)) {
+            conn.accounts.forEach(acc => {
+              if (acc?.id && secrets.accountTokens[acc.id]) {
+                acc.token = secrets.accountTokens[acc.id];
+              }
+            });
+          }
+        });
+      }
       if (secrets.initialized && secrets.bridgeToken) {
         if (!state.localComputerConfig || typeof state.localComputerConfig !== 'object') state.localComputerConfig = {};
         state.localComputerConfig.bridgeToken = secrets.bridgeToken;
@@ -1140,8 +1167,8 @@ body > header,
         memberIds: Array.isArray(c.memberIds) ? c.memberIds.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()) : [],
         updatedAt: (typeof c.updatedAt === 'string' && c.updatedAt.trim()) ? c.updatedAt : 'الان',
         updatedAtTs: Number.isFinite(Number(c.updatedAtTs)) ? Number(c.updatedAtTs) : 0,
-        draftText: typeof c.draftText === 'string' ? c.draftText : '',
-        messages: validObjs(c.messages, []).map((m, mIdx) => ({
+        draftText: typeof c.draftText === 'string' ? c.draftText.slice(0, 50000) : '',
+        messages: validObjs(c.messages, []).slice(-300).map((m, mIdx) => ({
           ...m,
           id: (typeof m.id === 'string' && m.id.trim()) ? m.id.trim() : generateUniqueId('m_' + mIdx),
           senderType: ['user', 'agent', 'system'].includes(m.senderType) ? m.senderType : 'agent',
@@ -1224,9 +1251,12 @@ body > header,
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
                 // Non-object root detected (array, string, number, boolean, null)
                 // Quarantine corrupted non-object payload and reset
-                try { nexusStorageSet(STORAGE_KEY + '_corrupted_quarantine_' + Date.now(), raw); } catch (_) {}
+                let quarantined = false;
+                try { quarantined = nexusStorageSet(STORAGE_KEY + '_corrupted_quarantine_' + Date.now(), raw); } catch (_) {}
                 parsed = null;
-                nexusStorageRemove(STORAGE_KEY);
+                if (quarantined) {
+                  nexusStorageRemove(STORAGE_KEY);
+                }
             }
         }
       } catch (e) {
@@ -1268,6 +1298,50 @@ body > header,
           Boolean(parsed.cloudConfig?.supabaseAuthToken && String(parsed.cloudConfig.supabaseAuthToken).trim()) ||
           Boolean(parsed.telegramConfig?.botToken && String(parsed.telegramConfig.botToken).trim());
         if (hasLegacySecrets) {
+          // If session secrets were previously empty, ensure non-empty legacy secrets are restored from parsed to appState before session write
+          API_KEY_NAMES.forEach(name => {
+            if (!appState.apiKeys[name] && parsed.apiKeys?.[name]) {
+              appState.apiKeys[name] = String(parsed.apiKeys[name]).trim();
+            }
+          });
+          if (parsed.appConnections && typeof parsed.appConnections === 'object') {
+            Object.keys(parsed.appConnections).forEach(id => {
+              if (parsed.appConnections[id]?.token && !appState.appConnections[id]?.token) {
+                if (!appState.appConnections[id]) appState.appConnections[id] = {};
+                appState.appConnections[id].token = String(parsed.appConnections[id].token).trim();
+              }
+              if (Array.isArray(parsed.appConnections[id]?.accounts)) {
+                if (!appState.appConnections[id]) appState.appConnections[id] = { accounts: [] };
+                parsed.appConnections[id].accounts.forEach(acc => {
+                  if (acc?.id && acc.token) {
+                    const targetAcc = appState.appConnections[id].accounts?.find(a => a.id === acc.id);
+                    if (targetAcc && !targetAcc.token) targetAcc.token = String(acc.token).trim();
+                  }
+                });
+              }
+            });
+          }
+          if (!appState.localComputerConfig?.bridgeToken && parsed.localComputerConfig?.bridgeToken) {
+            if (!appState.localComputerConfig) appState.localComputerConfig = {};
+            appState.localComputerConfig.bridgeToken = String(parsed.localComputerConfig.bridgeToken).trim();
+          }
+          if (!appState.cloudConfig?.workerSecret && parsed.cloudConfig?.workerSecret) {
+            if (!appState.cloudConfig) appState.cloudConfig = {};
+            appState.cloudConfig.workerSecret = String(parsed.cloudConfig.workerSecret).trim();
+          }
+          if (!appState.cloudConfig?.supabaseKey && parsed.cloudConfig?.supabaseKey) {
+            if (!appState.cloudConfig) appState.cloudConfig = {};
+            appState.cloudConfig.supabaseKey = String(parsed.cloudConfig.supabaseKey).trim();
+          }
+          if (!appState.cloudConfig?.supabaseAuthToken && parsed.cloudConfig?.supabaseAuthToken) {
+            if (!appState.cloudConfig) appState.cloudConfig = {};
+            appState.cloudConfig.supabaseAuthToken = String(parsed.cloudConfig.supabaseAuthToken).trim();
+          }
+          if (!appState.telegramConfig?.botToken && parsed.telegramConfig?.botToken) {
+            if (!appState.telegramConfig) appState.telegramConfig = {};
+            appState.telegramConfig.botToken = String(parsed.telegramConfig.botToken).trim();
+          }
+
           // Never erase the last durable legacy copy before the session write succeeds (Fixes Reviewer #10)
           const sessionWriteFn = (typeof window !== 'undefined' && typeof window.writeSessionSecrets === 'function')
             ? window.writeSessionSecrets
@@ -1335,6 +1409,13 @@ body > header,
       }, delayMs);
     }
     function saveState() {
+      if (Array.isArray(appState.chats)) {
+        appState.chats.forEach(c => {
+          if (c && Array.isArray(c.messages) && c.messages.length > 300) {
+            c.messages = c.messages.slice(-300);
+          }
+        });
+      }
       appState.skillsCatalog = appState.skills;
       window.appState = appState;
       let sessionSaveOk = false;
@@ -2227,7 +2308,7 @@ body > header,
     }
     function saveActiveChatDraft(val) {
       const chat = getActiveChat();
-      if (chat) chat.draftText = val;
+      if (chat) chat.draftText = String(val || '').slice(0, 50000);
     }
     function openChat(chatId) {
       appState.activeChatId = chatId;
@@ -4760,7 +4841,7 @@ body > header,
       gcal:       'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       gworkspace: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       google_ads: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      fitbit:     'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.body.read https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      fitbit:     'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       youtube:    'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
     };
 
@@ -4913,13 +4994,18 @@ body > header,
     }
     function getAppConnectionToken(appId) {
       const conn = appState.appConnections?.[appId];
-      if (conn?.selectedAccountId && Array.isArray(conn.accounts)) {
-        const sel = conn.accounts.find(a => a.id === conn.selectedAccountId);
-        if (sel && typeof sel.token === 'string' && sel.token.trim()) {
-          return sel.token.trim();
-        }
-      }
       const secrets = readSessionSecrets();
+      if (conn?.selectedAccountId) {
+        const accToken = secrets?.accountTokens?.[conn.selectedAccountId];
+        if (typeof accToken === 'string' && accToken.trim()) return accToken.trim();
+        if (Array.isArray(conn.accounts)) {
+          const sel = conn.accounts.find(a => a.id === conn.selectedAccountId);
+          if (sel && typeof sel.token === 'string' && sel.token.trim()) {
+            return sel.token.trim();
+          }
+        }
+        return '';
+      }
       // Strictly return token for the requested service; do not fall back to unrelated Google services with mismatched scopes (Fixes Reviewer #16)
       return String(secrets?.connectionTokens?.[appId] || conn?.token || '').trim();
     }
@@ -5030,8 +5116,24 @@ body > header,
 
     async function testMcpServerTool(appId) {
       const outputEl = document.getElementById('mcpTestOutput') || document.getElementById('mcpLiveWorkspaceOutput');
-      const token = document.getElementById('mcpTokenInput')?.value.trim() || getAppConnectionToken(appId) || '';
       if (!outputEl) return;
+
+      if (typeof requestPhase5ConfirmModal === 'function') {
+        const approved = await requestPhase5ConfirmModal({
+          title: `🧪 تست ابزار سرور MCP (${escapeHtml(appId)})`,
+          message: `آیا برای ارسال درخواست آزمایشی شبکه به ابزارهای سرور MCP «${escapeHtml(appId)}» اطمینان دارید؟`,
+          confirmText: '✓ اجرای تست ابزار',
+          isDanger: false
+        });
+        if (!approved) {
+          outputEl.className = 'rounded-xl p-2.5 text-xs bg-amber-500/15 text-amber-300 border border-amber-500/30';
+          outputEl.innerHTML = '<span>⚠️ اجرای تست توسط کاربر لغو شد.</span>';
+          outputEl.classList.remove('hidden');
+          return;
+        }
+      }
+
+      const token = document.getElementById('mcpTokenInput')?.value.trim() || getAppConnectionToken(appId) || '';
       outputEl.className = 'rounded-xl p-2.5 text-xs bg-blue-500/15 text-blue-200 border border-blue-500/30';
       outputEl.innerHTML = '<span>⏳ در حال ارسال درخواست تست به سرور MCP...</span>';
       outputEl.classList.remove('hidden');
@@ -5680,7 +5782,7 @@ body > header,
       }
 
       const containerId = step1Data.id;
-      updateStatus(`⏳ مرحله ۲: پردازش ویدیو در سرورهای اینستاگرام (کانتینر ${containerId})...`);
+      updateStatus(`⏳ مرحله ۲: پردازش ویدیو در سرورهای اینستاگرام (کانتینر ${escapeHtml(containerId)})...`);
 
       if (mediaType === 'REELS' || mediaType === 'STORIES') {
         let attempts = 0;
@@ -5699,7 +5801,7 @@ body > header,
               break;
             }
             if (code === 'ERROR') throw new Error('پردازش ویدیو در سرور اینستاگرام با خطا مواجه شد');
-            updateStatus(`⏳ پردازش کانتینر ریلز (${code})... ${attempts}/10`);
+            updateStatus(`⏳ پردازش کانتینر ریلز (${escapeHtml(code)})... ${attempts}/10`);
           }
         }
         if (!isFinished) {
@@ -5722,7 +5824,7 @@ body > header,
       }
 
       const publishedPostId = pubData.id;
-      updateStatus(`✓ ریلز با موفقیت منتشر شد! شناسه پست: <b>${publishedPostId}</b>`);
+      updateStatus(`✓ ریلز با موفقیت منتشر شد! شناسه پست: <b>${escapeHtml(publishedPostId)}</b>`);
       showToast('پست اینستاگرام با موفقیت منتشر شد 🎉');
       setTimeout(() => renderLiveWorkspacePanel('instagram'), 1200);
       return { success: true, containerId, publishedPostId, at: new Date().toISOString() };
@@ -6225,7 +6327,7 @@ body > header,
         }
         if (outEl) {
           outEl.className = 'p-2.5 rounded-xl bg-black/60 border border-emerald-500/30 text-xs text-emerald-300 font-mono code-block-dir';
-          outEl.innerHTML = `✓ ${data.command || 'SELECT'} موفق (${count} ردیف — ${elapsed}ms):${tableHtml}`;
+          outEl.innerHTML = `✓ ${escapeHtml(data.command || 'SELECT')} موفق (${count} ردیف — ${elapsed}ms):${tableHtml}`;
         }
         showToast(`کوئری اجرا شد (${count} ردیف) ✓`);
       } catch (e) {
@@ -12150,6 +12252,10 @@ body > header,
     function importFullBackup(ev, onComplete) {
       const file = ev.target.files?.[0];
       if (!file) return null;
+      if (file.size > 10 * 1024 * 1024) {
+        showToast('حجم فایل پشتیبان بیش از حد مجاز (حداکثر ۱۰ مگابایت) است');
+        return null;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         try {
@@ -15050,7 +15156,9 @@ body > header,
         // Single DOM assignment so <details open> states are never wiped out by a second innerHTML += parse!
         const messageTemplate = document.createElement('template');
         messageTemplate.innerHTML = messagesHtml;
-        const messageHtmlList = Array.from(messageTemplate.content.children).map(node => node.outerHTML);
+        const previousNodes = box._nexusMessageNodes;
+        const templateChildren = messageTemplate.content.children;
+        const messageHtmlList = Array.from(templateChildren).map(node => node.outerHTML);
         if (previousNodes) messageHtmlList.forEach((html, index) => {
           const key = `${chat.id}:${index}:${renderedMessages[index]?.id || ''}`;
           const entry = previousNodes.get(key);
@@ -19013,8 +19121,8 @@ body > header,
         memberIds: Array.isArray(c.memberIds) ? c.memberIds.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()) : [],
         updatedAt: (typeof c.updatedAt === 'string' && c.updatedAt.trim()) ? c.updatedAt : 'الان',
         updatedAtTs: Number.isFinite(Number(c.updatedAtTs)) ? Number(c.updatedAtTs) : 0,
-        draftText: typeof c.draftText === 'string' ? c.draftText : '',
-        messages: validObjs(c.messages, []).map((m, mIdx) => ({
+        draftText: typeof c.draftText === 'string' ? c.draftText.slice(0, 50000) : '',
+        messages: validObjs(c.messages, []).slice(-300).map((m, mIdx) => ({
           ...m,
           id: (typeof m.id === 'string' && m.id.trim()) ? m.id.trim() : generateUniqueId('m_' + mIdx),
           senderType: ['user', 'agent', 'system'].includes(m.senderType) ? m.senderType : 'agent',
@@ -22794,19 +22902,7 @@ async function restoreStateFromSupabase() {
       showToast('⛔ خطا در دریافت بکاپ از Supabase (کد ' + res.status + ')');
       return false;
     }
-    let rows = await res.json().catch(() => null);
-    if (Array.isArray(rows) && rows.length === 0 && targetId !== 'primary_user_state') {
-      const fallbackRes = await fetchWithPhase4Timeout(`${cleanUrl}/rest/v1/nexus_backups?id=eq.primary_user_state&select=*`, {
-        method: 'GET',
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${auth.token}`
-        }
-      }, 9000);
-      if (fallbackRes.ok) {
-        rows = await fallbackRes.json().catch(() => []);
-      }
-    }
+    const rows = await res.json().catch(() => null);
     const record = Array.isArray(rows) ? rows[0] : null;
     if (!record || (!Array.isArray(record.routines_json) && !Array.isArray(record.brain_nodes_json))) {
       showToast('هنوز بکاپی برای این فضای کاری در جدول nexus_backups سوپابیس ثبت نشده است');
@@ -23033,6 +23129,7 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
 
 
               const messagesDurablySaved = ackMessageIds.length === 0 || saveState() === true;
+              const batchLeaseId = data.completedMessages?.[0]?.leaseId || '';
               if (ackMessageIds.length > 0 && messagesDurablySaved) {
                 await fetchWithPhase4Timeout(workerUrl, {
                   method: 'POST',
@@ -23040,6 +23137,7 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
                   body: JSON.stringify({
                     action: 'ACK_OFFLINE_MESSAGES',
                     workspaceId: appState.cloudConfig.workspaceId || 'default',
+                    leaseId: batchLeaseId,
                     ackMessageIds: ackMessageIds.slice(0, 100)
                   })
                 }, 6000).catch(() => {});
@@ -23471,7 +23569,7 @@ return "";
 
 
 function decodeQuotedPrintableUtf8(input, charset = "utf-8") {
-  const str = String(input || "").replace(/=\r?\n/g, "");
+  const str = String(input || "").replace(/=\\r?\\n/g, "");
   if (!/=[0-9A-Fa-f]{2}/.test(str)) return str;
   try {
 const bytes = [];
@@ -23618,9 +23716,14 @@ async function acquireRoutineExecutionLock(env, routineId, nowTs = Date.now(), t
   if (!env || !env.NEXUS_KV || !routineId) return true;
   const lockKey = wsPrefix + "rt_lock:" + String(routineId).slice(0, 80);
   const existing = await env.NEXUS_KV.get(lockKey);
-  if (existing && Number(existing) > nowTs) return false;
-  await env.NEXUS_KV.put(lockKey, String(nowTs + ttlMs), { expirationTtl: Math.max(10, Math.ceil(ttlMs / 1000) + 10) });
-  return true;
+  if (existing) {
+    const existingTs = Number(String(existing).split(":")[0]) || 0;
+    if (existingTs > nowTs) return false;
+  }
+  const lockToken = (nowTs + ttlMs) + ":" + Math.random().toString(36).slice(2, 8);
+  await env.NEXUS_KV.put(lockKey, lockToken, { expirationTtl: Math.max(10, Math.ceil(ttlMs / 1000) + 10) });
+  const verified = await env.NEXUS_KV.get(lockKey);
+  return verified === lockToken;
 }
 
 async function releaseRoutineExecutionLock(env, routineId, wsPrefix = 'default:') {
@@ -24125,11 +24228,13 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
   const raw = env.NEXUS_KV ? await getKvWithFallback(env, "offline_completed", wsPrefix) : "[]";
   const allCompleted = safeJsonParse(raw, []);
   const deliverable = [];
+  const leaseToken = "lease_" + nowTs + "_" + Math.random().toString(36).slice(2, 8);
   const updatedList = (Array.isArray(allCompleted) ? allCompleted : []).map(m => {
     if (!m || !m.id) return null;
     if (!m.leasedUntilTs || Number(m.leasedUntilTs) <= nowTs) {
-      deliverable.push(m);
-      return { ...m, leasedUntilTs: nowTs + LEASE_DURATION_MS };
+      const leasedItem = { ...m, leasedUntilTs: nowTs + LEASE_DURATION_MS, leaseId: leaseToken };
+      deliverable.push(leasedItem);
+      return leasedItem;
     }
     return m;
   }).filter(Boolean);
@@ -24157,7 +24262,13 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
 if (body.action === "ACK_OFFLINE_MESSAGES" && env.NEXUS_KV && Array.isArray(body.ackMessageIds)) {
   const ackSet = new Set(body.ackMessageIds.slice(0, 100).map(id => String(id || "")));
   const currentList = safeJsonParse(await getKvWithFallback(env, "offline_completed", wsPrefix), []);
-  const remaining = (Array.isArray(currentList) ? currentList : []).filter(m => m && m.id && !ackSet.has(String(m.id)));
+  const reqLeaseId = body.leaseId ? String(body.leaseId) : null;
+  const remaining = (Array.isArray(currentList) ? currentList : []).filter(m => {
+    if (!m || !m.id) return false;
+    if (!ackSet.has(String(m.id))) return true;
+    if (reqLeaseId && m.leaseId && m.leaseId !== reqLeaseId) return true;
+    return false;
+  });
   await env.NEXUS_KV.put(wsPrefix + "offline_completed", JSON.stringify(remaining));
   return new Response(JSON.stringify({ ok: true, remainingCount: remaining.length }), {
     headers: { ...cors, "Content-Type": "application/json" }
@@ -24907,6 +25018,10 @@ function ensurePhase4ChatHooksAlive() {
           restoreMissing(appState.cloudConfig, 'workerSecret', prevSecretsSnapshot.workerSecret);
         } else {
           appState.cloudConfig.workerSecret = '';
+          prevSecretsSnapshot.workerSecret = '';
+          if (typeof writePhase4SessionSecrets === 'function') {
+            writePhase4SessionSecrets(appState);
+          }
         }
         restoreMissing(appState.cloudConfig, 'supabaseKey', prevSecretsSnapshot.supabaseKey);
         restoreMissing(appState.cloudConfig, 'supabaseAuthToken', prevSecretsSnapshot.supabaseAuthToken);
@@ -29283,9 +29398,8 @@ http.createServer((req, res) => {
       if (targetJobId) {
         if (activeJobsMap.has(targetJobId)) {
           const proc = activeJobsMap.get(targetJobId);
+          proc._cancelling = true;
           killProcessTreeSafe(proc);
-          activeJobsMap.delete(targetJobId);
-          activeChildProcs.delete(proc);
           killedCount = 1;
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           return res.end(JSON.stringify({ ok: true, killedCount, targetJobId }));
@@ -29295,14 +29409,13 @@ http.createServer((req, res) => {
         }
       } else if (cancelAllRequested) {
         for (const [jid, proc] of activeJobsMap.entries()) {
+          proc._cancelling = true;
           killProcessTreeSafe(proc);
           killedCount++;
         }
         for (const proc of activeChildProcs) {
           killProcessTreeSafe(proc);
         }
-        activeJobsMap.clear();
-        activeChildProcs.clear();
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         return res.end(JSON.stringify({ ok: true, killedCount, targetJobId: 'all' }));
       } else {
@@ -29399,10 +29512,12 @@ http.createServer((req, res) => {
       }
 
       // Validate that any absolute paths in command are confined to allowed workspace roots or standard binaries (Fixes Reviewer #4 & #7)
-      const rawPathTokens = command.match(/(?:\/[a-zA-Z0-9_\-\.]+)+/g) || [];
+      const rawPathTokens = command.match(/(?:\\/[a-zA-Z0-9_\\-\\.]+)+/g) || [];
       for (const token of rawPathTokens) {
         if (!token.startsWith('/data/data/com.termux/files/usr/bin') && !token.startsWith('/system/bin') && !token.startsWith('/bin/sh')) {
-          if (!isInsideAllowedRoots(token, allowedRoots)) {
+          let checkToken = token;
+          try { if (fs.existsSync(token)) checkToken = fs.realpathSync(token); } catch (_) {}
+          if (!isInsideAllowedRoots(checkToken, allowedRoots)) {
             res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
             return res.end(JSON.stringify({ ok: false, error: 'Command references path outside allowed workspace roots: ' + token }));
           }
@@ -29425,14 +29540,14 @@ http.createServer((req, res) => {
       if (serverCategory === 'policyFileRead') {
         const hasTraversalOrAbsPath = /(?:^|[\\s\\/\\\\"'])\\.\\.(?:[\\s\\/\\\\"']|$)|(?:^|[\\s"'=])(?:~|\\$[A-Z_]+|\\/)/i.test(command);
         const hasWildcardsOrGlobs = /[*?\[\]{}]/.test(command);
-        const hasRecursiveTraversalFlags = /(?:^|\s)-(?:[a-zA-Z]*[Rr]|-[a-zA-Z]*dereference-recursive)\b/.test(command);
+        const hasRecursiveTraversalFlags = /(?:^|\\s)-(?:[a-zA-Z]*[Rr]|-[a-zA-Z]*dereference-recursive)\\b/.test(command);
         if (!SAFE_READONLY_CMD_REGEX.test(command) || /[><|;&\`\\$\\r\\n()\\\\"']/.test(command) || hasTraversalOrAbsPath || hasWildcardsOrGlobs || hasRecursiveTraversalFlags) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
           return res.end(JSON.stringify({ ok: false, error: 'Command violates server-side policyFileRead read-only guard (wildcards, recursive traversal, or shell metacharacters detected)' }));
         }
         // Canonicalize real target path to prevent symlink bypass outside workspace roots (Fixes Reviewer #6)
         try {
-          const parts = command.trim().split(/\s+/).filter(Boolean);
+          const parts = command.trim().split(/\\s+/).filter(Boolean);
           const candidateFiles = parts.slice(1).filter(p => !p.startsWith('-'));
           for (const cand of candidateFiles) {
             const targetAbs = path.resolve(safeCwd, cand);
@@ -29450,11 +29565,34 @@ http.createServer((req, res) => {
         }
       }
 
+      // Confinement check for code execution and ffmpeg commands
+      if (serverCategory === 'policyCodeExec' || serverCategory === 'policyShellFFmpeg') {
+        try {
+          const parts = command.trim().split(/\\s+/).filter(Boolean);
+          const candidateFiles = parts.slice(1).filter(p => !p.startsWith('-') && !p.startsWith('http://') && !p.startsWith('https://'));
+          for (const cand of candidateFiles) {
+            const targetAbs = path.resolve(safeCwd, cand);
+            if (fs.existsSync(targetAbs)) {
+              const realTarget = fs.realpathSync(targetAbs);
+              if (!isInsideAllowedRoots(realTarget, allowedRoots)) {
+                res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                return res.end(JSON.stringify({ ok: false, error: 'Access denied: script or media argument resolves outside allowed workspace roots' }));
+              }
+            }
+          }
+        } catch (e) {
+          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+          return res.end(JSON.stringify({ ok: false, error: 'Failed to verify file path safety for code/ffmpeg: ' + e.message }));
+        }
+      }
+
 
       const activeJobId = String(parsed.jobId || ('job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)));
       if (parsed.jobId && activeJobsMap.has(activeJobId)) {
+        const existingJob = activeJobsMap.get(activeJobId);
+        const statusMsg = existingJob && existingJob._cancelling ? 'is terminating' : 'is active';
         res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
-        return res.end(JSON.stringify({ ok: false, error: 'Job ID already exists and is active: ' + activeJobId }));
+        return res.end(JSON.stringify({ ok: false, error: 'Job ID already exists and ' + statusMsg + ': ' + activeJobId }));
       }
 
       const shellBin = (process.env.SHELL && fs.existsSync(process.env.SHELL)) ? process.env.SHELL : '/bin/sh';
@@ -29472,7 +29610,10 @@ http.createServer((req, res) => {
       });
       activeChildProcs.add(childProc);
       activeJobsMap.set(activeJobId, childProc);
-      childProc.on('close', () => activeJobsMap.delete(activeJobId));
+      childProc.on('close', () => {
+        activeJobsMap.delete(activeJobId);
+        activeChildProcs.delete(childProc);
+      });
 
 
       const appendChunk = (chunk) => {
@@ -30453,7 +30594,15 @@ jobs:
           if (!raw) return [];
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
-            return parsed.slice(0, MAX_BLACKBOX_LOGS);
+            return parsed.slice(0, MAX_BLACKBOX_LOGS).map(entry => {
+              if (!entry || typeof entry !== 'object') return entry;
+              return {
+                ...entry,
+                message: typeof entry.message === 'string' ? redactSensitiveTokens(entry.message) : entry.message,
+                stack: typeof entry.stack === 'string' ? redactSensitiveTokens(entry.stack) : entry.stack,
+                source: typeof entry.source === 'string' ? redactSensitiveTokens(entry.source) : entry.source
+              };
+            });
           }
         } catch (e) {}
         return [];
@@ -30571,7 +30720,7 @@ jobs:
 
           recentTelegramFingerprints.set(fingerprint, now);
           isReportingToTelegram = true;
-          const reportText = formatBlackBoxTelegramReport(entry);
+          const reportText = redactSensitiveTokens(formatBlackBoxTelegramReport(entry));
 
           if (typeof window.sendTelegramTextSafe === 'function') {
             const res = await window.sendTelegramTextSafe(botToken, chatId, reportText);

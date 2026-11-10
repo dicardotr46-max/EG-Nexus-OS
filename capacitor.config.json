@@ -4,7 +4,7 @@
   "webDir": "www",
   "server": {
     "androidScheme": "https",
-    "cleartext": true,
+    "cleartext": false,
     "allowNavigation": [
       "localhost",
       "127.0.0.1",
@@ -12,7 +12,7 @@
     ]
   },
   "android": {
-    "allowMixedContent": true,
+    "allowMixedContent": false,
     "captureInput": true,
     "webContentsDebuggingEnabled": false
   }

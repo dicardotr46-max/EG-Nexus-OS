@@ -62,7 +62,7 @@ self.addEventListener('fetch', (event) => {
       try {
         res = await fetch(req);
       } catch (networkError) {
-        const cachedShell = await caches.match('./index.html');
+        const cachedShell = await caches.match('./index.html').catch(() => null);
         if (cachedShell) return cachedShell;
         return new Response('EG Nexus OS Offline Shell Unavailable', {
           status: 503,
@@ -108,7 +108,7 @@ self.addEventListener('fetch', (event) => {
 
   // Static same-origin assets: Stale-While-Revalidate with decoupled cache write (Fixes Reviewer #25 & #27)
   event.respondWith((async () => {
-    const cached = await caches.match(req);
+    const cached = await caches.match(req).catch(() => null);
 
     const fetchPromise = (async () => {
       let res;
