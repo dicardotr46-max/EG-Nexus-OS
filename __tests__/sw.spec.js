@@ -9,7 +9,18 @@ describe('Service Worker (sw.js)', () => {
   let mockFetch;
   let mockSelf;
 
-  beforeEach(() => {
+  if (typeof Response === 'undefined') {
+  global.Response = class Response {
+    constructor(body, init = {}) {
+      this.body = body;
+      this.status = init.status || 200;
+      this.statusText = init.statusText || 'OK';
+      this.headers = init.headers || {};
+    }
+  };
+}
+
+beforeEach(() => {
     listeners = {};
 
     mockCache = {
@@ -20,7 +31,7 @@ describe('Service Worker (sw.js)', () => {
 
     mockCaches = {
       open: jest.fn().mockResolvedValue(mockCache),
-      keys: jest.fn().mockResolvedValue(['old-cache', 'eg-nexus-os-v5.1-pwa-cache']),
+      keys: jest.fn().mockResolvedValue(['eg-nexus-os-v5.0-old-cache', 'eg-nexus-os-v5.1-pwa-cache', 'other-origin-cache']),
       delete: jest.fn().mockResolvedValue(true),
       match: jest.fn().mockResolvedValue(undefined)
     };
@@ -42,7 +53,8 @@ describe('Service Worker (sw.js)', () => {
       fetch: mockFetch,
       URL: URL,
       Promise: Promise,
-      console: console
+      console: console,
+      Response: global.Response
     });
 
     const swCode = fs.readFileSync(path.join(__dirname, '../sw.js'), 'utf8');
@@ -85,7 +97,8 @@ describe('Service Worker (sw.js)', () => {
       await event.waitUntil.mock.calls[0][0];
 
       expect(mockCaches.keys).toHaveBeenCalled();
-      expect(mockCaches.delete).toHaveBeenCalledWith('old-cache');
+      expect(mockCaches.delete).toHaveBeenCalledWith('eg-nexus-os-v5.0-old-cache');
+      expect(mockCaches.delete).not.toHaveBeenCalledWith('other-origin-cache');
       expect(mockCaches.delete).not.toHaveBeenCalledWith('eg-nexus-os-v5.1-pwa-cache');
       expect(mockSelf.clients.claim).toHaveBeenCalled();
     });
@@ -257,7 +270,7 @@ describe('Service Worker (sw.js)', () => {
         expect(res).toBe('cached-asset');
       });
 
-      it('should return undefined if not in cache and network fails', async () => {
+      it('should return offline fallback response if not in cache and network fails (Reviewer #27 fix)', async () => {
         mockCaches.match.mockResolvedValue(undefined);
         mockFetch.mockRejectedValue(new Error('Network error'));
 
@@ -272,7 +285,8 @@ describe('Service Worker (sw.js)', () => {
         const responsePromise = event.respondWith.mock.calls[0][0];
         const res = await responsePromise;
 
-        expect(res).toBeUndefined();
+        expect(res).toBeDefined();
+        expect(res.status).toBe(503);
       });
     });
   });

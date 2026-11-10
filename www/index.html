@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>EG Nexus OS v5.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
@@ -992,6 +992,17 @@ body > header,
           if (persisted.appConnections[id] && typeof persisted.appConnections[id] === 'object') persisted.appConnections[id].token = '';
         });
       }
+      if (persisted.localComputerConfig && typeof persisted.localComputerConfig === 'object') {
+        persisted.localComputerConfig.bridgeToken = '';
+      }
+      if (persisted.cloudConfig && typeof persisted.cloudConfig === 'object') {
+        persisted.cloudConfig.workerSecret = '';
+        persisted.cloudConfig.supabaseKey = '';
+        persisted.cloudConfig.supabaseAuthToken = '';
+      }
+      if (persisted.telegramConfig && typeof persisted.telegramConfig === 'object') {
+        persisted.telegramConfig.botToken = '';
+      }
       return persisted;
     }
 
@@ -1171,7 +1182,10 @@ body > header,
             }
         }
       } catch (e) {
-        console.warn('localStorage read or parse failed, starting fresh', e);
+        console.warn('localStorage read or parse failed, quarantining corrupted copy and starting fresh', e);
+        if (raw) {
+          try { nexusStorageSet(STORAGE_KEY + '_corrupted_quarantine_' + Date.now(), raw); } catch (_) {}
+        }
         nexusStorageRemove(STORAGE_KEY);
       }
 
@@ -1215,7 +1229,8 @@ body > header,
       }
       let savedOk = false;
       try {
-        nexusStorageSet(STORAGE_KEY, JSON.stringify(buildPersistedState(appState)));
+        const setOk = nexusStorageSet(STORAGE_KEY, JSON.stringify(buildPersistedState(appState)));
+        if (!setOk) throw new Error('nexusStorageSet returned false (Storage quota or permission failure)');
         savedOk = true;
       } catch (e) {
         const isQuota = Boolean(e && (
@@ -1313,6 +1328,15 @@ body > header,
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    }
+
+    function sanitizeSafeUrl(url, fallback = '#') {
+      if (!url || typeof url !== 'string') return fallback;
+      const trimmed = url.trim();
+      if (/^(?:javascript|data|vbscript):/i.test(trimmed)) {
+        return fallback;
+      }
+      return trimmed;
     }
 
 
@@ -2649,20 +2673,28 @@ body > header,
 
 
     function triggerApprovalGate(reason, onApprove) {
-      uiState.pendingApprovalCallback = onApprove;
+      if (!Array.isArray(uiState.pendingApprovalQueue)) uiState.pendingApprovalQueue = [];
+      uiState.pendingApprovalQueue.push({ reason, onApprove });
+      const current = uiState.pendingApprovalQueue[0];
       const txtEl = document.getElementById('approvalGateText');
-      if (txtEl) txtEl.innerText = reason;
+      if (txtEl && current) txtEl.innerText = current.reason;
       document.getElementById('approvalGateBanner')?.classList.remove('hidden');
     }
 
 
     function resolveApprovalGate(approved) {
-      document.getElementById('approvalGateBanner')?.classList.add('hidden');
-      const cb = uiState.pendingApprovalCallback;
-      uiState.pendingApprovalCallback = null;
-      if (approved && typeof cb === 'function') {
-        cb();
+      if (!Array.isArray(uiState.pendingApprovalQueue)) uiState.pendingApprovalQueue = [];
+      const item = uiState.pendingApprovalQueue.shift();
+      if (uiState.pendingApprovalQueue.length === 0) {
+        document.getElementById('approvalGateBanner')?.classList.add('hidden');
       } else {
+        const next = uiState.pendingApprovalQueue[0];
+        const txtEl = document.getElementById('approvalGateText');
+        if (txtEl && next) txtEl.innerText = next.reason;
+      }
+      if (approved && item && typeof item.onApprove === 'function') {
+        item.onApprove();
+      } else if (!approved) {
         showToast('عملیات حساس توسط شما لغو شد 🛡️');
       }
     }
@@ -3989,7 +4021,12 @@ body > header,
           const def = NexusMCP.definitions[appId];
           const match = def.tools.find(t => t.name === toolName);
           if (match) {
-            const token = String(secrets?.connectionTokens?.[appId] || appState.appConnections?.[appId]?.token || '').trim();
+            const conn = appState.appConnections?.[appId];
+            if (!conn || !conn.mcpEnabled) {
+              throw new Error(`ابزار MCP «${toolName}» غیرفعال است (مجوز دسترسی MCP برای سرور ${def.name || appId} فعال نشده است)`);
+            }
+            const secTokens = (typeof secrets !== 'undefined' && secrets && typeof secrets.connectionTokens === 'object') ? secrets.connectionTokens : null;
+            const token = String(secTokens?.[appId] || conn?.token || '').trim();
             return await match.execute(args, token);
           }
         }
@@ -4016,19 +4053,21 @@ body > header,
       }
     };
 
-    async function callAgentAPI(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1, extraContext = '') {
+    async function callAgentAPI(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1, extraContext = '', externalController = null) {
       const connectedAppIds = (appState.addedAppIds || []).filter(id => isAppGenuinelyConnected(id));
       const connectedAppsNames = connectedAppIds
+        .filter(id => appState.appConnections?.[id]?.contextEnabled !== false)
         .map(id => APPS_CATALOG.find(a => a.id === id)?.name)
         .filter(Boolean)
         .join(', ');
       const connectedAppsContext = connectedAppIds.map(id => {
-        const app = APPS_CATALOG.find(a => a.id === id);
         const conn = appState.appConnections?.[id] || {};
+        if (conn.contextEnabled === false) return null;
+        const app = APPS_CATALOG.find(a => a.id === id);
         const accounts = getConnectionAccounts(id).map(a => `${a.name} <${a.email}>`).join(', ') || 'account connected';
         const metrics = Array.isArray(conn.metrics) ? conn.metrics.slice(0, 3).map(m => `${m.metric}: ${m.value}`).join('; ') : '';
-        return `- ${app?.name || id}: ${accounts}; context=${conn.contextEnabled === false ? 'off' : 'on'}${metrics ? `; recent metrics=${metrics}` : ''}`;
-      }).join('\n');
+        return `- ${app?.name || id}: ${accounts}${metrics ? `; recent metrics=${metrics}` : ''}`;
+      }).filter(Boolean).join('\n');
       const diffInstruction = appState.diffOnlyMode && chat?.isGroup && turnIndex < totalTurns - 1
         ? 'قانون Diff-Only: در طول بحث گروهی کل کد را تکرار نکن؛ فقط بخش‌های نیازمند اصلاح را بنویس.'
         : 'در صورت نیاز به کد، نسخه کامل و آماده اجرا را ارائه بده.';
@@ -4069,6 +4108,15 @@ body > header,
       const reqController = new AbortController();
       uiState.activeAbortController = reqController;
       activeApiControllers.add(reqController);
+      if (externalController && typeof externalController.signal?.addEventListener === 'function') {
+        if (externalController.signal.aborted) {
+          try { reqController.abort(); } catch (e) {}
+        } else {
+          externalController.signal.addEventListener('abort', () => {
+            try { reqController.abort(); } catch (e) {}
+          }, { once: true });
+        }
+      }
       let timedOut = false;
       const timeoutId = setTimeout(() => {
         timedOut = true;
@@ -4510,7 +4558,12 @@ body > header,
       }
       try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { window.location.href = url; }
     }
+    window.pendingProviderConnection = null;
     let pendingProviderConnection = null;
+    function setPendingProviderConnection(val) {
+      pendingProviderConnection = val;
+      window.pendingProviderConnection = val;
+    }
     function isGoogleProvider(appId) { return GOOGLE_APP_IDS.has(appId); }
 
     // ============================================================================
@@ -4876,7 +4929,9 @@ body > header,
       } catch (err) {
         try {
           const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-          const pRes = await fetch(proxyUrl, { headers });
+          // Never forward Authorization bearer tokens to 3rd-party public proxies (Fixes Reviewer #14)
+          const safeProxyHeaders = { 'Accept': 'application/json' };
+          const pRes = await fetch(proxyUrl, { headers: safeProxyHeaders });
           if (pRes.ok) data = await pRes.json();
           else throw err;
         } catch (_) {
@@ -5411,9 +5466,9 @@ body > header,
         };
       }
 
-      const step1Res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media?access_token=${encodeURIComponent(t)}`, {
+      const step1Res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` },
         body: JSON.stringify(postBody)
       });
 
@@ -5429,24 +5484,33 @@ body > header,
 
       if (mediaType === 'REELS' || mediaType === 'STORIES') {
         let attempts = 0;
-        while (attempts < 8) {
+        let isFinished = false;
+        while (attempts < 10) {
           await new Promise(r => setTimeout(r, 3000));
           attempts++;
-          const pollRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(containerId)}?fields=status_code&access_token=${encodeURIComponent(t)}`);
+          const pollRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(containerId)}?fields=status_code`, {
+            headers: { 'Authorization': `Bearer ${t}` }
+          });
           if (pollRes.ok) {
             const pollData = await pollRes.json();
             const code = pollData.status_code;
-            if (code === 'FINISHED') break;
+            if (code === 'FINISHED') {
+              isFinished = true;
+              break;
+            }
             if (code === 'ERROR') throw new Error('پردازش ویدیو در سرور اینستاگرام با خطا مواجه شد');
-            updateStatus(`⏳ پردازش کانتینر ریلز (${code})... ${attempts}/8`);
+            updateStatus(`⏳ پردازش کانتینر ریلز (${code})... ${attempts}/10`);
           }
+        }
+        if (!isFinished) {
+          throw new Error('زمان انتظار پردازش ویدیو در سرور اینستاگرام به پایان رسید؛ لطفاً مجدداً تلاش کنید (Fixes Reviewer #23)');
         }
       }
 
       updateStatus('🚀 مرحله ۳: انتشار نهایی در پیج اینستاگرام...');
-      const publishRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media_publish?access_token=${encodeURIComponent(t)}`, {
+      const publishRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(igUserId)}/media_publish`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` },
         body: JSON.stringify({ creation_id: containerId })
       });
 
@@ -8762,7 +8826,7 @@ body > header,
     }
 
     function openGoogleAccountChooser(appId) {
-      pendingProviderConnection = { appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID };
+      setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID });
       const accounts = getConnectionAccounts(appId);
       const rows = accounts.map((a, i) => `
         <div class="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-2">
@@ -8898,7 +8962,7 @@ body > header,
     }
 
     function startGoogleOAuthFlow(appId) {
-      pendingProviderConnection = { appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID };
+      setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID });
       const client = initGisTokenClient(appId, (tokenResponse) => {
         if (tokenResponse.error) {
           showToast('❌ Google authorization denied or failed');
@@ -8934,10 +8998,10 @@ body > header,
     function injectAppContextIntoChat(appId) { const text = accountWorkspaceContext(appId); appState.dreamMemory = `${appState.dreamMemory || ''}\n[Connected app context]\n${text}`.slice(-12000); saveState(); showToast(`${providerLabel(appId)} context injected into Nexus AI Chat`); }
 
     function getGoogleOAuthToken(preferredAppId = 'gworkspace') {
-      return getAppConnectionToken(preferredAppId) ||
-             getAppConnectionToken('gworkspace') ||
-             getAppConnectionToken('gmail') ||
-             getAppConnectionToken('gcal') || '';
+      const conn = appState.appConnections?.[preferredAppId];
+      if (conn && conn.token) return conn.token;
+      // Do not return token of unrelated Google services with incompatible OAuth scopes
+      return '';
     }
 
     // ============================================================================
@@ -15446,6 +15510,7 @@ body > header,
 
 
 
+      let shareSucceeded = false;
       // Tier 3: If inside Android WebView (`; wv)`), also offer Web Share API if supported
       const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
       if (/;\s*wv\)|Capacitor/i.test(ua) && options.allowWebShareFallback !== false) {
@@ -15454,11 +15519,12 @@ body > header,
             const fileObj = new File([blob], safeName, { type: blob.type || 'text/plain' });
             if (navigator.canShare({ files: [fileObj] })) {
               await navigator.share({ files: [fileObj], title: safeName });
+              shareSucceeded = true;
             }
           }
         } catch (shareErr) {}
       }
-      return true;
+      return Boolean(url || shareSucceeded);
     }
 
 
@@ -16418,7 +16484,9 @@ body > header,
             appState.officeDoc.activeSlideIndex = Math.max(0, Math.floor(ev.data.index));
             schedulePhase3SaveState(600);
           } else if (ev.data?.type === 'NEXUS_PRINT_REPORT') {
-            triggerNativeA4PrintDialog();
+            if (frame && frame.contentWindow && ev.source === frame.contentWindow) {
+              triggerNativeA4PrintDialog();
+            }
           }
         });
         window.addEventListener('visibilitychange', () => {
@@ -22000,7 +22068,11 @@ function routePulledCloudMessageToPhase3Artifacts(msgObj) {
     msgObj.originType === 'webhook' ||
     /Email|Webhook/i.test(String(msgObj.timestamp || msgObj.senderName || ''))
   );
-  const canAutoApprove = (appState.autoApproveModelMemory === true) && !isUntrustedExternal;
+  if (isUntrustedExternal) {
+    // External email or webhook messages are never trusted to alter Studio code directly (Fixes Reviewer #13)
+    return;
+  }
+  const canAutoApprove = (appState.autoApproveModelMemory === true);
 
 
 
@@ -22505,9 +22577,12 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
 
 
     if (workerUrl) {
+      if (!workerSecret) {
+        console.warn('Worker sync skipped: workerSecret is not configured (Fixes Reviewer #10)');
+        return false;
+      }
       try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (workerSecret) headers['X-Nexus-Secret'] = workerSecret;
+        const headers = { 'Content-Type': 'application/json', 'X-Nexus-Secret': workerSecret };
 
 
 
@@ -28519,7 +28594,7 @@ function verifyConfirmTokenAndNonce(command, ts, nonce, confirmToken) {
   if (!confirmToken || typeof confirmToken !== 'string') return false;
   const payload = SECRET + ':' + String(numTs) + ':' + nonce + ':' + String(command || '').trim();
   const expectedSha = crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
-  if (confirmToken === expectedSha || confirmToken.startsWith('fb_')) {
+  if (confirmToken === expectedSha) {
     usedNonces.set(nonce, now + 300000);
     return true;
   }
@@ -28700,14 +28775,19 @@ http.createServer((req, res) => {
   }
 
 
+  const reqPath = String(req.url || '').split('?')[0];
+  const clientToken = req.headers['x-nexus-token'];
+
+  // Authenticate token before rate-limit evaluation so unauthorized requests do not exhaust client quota (Fixes Reviewer #18)
+  if (reqPath !== '/health' && !verifyTokenSafe(clientToken)) {
+    res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({ ok: false, error: 'Unauthorized X-Nexus-Token' }));
+  }
+
   if (!checkRateLimit(30)) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(JSON.stringify({ ok: false, error: 'Rate limit exceeded (max 30 req/min)' }));
   }
-
-
-  const reqPath = String(req.url || '').split('?')[0];
-  const clientToken = req.headers['x-nexus-token'];
 
 
   // اندپوینت /health نیازمند احراز هویت با X-Nexus-Token است تا هیچ سایت خارجی نتواند حضور پل یا مشخصات سیستم را تشخیص دهد
@@ -28802,12 +28882,17 @@ http.createServer((req, res) => {
 
       // تشخیص مستقل دسته دستور در سمت سرور (عدم اعتماد به category ارسالی کلاینت!)
       const serverCategory = classifyServerCommand(command);
-      const clientPolicies = (parsed.policies && typeof parsed.policies === 'object') ? parsed.policies : {};
-      const effectivePolicy = String(clientPolicies[serverCategory] || (
+      const serverDefaultPolicy = (
         serverCategory === 'policyPaymentAuth' ? 'manual' :
         serverCategory === 'policyShellFFmpeg' ? 'ask' :
         serverCategory === 'policyCodeExec' ? 'if_requested' : 'auto'
-      ));
+      );
+      // Client cannot weaken server policies; it can only request stricter enforcement (Fixes Reviewer #3)
+      const clientPolicies = (parsed.policies && typeof parsed.policies === 'object') ? parsed.policies : {};
+      const requestedClientPolicy = String(clientPolicies[serverCategory] || '');
+      const effectivePolicy = (requestedClientPolicy === 'manual' || (requestedClientPolicy === 'ask' && serverDefaultPolicy !== 'manual'))
+        ? requestedClientPolicy
+        : serverDefaultPolicy;
 
 
       if (SENSITIVE_CRED_REGEX.test(command) || effectivePolicy === 'manual') {

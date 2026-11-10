@@ -53,12 +53,20 @@ jobs:
                 try {
                   new Function(code);
                 } catch (e) {
-                  console.warn("⚠️ هشدار سینتکس در بلوک اسکریپت شماره " + count + ":", e.message);
+                  errors++;
+                  console.error("❌ خطای سینتکس در بلوک اسکریپت شماره " + count + ":", e.message);
                 }
               }
             }
-            console.log("✅ ممیزی کد به پایان رسید. تعداد بلوک‌های اسکریپت بررسی‌شده:", count);
+            console.log("✅ ممیزی کد به پایان رسید. تعداد بلوک‌ها:", count, "تعداد خطاها:", errors);
+            if (errors > 0) {
+              console.error("❌ ممیزی ناموفق: خطاهای سینتکس یافت شدند!");
+              process.exit(1);
+            }
           '
+          if [ -f "package.json" ]; then
+            npm run test:syntax
+          fi
 
       - name: 6. Prepare Clean Capacitor Environment & Web Assets
         run: |
@@ -71,7 +79,7 @@ jobs:
           npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
           cat << 'EOF' > capacitor.config.json
           {
-            "appId": "com.egnexus.os",
+            "appId": "com.ali.egnexusos",
             "appName": "EG Nexus OS",
             "webDir": "www",
             "backgroundColor": "#0b0d14",

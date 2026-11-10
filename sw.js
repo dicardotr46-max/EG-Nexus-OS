@@ -19,7 +19,8 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    const oldCaches = keys.filter(key => key !== CACHE_NAME);
+    // Only delete previous versions of EG Nexus OS caches, never other apps on the same origin (Fixes Reviewer #28)
+    const oldCaches = keys.filter(key => key.startsWith('eg-nexus-os-') && key !== CACHE_NAME);
     await Promise.all(oldCaches.map(key => caches.delete(key)));
     await self.clients.claim();
   })());
@@ -33,7 +34,7 @@ self.addEventListener('fetch', (event) => {
   // Bypass external API calls (Gemini, OpenRouter, Tavily, Telegram, Local Termux Bridge, Supabase)
   if (url.origin !== self.location.origin) return;
 
-  // Navigation requests: Network-first with instant fallback to cached index.html
+  // Navigation requests: Network-first with instant fallback to cached index.html (Fixes Reviewer #27)
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
@@ -42,13 +43,19 @@ self.addEventListener('fetch', (event) => {
         cache.put('./index.html', res.clone());
         return res;
       } catch (error) {
-        return await caches.match('./index.html');
+        const cachedShell = await caches.match('./index.html');
+        if (cachedShell) return cachedShell;
+        return new Response('EG Nexus OS Offline Shell Unavailable', {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
       }
     })());
     return;
   }
 
-  // Static same-origin assets: Stale-While-Revalidate
+  // Static same-origin assets: Stale-While-Revalidate (Fixes Reviewer #27 - Never returns undefined)
   event.respondWith((async () => {
     const cached = await caches.match(req);
 
@@ -61,7 +68,12 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       } catch (error) {
-        return cached;
+        if (cached) return cached;
+        return new Response('Asset Unavailable Offline', {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
       }
     })();
 
