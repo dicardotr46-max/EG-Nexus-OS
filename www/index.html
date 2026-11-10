@@ -1000,7 +1000,17 @@ body > header,
       persisted.apiKeys = emptyApiKeys();
       if (persisted.appConnections && typeof persisted.appConnections === 'object' && !Array.isArray(persisted.appConnections)) {
         Object.keys(persisted.appConnections).forEach(id => {
-          if (persisted.appConnections[id] && typeof persisted.appConnections[id] === 'object') persisted.appConnections[id].token = '';
+          if (persisted.appConnections[id] && typeof persisted.appConnections[id] === 'object') {
+            persisted.appConnections[id].token = '';
+            if (Array.isArray(persisted.appConnections[id].accounts)) {
+              persisted.appConnections[id].accounts.forEach(acc => {
+                if (acc && typeof acc === 'object') {
+                  acc.token = '';
+                  acc.refreshToken = '';
+                }
+              });
+            }
+          }
         });
       }
       if (persisted.localComputerConfig && typeof persisted.localComputerConfig === 'object') {
@@ -1013,6 +1023,15 @@ body > header,
       }
       if (persisted.telegramConfig && typeof persisted.telegramConfig === 'object') {
         persisted.telegramConfig.botToken = '';
+      }
+      // Bounded chat serialization: enforce max 300 recent messages per chat to prevent storage exhaustion
+      const MAX_PERSISTED_MSGS_PER_CHAT = 300;
+      if (Array.isArray(persisted.chats)) {
+        persisted.chats.forEach(c => {
+          if (c && Array.isArray(c.messages) && c.messages.length > MAX_PERSISTED_MSGS_PER_CHAT) {
+            c.messages = c.messages.slice(-MAX_PERSISTED_MSGS_PER_CHAT);
+          }
+        });
       }
       return persisted;
     }
@@ -1203,7 +1222,11 @@ body > header,
         if (raw) {
             parsed = JSON.parse(raw);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                // Non-object root detected (array, string, number, boolean, null)
+                // Quarantine corrupted non-object payload and reset
+                try { nexusStorageSet(STORAGE_KEY + '_corrupted_quarantine_' + Date.now(), raw); } catch (_) {}
                 parsed = null;
+                nexusStorageRemove(STORAGE_KEY);
             }
         }
       } catch (e) {
@@ -1254,7 +1277,15 @@ body > header,
           const phase1Verify = (function() {
             try {
               const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
-              return Boolean(raw && JSON.parse(raw)?.initialized);
+              const data = raw ? JSON.parse(raw) : null;
+              if (!data || !data.initialized) return false;
+              // Verify at least one non-empty field was migrated if legacy had fields
+              const hasLegacyApiKeys = Object.values(parsed.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
+              if (hasLegacyApiKeys) {
+                const hasMigratedKey = Object.values(data.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
+                if (!hasMigratedKey) return false;
+              }
+              return true;
             } catch (_) { return false; }
           })();
           const hasPhase4Legacy = Boolean(
@@ -1266,7 +1297,13 @@ body > header,
           const phase4Verify = !hasPhase4Legacy || (function() {
             try {
               const raw = sessionStorage.getItem('eg_nexus_phase4_session_secrets_v1');
-              return Boolean(raw && JSON.parse(raw));
+              const data = raw ? JSON.parse(raw) : null;
+              if (!data) return false;
+              if (parsed.cloudConfig?.workerSecret && !data.workerSecret) return false;
+              if (parsed.cloudConfig?.supabaseKey && !data.supabaseKey) return false;
+              if (parsed.cloudConfig?.supabaseAuthToken && !data.supabaseAuthToken) return false;
+              if (parsed.telegramConfig?.botToken && !data.telegramBotToken && !data.botToken) return false;
+              return true;
             } catch (_) { return false; }
           })();
 
@@ -4161,6 +4198,21 @@ body > header,
         const toolName = match[1].trim();
         let args = {};
         try { args = JSON.parse(match[2].trim()); } catch (e) {}
+
+        // گارد تأیید مستقل برای تمام فراخوانی‌های ابزارهای خارجی از سوی مدل
+        if (typeof requestPhase5ConfirmModal === 'function') {
+          const userApproved = await requestPhase5ConfirmModal({
+            title: `🛡️ تأیید اجرای ابزار MCP (${escapeHtml(toolName)})`,
+            message: `مدل هوش مصنوعی درخواست اجرای ابزار زیر را دارد:\n\nابزار: ${toolName}\nورودی‌ها:\n${JSON.stringify(args, null, 2)}\n\nآیا این عملیات را تأیید می‌کنید؟`,
+            confirmText: '✓ تأیید و اجرای ابزار',
+            isDanger: false
+          });
+          if (!userApproved) {
+            const rejectedMsg = `\n\n🛡️ **[لغو اجرای ابزار MCP (${toolName})]:** اجرای این ابزار توسط کاربر رد شد.\n`;
+            return text.replace(match[0], rejectedMsg);
+          }
+        }
+
         try {
           showToast(`⚡ فراخوانی ابزار MCP: ${toolName}...`);
           const result = await NexusMCP.executeTool(toolName, args);
@@ -4708,7 +4760,7 @@ body > header,
       gcal:       'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       gworkspace: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       google_ads: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-      fitbit:     'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      fitbit:     'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.body.read https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
       youtube:    'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
     };
 
@@ -11084,7 +11136,22 @@ body > header,
     function removeAppAccount(appId, idx) {
       openNexusDialog({ title: 'Disconnect account', message: 'Disconnect this account from the app?', confirmText: 'Disconnect', isDanger: true, onConfirm: () => {
         const conn = appState.appConnections[appId] || {};
-        const accounts = getConnectionAccounts(appId); accounts.splice(idx, 1); conn.accounts = accounts;
+        const accounts = getConnectionAccounts(appId);
+        const removedAccount = accounts[idx];
+        accounts.splice(idx, 1);
+        conn.accounts = accounts;
+        if (conn.selectedAccountId && removedAccount && (conn.selectedAccountId === removedAccount.id || conn.selectedAccountId === removedAccount.email)) {
+          conn.selectedAccountId = accounts[0]?.id || accounts[0]?.email || '';
+        }
+        if (!accounts.length) {
+          conn.selectedAccountId = '';
+          const sec = readSessionSecrets();
+          if (sec && sec.connectionTokens && sec.connectionTokens[appId]) {
+            delete sec.connectionTokens[appId];
+            writeSessionSecrets(sec);
+          }
+          if (conn.token) conn.token = '';
+        }
         if (!accounts.length && !conn.token && !conn.mcpEnabled) delete appState.appConnections[appId]; else appState.appConnections[appId] = conn;
         syncAddedAppIds(); saveState(); openAppDetailView(appId); showToast('Account disconnected');
       }});
@@ -14846,7 +14913,13 @@ body > header,
         const validCatalog = (appState.agentsCatalog || []).filter(Boolean);
 
 
-        const messagesHtml = chat.messages.map((message, originalIndex) => ({ message, originalIndex })).filter(item => Boolean(item.message)).map(({ message: m, originalIndex: idx }) => {
+        const validMessageEntries = chat.messages.map((message, originalIndex) => ({ message, originalIndex })).filter(item => Boolean(item.message));
+        const MAX_RENDERED_MESSAGES = 100;
+        const startIndex = Math.max(0, validMessageEntries.length - MAX_RENDERED_MESSAGES);
+        const renderedEntries = validMessageEntries.slice(startIndex);
+        const renderedMessages = renderedEntries.map(item => item.message);
+
+        const messagesHtml = renderedEntries.map(({ message: m, originalIndex: idx }) => {
           if (m.senderType === 'system') {
             return `<div class="text-center my-2"><span class="px-3 py-1 rounded-full bg-white/5 text-[11px] text-cue-muted">${escapeHtml(m.text)}</span></div>`;
           }
@@ -14978,13 +15051,8 @@ body > header,
         const messageTemplate = document.createElement('template');
         messageTemplate.innerHTML = messagesHtml;
         const messageHtmlList = Array.from(messageTemplate.content.children).map(node => node.outerHTML);
-        const validMessages = chat.messages.filter(Boolean);
-        // Reuse the approved Phase-1 keyed reconciler, including its stable node map.
-        // Open details only change attribute order; DOM equality avoids replacement.
-        const previousNodes = box._nexusMessageNodes;
-        const templateChildren = messageTemplate.content.children;
         if (previousNodes) messageHtmlList.forEach((html, index) => {
-          const key = `${chat.id}:${index}:${validMessages[index]?.id || ''}`;
+          const key = `${chat.id}:${index}:${renderedMessages[index]?.id || ''}`;
           const entry = previousNodes.get(key);
           if (entry) {
             // Compare content only; Phase-4 controls belong to the live DOM.
@@ -22761,7 +22829,11 @@ async function restoreStateFromSupabase() {
 
 
     if (Array.isArray(record.routines_json)) {
-      appState.routines = record.routines_json.filter(r => r && r.id && !deletedSet.has(sanitizeRoutineId(r.id)));
+      mergeServerRoutinesIntoLocal(
+        record.routines_json,
+        record.deleted_routine_ids_json || [],
+        record.deleted_routine_meta_json || {}
+      );
     }
 
 
@@ -23072,6 +23144,13 @@ CREATE TABLE IF NOT EXISTS public.nexus_backups (
   brain_nodes_json JSONB DEFAULT '[]'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Schema migration for existing tables created in earlier versions
+ALTER TABLE public.nexus_backups ADD COLUMN IF NOT EXISTS state_revision BIGINT DEFAULT 1;
+ALTER TABLE public.nexus_backups ADD COLUMN IF NOT EXISTS routines_json JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.nexus_backups ADD COLUMN IF NOT EXISTS deleted_routine_ids_json JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.nexus_backups ADD COLUMN IF NOT EXISTS brain_nodes_json JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.nexus_backups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
 
 ALTER TABLE public.nexus_backups ALTER COLUMN owner_id SET DEFAULT auth.uid()::text;
@@ -23442,7 +23521,10 @@ async function getKvWithFallback(env, key, wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV) return null;
   const prefixed = await env.NEXUS_KV.get(wsPrefix + key);
   if (prefixed !== null && prefixed !== undefined) return prefixed;
-  return await env.NEXUS_KV.get(key); // Fallback to legacy global key (Fixes Reviewer #2)
+  if (wsPrefix === 'default:') {
+    return await env.NEXUS_KV.get(key); // Fallback to legacy global key only for default workspace
+  }
+  return null;
 }
 
 async function getCloudBrainContextSnippet(env, wsPrefix = 'default:') {
@@ -23532,36 +23614,36 @@ if (m && m.id) byId.set(String(m.id), m);
 
 
 
-async function acquireRoutineExecutionLock(env, routineId, nowTs = Date.now(), ttlMs = ROUTINE_LOCK_TTL_MS) {
+async function acquireRoutineExecutionLock(env, routineId, nowTs = Date.now(), ttlMs = ROUTINE_LOCK_TTL_MS, wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV || !routineId) return true;
-  const lockKey = "rt_lock:" + String(routineId).slice(0, 80);
+  const lockKey = wsPrefix + "rt_lock:" + String(routineId).slice(0, 80);
   const existing = await env.NEXUS_KV.get(lockKey);
   if (existing && Number(existing) > nowTs) return false;
   await env.NEXUS_KV.put(lockKey, String(nowTs + ttlMs), { expirationTtl: Math.max(10, Math.ceil(ttlMs / 1000) + 10) });
   return true;
 }
 
-async function releaseRoutineExecutionLock(env, routineId) {
+async function releaseRoutineExecutionLock(env, routineId, wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV || !routineId) return;
   try {
-    await env.NEXUS_KV.delete("rt_lock:" + String(routineId).slice(0, 80));
+    await env.NEXUS_KV.delete(wsPrefix + "rt_lock:" + String(routineId).slice(0, 80));
   } catch (e) {}
 }
 
-async function isWebhookAlreadyProcessed(env, eventId) {
+async function isWebhookAlreadyProcessed(env, eventId, wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV || !eventId) return false;
   const cleanId = String(eventId).trim().slice(0, 120);
   if (!cleanId) return false;
-  const dedupeKey = "wh_dedupe:" + cleanId;
+  const dedupeKey = wsPrefix + "wh_dedupe:" + cleanId;
   const existing = await env.NEXUS_KV.get(dedupeKey);
   return Boolean(existing);
 }
 
-async function recordWebhookProcessed(env, eventId) {
+async function recordWebhookProcessed(env, eventId, wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV || !eventId) return;
   const cleanId = String(eventId).trim().slice(0, 120);
   if (!cleanId) return;
-  const dedupeKey = "wh_dedupe:" + cleanId;
+  const dedupeKey = wsPrefix + "wh_dedupe:" + cleanId;
   await env.NEXUS_KV.put(dedupeKey, "1", { expirationTtl: 86400 }); // Atomic 24h expiration in KV (Fixes Reviewer #4 & #5)
 }
 
@@ -24125,7 +24207,7 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
       headers: { ...cors, "Content-Type": "application/json" }
     });
   }
-  if (eventId && await isWebhookAlreadyProcessed(env, eventId)) {
+  if (eventId && await isWebhookAlreadyProcessed(env, eventId, wsPrefix)) {
     return new Response(JSON.stringify({ ok: true, deduplicated: true, triggeredCount: 0 }), {
       headers: { ...cors, "Content-Type": "application/json" }
     });
@@ -24148,7 +24230,7 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
 
 
   for (const rt of matched) {
-    if (!(await acquireRoutineExecutionLock(env, rt.id, nowTs))) {
+    if (!(await acquireRoutineExecutionLock(env, rt.id, nowTs, ROUTINE_LOCK_TTL_MS, wsPrefix))) {
       lockContentionCount++;
       continue;
     }
@@ -24183,7 +24265,7 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
       triggeredCount++;
       await sendCloudTelegramPush(env, "⚡ [Webhook Routine -> " + rt.title + "]:\\n\\n" + finalMsg);
     } finally {
-      await releaseRoutineExecutionLock(env, rt.id);
+      await releaseRoutineExecutionLock(env, rt.id, wsPrefix);
     }
   }
 
@@ -24198,7 +24280,7 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
   }
 
   if (eventId) {
-    await recordWebhookProcessed(env, eventId);
+    await recordWebhookProcessed(env, eventId, wsPrefix);
   }
 
   if (triggeredCount > 0) {
@@ -24311,7 +24393,7 @@ ctx.waitUntil((async () => {
       else if (rt.schedule === "weekly" && tehranNow.day === 6 && tehranNow.hour >= 9 && rt.lastRunDateKey !== todayKey && elapsed >= 24 * 60 * 60 * 1000) isDue = true;
 
       if (!isDue) continue;
-      if (!(await acquireRoutineExecutionLock(env, rt.id, nowTs))) continue;
+      if (!(await acquireRoutineExecutionLock(env, rt.id, nowTs, ROUTINE_LOCK_TTL_MS, wsPrefix))) continue;
 
       try {
         rt.lastAttemptTs = nowTs;
@@ -24348,7 +24430,7 @@ ctx.waitUntil((async () => {
         });
         await sendCloudTelegramPush(env, "☁️ [" + (rt.title || "Cloud Routine") + "]:\\n\\n" + finalCronText);
       } finally {
-        await releaseRoutineExecutionLock(env, rt.id);
+        await releaseRoutineExecutionLock(env, rt.id, wsPrefix);
       }
     }
 
@@ -24802,6 +24884,7 @@ function ensurePhase4ChatHooksAlive() {
         ownerUserId: appState.telegramConfig?.ownerUserId || '',
         pairingCode: appState.telegramConfig?.pairingCode || '',
         workerSecret: appState.cloudConfig?.workerSecret || '',
+        workerUrl: appState.cloudConfig?.workerUrl || '',
         supabaseKey: appState.cloudConfig?.supabaseKey || '',
         supabaseAuthToken: appState.cloudConfig?.supabaseAuthToken || '',
         workspaceId: appState.cloudConfig?.workspaceId || '',
@@ -24817,7 +24900,14 @@ function ensurePhase4ChatHooksAlive() {
         restoreMissing(appState.telegramConfig, 'botToken', prevSecretsSnapshot.botToken);
         restoreMissing(appState.telegramConfig, 'chatId', prevSecretsSnapshot.chatId);
         restoreMissing(appState.telegramConfig, 'ownerUserId', prevSecretsSnapshot.ownerUserId);
-        restoreMissing(appState.cloudConfig, 'workerSecret', prevSecretsSnapshot.workerSecret);
+        const incomingWorkerUrl = String(appState.cloudConfig?.workerUrl || '').trim();
+        const prevWorkerUrl = String(prevSecretsSnapshot.workerUrl || '').trim();
+        const workerUrlChanged = incomingWorkerUrl && prevWorkerUrl && (incomingWorkerUrl !== prevWorkerUrl);
+        if (!workerUrlChanged) {
+          restoreMissing(appState.cloudConfig, 'workerSecret', prevSecretsSnapshot.workerSecret);
+        } else {
+          appState.cloudConfig.workerSecret = '';
+        }
         restoreMissing(appState.cloudConfig, 'supabaseKey', prevSecretsSnapshot.supabaseKey);
         restoreMissing(appState.cloudConfig, 'supabaseAuthToken', prevSecretsSnapshot.supabaseAuthToken);
         restoreMissing(appState.emailConfig, 'forwardToPersonal', prevSecretsSnapshot.forwardToPersonal);
@@ -26403,7 +26493,7 @@ if (typeof document !== 'undefined') {
 
     function injectPWAStandaloneSupport() {
       if (typeof document === 'undefined' || !document.head) return;
-      if (document.getElementById('nexusPwaManifestLink')) return;
+      if (document.getElementById('nexusPwaManifestLink') || document.querySelector('link[rel="manifest"]')) return;
       try {
         const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="42" fill="#0b0b0e"/><circle cx="96" cy="96" r="56" fill="none" stroke="#06b6d4" stroke-width="12"/><circle cx="96" cy="96" r="22" fill="#10b981"/></svg>`;
         const iconDataUrl = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgIcon);
@@ -28868,7 +28958,7 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const EXEC_TIMEOUT_MS = 120000;
 const MAX_CONCURRENT_JOBS = 2;
 const BLOCKED_CMD_REGEX = /(?:\\b(?:busybox|toybox)\\s+)?\\brm\\b(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*r|\\s--recursive))(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*f|\\s--force))[^;&|\\r\\n]*\\s+(?:\\/|\\*|\\.\\.?\\/?\\*?|~|\\$HOME|\\$PREFIX|\\/sdcard|\\/storage|--no-preserve-root)(?:$|[\\s;&|><)'"])|\\brm\\b\\s+-[a-zA-Z]*(?:rf|fr)\\s+(?:\\.|\\.\\.)(?:$|[\\s/;&|><)'"])|\\bfind\\b.*\\s-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b|\\brg\\b.*--pre(?:-glob)?\\b|\\b(?:mkfs\\.[a-z0-9]+|wipefs|shred)\\b|\\bdd\\b\\s+.*\\bof=\\/dev\\/|\\btruncate\\b\\s+.*\\s+\\/(?:$|\\s)|\\bchmod\\b\\s+-R\\s+000\\s+(?:\\/|\\.|~)|\\bchown\\b\\s+-R\\s+.*\\s+\\/|\\b(?:shutil\\.rmtree|os\\.(?:remove|unlink|rmdir|removedirs|system|popen)|fs\\.(?:rmSync|rmdirSync|unlinkSync)|child_process)\\b|:(\\s*)\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:/i;
-const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env(?:\\.[a-z0-9_-]+)?|id_rsa|id_ed25519|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
+const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env[a-zA-Z0-9_.*?-]*|id_rsa[a-zA-Z0-9_.*?-]*|id_ed25519[a-zA-Z0-9_.*?-]*|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
 const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|find|grep|rg|stat|du|df|pwd|wc|file|tree)\\b/i;
 const WORKSPACE_ESCAPE_REGEX = /(?:^|[\\s;&|])(?:cd|pushd)\\b(?:\\s+(?:\\/|~|\\$HOME|\\.\\.(?:\\/|$)|$))?|(?:^|[\\s"'=<>\/])\\/(?:etc|proc|sys|dev|data\\/data|root|sbin|system|vendor)\\b|(?:^|[\\s\\/])\\.\\.(?:\\/|$)/i;
 const activeChildProcs = new Set();
@@ -29169,8 +29259,23 @@ http.createServer((req, res) => {
     }
     let cancelBody = {};
     const cancelChunks = [];
-    req.on('data', c => cancelChunks.push(c));
+    let cancelBytes = 0;
+    let cancelAborted = false;
+    req.on('data', c => {
+      if (cancelAborted) return;
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(String(c));
+      cancelBytes += buf.length;
+      if (cancelBytes > MAX_BODY_BYTES) {
+        cancelAborted = true;
+        res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: 'Payload Too Large (>64KB)' }));
+        req.destroy();
+        return;
+      }
+      cancelChunks.push(buf);
+    });
     req.on('end', () => {
+      if (cancelAborted) return;
       try { cancelBody = JSON.parse(Buffer.concat(cancelChunks).toString('utf8') || '{}'); } catch (e) {}
       const targetJobId = String(cancelBody.jobId || '').trim();
       const cancelAllRequested = cancelBody.cancelAll === true;
@@ -29319,9 +29424,11 @@ http.createServer((req, res) => {
 
       if (serverCategory === 'policyFileRead') {
         const hasTraversalOrAbsPath = /(?:^|[\\s\\/\\\\"'])\\.\\.(?:[\\s\\/\\\\"']|$)|(?:^|[\\s"'=])(?:~|\\$[A-Z_]+|\\/)/i.test(command);
-        if (!SAFE_READONLY_CMD_REGEX.test(command) || /[><|;&\`\\$\\r\\n()\\\\"']/.test(command) || hasTraversalOrAbsPath) {
+        const hasWildcardsOrGlobs = /[*?\[\]{}]/.test(command);
+        const hasRecursiveTraversalFlags = /(?:^|\s)-(?:[a-zA-Z]*[Rr]|-[a-zA-Z]*dereference-recursive)\b/.test(command);
+        if (!SAFE_READONLY_CMD_REGEX.test(command) || /[><|;&\`\\$\\r\\n()\\\\"']/.test(command) || hasTraversalOrAbsPath || hasWildcardsOrGlobs || hasRecursiveTraversalFlags) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-          return res.end(JSON.stringify({ ok: false, error: 'Command violates server-side policyFileRead read-only guard' }));
+          return res.end(JSON.stringify({ ok: false, error: 'Command violates server-side policyFileRead read-only guard (wildcards, recursive traversal, or shell metacharacters detected)' }));
         }
         // Canonicalize real target path to prevent symlink bypass outside workspace roots (Fixes Reviewer #6)
         try {
@@ -29344,6 +29451,12 @@ http.createServer((req, res) => {
       }
 
 
+      const activeJobId = String(parsed.jobId || ('job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)));
+      if (parsed.jobId && activeJobsMap.has(activeJobId)) {
+        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: false, error: 'Job ID already exists and is active: ' + activeJobId }));
+      }
+
       const shellBin = (process.env.SHELL && fs.existsSync(process.env.SHELL)) ? process.env.SHELL : '/bin/sh';
       let finished = false;
       let timedOut = false;
@@ -29358,7 +29471,6 @@ http.createServer((req, res) => {
         env: buildSanitizedChildEnv()
       });
       activeChildProcs.add(childProc);
-      const activeJobId = String(parsed.jobId || ('job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)));
       activeJobsMap.set(activeJobId, childProc);
       childProc.on('close', () => activeJobsMap.delete(activeJobId));
 
@@ -29617,10 +29729,18 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+concurrency:
+  group: \${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30096,7 +30216,7 @@ jobs:
       const BLACKBOX_STORAGE_KEY = (window.STORAGE_KEY || 'eg_nexus_os_v5_master_state') + '_blackbox_logs_v1';
       const MAX_BLACKBOX_LOGS = 50;
       const TELEGRAM_ERROR_COOLDOWN_MS = 60000;
-      const SECRET_REDACTION_REGEX = /(?:sk-[a-zA-Z0-9_-]{12,}|AIza[0-9A-Za-z_-]{20,}|tvly-[a-zA-Z0-9_-]{12,}|\b\d{8,12}:[A-Za-z0-9_-]{25,}\b|Bearer\s+[A-Za-z0-9._~+/=-]{12,})/g;
+      const SECRET_REDACTION_REGEX = /(?:sk-[a-zA-Z0-9_-]{12,}|xai-[a-zA-Z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|tvly-[a-zA-Z0-9_-]{12,}|ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|\b\d{8,12}:[A-Za-z0-9_-]{25,}\b|\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b|Bearer\s+[A-Za-z0-9._~+/=-]{12,})/g;
 
       function redactSensitiveTokens(input) {
         return String(input ?? '').replace(SECRET_REDACTION_REGEX, '[REDACTED_SECRET]');

@@ -10,28 +10,40 @@ const CORE_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    const cache = await caches.open(CACHE_NAME);
     try {
-      await cache.addAll(CORE_ASSETS);
-    } catch (err) {
-      console.warn('[SW] Non-fatal asset pre-cache error; attempting resilient fallback:', err);
-      if (typeof cache.add === 'function') {
-        await Promise.allSettled(
-          CORE_ASSETS.map(asset => cache.add(asset).catch(() => {}))
-        );
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        await cache.addAll(CORE_ASSETS);
+      } catch (err) {
+        console.warn('[SW] Non-fatal asset pre-cache error; attempting resilient fallback:', err);
+        if (typeof cache.add === 'function') {
+          await Promise.allSettled(
+            CORE_ASSETS.map(asset => cache.add(asset).catch(() => {}))
+          );
+        }
       }
+    } catch (e) {
+      console.warn('[SW] Caches open failed during install:', e);
     }
-    await self.skipWaiting();
+    try {
+      await self.skipWaiting();
+    } catch (e) {}
   })());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    const keys = await caches.keys();
-    // Only delete previous versions of EG Nexus OS caches, never other apps on the same origin (Fixes Reviewer #28)
-    const oldCaches = keys.filter(key => key.startsWith('eg-nexus-os-') && key !== CACHE_NAME);
-    await Promise.all(oldCaches.map(key => caches.delete(key)));
-    await self.clients.claim();
+    try {
+      const keys = await caches.keys();
+      // Only delete previous versions of EG Nexus OS caches, never other apps on the same origin (Fixes Reviewer #28)
+      const oldCaches = keys.filter(key => key.startsWith('eg-nexus-os-') && key !== CACHE_NAME);
+      await Promise.all(oldCaches.map(key => caches.delete(key)));
+    } catch (e) {
+      console.warn('[SW] Caches cleanup failed during activate:', e);
+    }
+    try {
+      await self.clients.claim();
+    } catch (e) {}
   })());
 });
 

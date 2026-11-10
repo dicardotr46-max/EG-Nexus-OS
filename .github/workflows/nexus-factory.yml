@@ -8,12 +8,18 @@ on:
     # اجرای خودکار هر ۶ ساعت یک‌بار برای بررسی سلامت کد
     - cron: '0 */6 * * *'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   audit-and-build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: 1. Checkout Repository
