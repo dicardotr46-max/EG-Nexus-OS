@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+echo "🔍 [Pre-Commit] Synchronizing root files to www/ directory..."
+cp index.html www/index.html
+cp sw.js www/sw.js
+git add www/index.html www/sw.js
+
+echo "🧪 [Pre-Commit] Running AST syntax checks..."
+npm run test:syntax
+
+echo "🧪 [Pre-Commit] Running Jest unit and regression tests..."
+npm test
+
+echo "🧪 [Pre-Commit] Running full app audit..."
+python3 full_app_audit.py
+
+echo "🧪 [Pre-Commit] Running full app audit test suite..."
+python3 test_full_app_audit.py
+
+echo "✅ [Pre-Commit] All quality, parity, and security gates passed successfully!"
