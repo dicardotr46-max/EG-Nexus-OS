@@ -11,7 +11,16 @@ const CORE_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(CORE_ASSETS);
+    try {
+      await cache.addAll(CORE_ASSETS);
+    } catch (err) {
+      console.warn('[SW] Non-fatal asset pre-cache error; attempting resilient fallback:', err);
+      if (typeof cache.add === 'function') {
+        await Promise.allSettled(
+          CORE_ASSETS.map(asset => cache.add(asset).catch(() => {}))
+        );
+      }
+    }
     await self.skipWaiting();
   })());
 });

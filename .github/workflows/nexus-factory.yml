@@ -74,8 +74,8 @@ jobs:
         run: |
           mkdir -p build_workspace/www
           cp index.html build_workspace/www/
-          [ -f manifest.json ] && cp manifest.json build_workspace/www/ || true
-          [ -f sw.js ] && cp sw.js build_workspace/www/ || true
+          [ -f manifest.json ] && cp manifest.json build_workspace/www/
+          [ -f sw.js ] && cp sw.js build_workspace/www/
           # Use authoritative capacitor.config.json with cleartext & loopback support (Fixes Reviewer #15 & #16)
           cp capacitor.config.json build_workspace/
           cd build_workspace
@@ -104,7 +104,7 @@ jobs:
       - name: 9.5. Update Git Tag to Current Commit
         run: |
           git tag -f latest-apk ${{ github.sha }}
-          git push -f origin latest-apk || true
+          git push -f origin latest-apk
 
       - name: 10. Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
