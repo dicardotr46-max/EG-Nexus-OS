@@ -34,18 +34,13 @@ self.addEventListener('fetch', (event) => {
   // Bypass external API calls (Gemini, OpenRouter, Tavily, Telegram, Local Termux Bridge, Supabase)
   if (url.origin !== self.location.origin) return;
 
-  // Navigation requests: Network-first with instant fallback to cached index.html (Fixes Reviewer #20 & #27 - Never cache 404/500 errors)
+  // Navigation requests: Network-first with instant fallback to cached index.html (Fixes Reviewer #20, #25 & #27)
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
+      let res;
       try {
-        const res = await fetch(req);
-        const isSuccessful = !res.status || ((res.ok || res.status === 200) && res.status >= 200 && res.status < 300);
-        if (res && isSuccessful) {
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put('./index.html', res.clone());
-        }
-        return res;
-      } catch (error) {
+        res = await fetch(req);
+      } catch (networkError) {
         const cachedShell = await caches.match('./index.html');
         if (cachedShell) return cachedShell;
         return new Response('EG Nexus OS Offline Shell Unavailable', {
@@ -54,23 +49,51 @@ self.addEventListener('fetch', (event) => {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
         });
       }
+
+      // Decoupled cache write: Cache quota/write errors must never hide healthy network responses (Fixes Reviewer #25)
+      const isSuccessful = !res.status || ((res.ok || res.status === 200) && res.status >= 200 && res.status < 300);
+      if (res && isSuccessful) {
+        try {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put('./index.html', res.clone());
+        } catch (cacheErr) {
+          console.warn('SW navigation cache.put error:', cacheErr);
+        }
+      }
+      return res;
     })());
     return;
   }
 
-  // Static same-origin assets: Stale-While-Revalidate (Fixes Reviewer #27 - Never returns undefined)
+  // Static same-origin assets check: Only cache static web assets, never arbitrary API/data GETs (Fixes Reviewer #26)
+  const pathname = url.pathname.toLowerCase();
+  const isStaticAsset = pathname === '/' ||
+    pathname.endsWith('.html') ||
+    pathname.endsWith('.js') ||
+    pathname.endsWith('.json') ||
+    pathname.endsWith('.css') ||
+    pathname.endsWith('.png') ||
+    pathname.endsWith('.jpg') ||
+    pathname.endsWith('.jpeg') ||
+    pathname.endsWith('.svg') ||
+    pathname.endsWith('.ico') ||
+    pathname.endsWith('.woff') ||
+    pathname.endsWith('.woff2');
+
+  if (!isStaticAsset) {
+    // Pass dynamic same-origin requests straight through without caching
+    return;
+  }
+
+  // Static same-origin assets: Stale-While-Revalidate with decoupled cache write (Fixes Reviewer #25 & #27)
   event.respondWith((async () => {
     const cached = await caches.match(req);
 
     const fetchPromise = (async () => {
+      let res;
       try {
-        const res = await fetch(req);
-        if (res && (res.ok || res.status === 200) && res.status >= 200 && res.status < 300) {
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put(req, res.clone());
-        }
-        return res;
-      } catch (error) {
+        res = await fetch(req);
+      } catch (networkError) {
         if (cached) return cached;
         return new Response('Asset Unavailable Offline', {
           status: 503,
@@ -78,6 +101,17 @@ self.addEventListener('fetch', (event) => {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
         });
       }
+
+      // Decoupled cache write
+      if (res && (res.ok || res.status === 200) && res.status >= 200 && res.status < 300) {
+        try {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(req, res.clone());
+        } catch (cacheErr) {
+          console.warn('SW asset cache.put error:', cacheErr);
+        }
+      }
+      return res;
     })();
 
     if (cached) {

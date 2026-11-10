@@ -118,18 +118,18 @@ body > header,
   <section id="view-home" class="flex-1 flex flex-col max-w-md mx-auto w-full min-h-screen px-4 pt-4 pb-8">
     <!-- Top Bar: Profile (Left), Search & Plus (Right) -->
     <header class="flex items-center justify-between mb-4 relative" dir="ltr">
-      <button onclick="openSettingsView()" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
+      <button onclick="openSettingsView()" aria-label="تنظیمات و پروفایل کاربر" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
         </svg>
       </button>
       <div class="flex items-center gap-2.5">
-        <button onclick="toggleHomeSearch()" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
+        <button onclick="toggleHomeSearch()" aria-label="جستجو در اپلیکیشن" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/>
           </svg>
         </button>
-        <button onclick="togglePlusMenu(event)" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
+        <button onclick="togglePlusMenu(event)" aria-label="منوی افزودن ایجنت و مهارت" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
             <path stroke-linecap="round" d="M12 5v14M5 12h14"/>
           </svg>
@@ -168,11 +168,11 @@ body > header,
   <section id="view-chat" class="hidden flex-1 flex flex-col max-w-md mx-auto w-full dvh-screen bg-cue-bg">
     <!-- Cue Centered Header (Screenshots 1000030152 & 1000030153) -->
     <header class="px-3 pt-3 pb-2 flex items-start justify-between border-b border-white/[0.05] bg-cue-bg/95 backdrop-blur z-20" dir="ltr">
-      <button onclick="showView('view-home')" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200">
+      <button onclick="showView('view-home')" aria-label="بازگشت به خانه" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
       </button>
       <div class="flex flex-col items-center">
-        <div id="chatHeaderAvatar" onclick="onChatHeaderAvatarClick()" class="cursor-pointer transition transform active:scale-95"></div>
+        <div id="chatHeaderAvatar" onclick="onChatHeaderAvatarClick()" role="button" tabindex="0" aria-label="پروفایل ایجنت فعال" onkeydown="if(event.key==='Enter'||event.key===' ')onChatHeaderAvatarClick()" class="cursor-pointer transition transform active:scale-95"></div>
         <button onclick="openActiveAgentOrGroupProfile()" class="mt-1.5 px-3 py-1 rounded-full bg-cue-card border border-white/10 flex items-center gap-1 text-xs font-bold text-slate-100 hover:bg-cue-cardHover">
           <span id="chatHeaderTitle">Agent</span>
           <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
@@ -244,8 +244,8 @@ body > header,
       </button>
     </header>
     <div class="flex flex-col items-center my-2">
-      <div id="profileAgentAvatar" onclick="openChangeAvatarModal('edit')" class="cursor-pointer transition transform hover:scale-105" title="Tap to Change Avatar"></div>
-      <h2 id="profileAgentName" onclick="renameCurrentAgentPrompt()" class="mt-3 text-2xl font-extrabold text-white cursor-pointer">Agent</h2>
+      <div id="profileAgentAvatar" onclick="openChangeAvatarModal('edit')" role="button" tabindex="0" aria-label="تغییر تصویر آواتار" onkeydown="if(event.key==='Enter'||event.key===' ')openChangeAvatarModal('edit')" class="cursor-pointer transition transform hover:scale-105" title="Tap to Change Avatar"></div>
+      <h2 id="profileAgentName" onclick="renameCurrentAgentPrompt()" role="button" tabindex="0" aria-label="تغییر نام ایجنت" onkeydown="if(event.key==='Enter'||event.key===' ')renameCurrentAgentPrompt()" class="mt-3 text-2xl font-extrabold text-white cursor-pointer">Agent</h2>
       <span id="profileAgentModelBadge" class="mt-1 text-[11px] px-2.5 py-0.5 rounded-full bg-black/30 border border-white/10 text-slate-300 font-mono"></span>
       <div id="profileGroupMembersSwitcher" class="hidden mt-3 flex flex-wrap items-center justify-center gap-1.5"></div>
     </div>
@@ -302,14 +302,14 @@ body > header,
   <!-- ====================================================================== -->
   <section id="view-settings" class="hidden flex-1 flex flex-col max-w-md mx-auto w-full min-h-screen px-4 pt-4 pb-10" dir="ltr">
     <header class="flex items-center justify-between mb-5">
-      <button onclick="showView('view-home')" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200">
+      <button onclick="showView('view-home')" aria-label="بازگشت به خانه" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
       </button>
       <h1 class="text-base font-bold text-white">Settings</h1>
       <div class="w-10"></div>
     </header>
     <!-- Profile Card (Ali + Dream Memory) -->
-    <div onclick="openSettingsPanel('dream')" class="bg-cue-card border border-cue-border rounded-3xl p-4 flex items-center justify-between mb-3.5 cursor-pointer hover:bg-cue-cardHover">
+    <div onclick="openSettingsPanel('dream')" role="button" tabindex="0" aria-label="پروفایل کاربری و حافظه بلندمدت" onkeydown="if(event.key==='Enter'||event.key===' ')openSettingsPanel('dream')" class="bg-cue-card border border-cue-border rounded-3xl p-4 flex items-center justify-between mb-3.5 cursor-pointer hover:bg-cue-cardHover">
       <div class="flex items-center gap-3.5">
         <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-400 via-yellow-300 to-orange-400 shadow-inner"></div>
         <div>
@@ -1019,9 +1019,13 @@ body > header,
 
 
     function assertUniqueIds(items, label) {
+      if (!Array.isArray(items)) return;
       const seen = new Set();
-      items.forEach(item => {
-        if (seen.has(item.id)) throw new Error('Duplicate ' + label + ' id: ' + item.id);
+      items.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') return;
+        if (!item.id || typeof item.id !== 'string' || seen.has(item.id)) {
+          item.id = generateUniqueId((label || 'item') + '_' + idx);
+        }
         seen.add(item.id);
       });
     }
@@ -1222,7 +1226,13 @@ body > header,
         applySessionSecrets(appState);
         window.appState = appState;
 
-        const hasLegacySecrets = Object.values(parsed.apiKeys || {}).some(v => typeof v === 'string' && v.trim()) || Object.values(parsed.appConnections || {}).some(c => c && typeof c.token === 'string' && c.token.trim());
+        const hasLegacySecrets = Object.values(parsed.apiKeys || {}).some(v => typeof v === 'string' && v.trim()) ||
+          Object.values(parsed.appConnections || {}).some(c => c && typeof c.token === 'string' && c.token.trim()) ||
+          Boolean(parsed.localComputerConfig?.bridgeToken && String(parsed.localComputerConfig.bridgeToken).trim()) ||
+          Boolean(parsed.cloudConfig?.workerSecret && String(parsed.cloudConfig.workerSecret).trim()) ||
+          Boolean(parsed.cloudConfig?.supabaseKey && String(parsed.cloudConfig.supabaseKey).trim()) ||
+          Boolean(parsed.cloudConfig?.supabaseAuthToken && String(parsed.cloudConfig.supabaseAuthToken).trim()) ||
+          Boolean(parsed.telegramConfig?.botToken && String(parsed.telegramConfig.botToken).trim());
         if (hasLegacySecrets) {
           // Never erase the last durable legacy copy before the session write succeeds.
           if (writeSessionSecrets(appState)) {
@@ -1268,8 +1278,9 @@ body > header,
             let retrySaved = false;
             try {
               retrySaved = nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate));
+              if (!retrySaved) throw new Error('retry 1 returned false');
             } catch (retryError) {
-              const retryIsQuota = retryError && (retryError.name === 'QuotaExceededError' || retryError.name === 'NS_ERROR_DOM_QUOTA_REACHED' || retryError.code === 22 || retryError.code === 1014);
+              const retryIsQuota = retryError && (retryError.name === 'QuotaExceededError' || retryError.name === 'NS_ERROR_DOM_QUOTA_REACHED' || retryError.code === 22 || retryError.code === 1014 || String(retryError.message).includes('retry 1 returned false'));
               if (!retryIsQuota) throw retryError;
               (candidate.chats || []).forEach(c => { (c?.messages || []).forEach(m => { if (m) m.attachmentImage = ''; }); });
               retrySaved = nexusStorageSet(STORAGE_KEY, JSON.stringify(candidate));
@@ -1278,7 +1289,6 @@ body > header,
               savedOk = true;
               showToast('ظرفیت ذخیره پر بود؛ نسخه دیسکی تصاویر سبک شد. نسخه کامل تا بستن صفحه برای بکاپ در حافظه است');
             }
-            showToast('ظرفیت ذخیره پر بود؛ نسخه دیسکی تصاویر سبک شد. نسخه کامل تا بستن صفحه برای بکاپ در حافظه است');
           } catch (retryError) {}
         }
         if (!savedOk) {
@@ -2585,12 +2595,12 @@ body > header,
     }
 
 
-    let _chatFileUploadSeq = 0;
+    let _chatFileUploadSeq = 0; window._chatFileUploadSeq = 0;
     function handleChatFileUpload(event) {
       const files = event.target?.files;
       const file = files?.[0];
       if (!file) return;
-      const currentUploadSeq = ++_chatFileUploadSeq;
+      const currentUploadSeq = ++_chatFileUploadSeq; window._chatFileUploadSeq = _chatFileUploadSeq;
       if (files.length > 1) {
         showToast('در هر پیام اولین فایل انتخاب‌شده پیوست می‌شود 📎');
       }
@@ -2610,6 +2620,7 @@ body > header,
         let truncatedNote = '';
         if (isImage && finalContent.length > 350000) {
           const comp = await compressChatImageDataUrl(finalContent, 1024, 0.78);
+          if (currentUploadSeq !== _chatFileUploadSeq) return; // Discard stale compression if cleared or replaced (Fixes Reviewer #17)
           finalContent = comp.dataUrl;
           finalMime = comp.mimeType;
         } else if (!isImage && finalContent.length > 16000) {
@@ -2633,6 +2644,7 @@ body > header,
 
 
     function clearPendingAttachment() {
+      _chatFileUploadSeq++; window._chatFileUploadSeq = _chatFileUploadSeq; // Invalidate any pending FileReader or async compression (Fixes Reviewer #17)
       uiState.pendingAttachment = null;
       document.getElementById('chatAttachmentPreview')?.classList.add('hidden');
       const fileInp = document.getElementById('chatFileInput');
@@ -4568,6 +4580,16 @@ body > header,
         `;
       }).join('');
     }
+    // Runtime registration for unbundled Capacitor single-page assets (Fixes Reviewer #10)
+    if (typeof window !== 'undefined' && window.Capacitor) {
+      if (!window.Capacitor.Plugins) window.Capacitor.Plugins = {};
+      ['App', 'Browser', 'Filesystem', 'Share'].forEach(name => {
+        if (!window.Capacitor.Plugins[name] && typeof window.Capacitor.registerPlugin === 'function') {
+          try { window.Capacitor.Plugins[name] = window.Capacitor.registerPlugin(name); } catch (e) {}
+        }
+      });
+    }
+
     // REA Reverse-Engineered Detail View (Exact Screenshots 1000030180 - 1000030183)
     const GOOGLE_APP_IDS = new Set(['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit', 'youtube']);
     const PROVIDER_PRIVACY_URLS = {
@@ -4720,11 +4742,15 @@ body > header,
     if (typeof window !== 'undefined') {
       window.addEventListener('message', (ev) => {
         try {
+          // Strictly validate event origin against Google auth or self origin (Fixes Reviewer #18)
+          if (ev.origin !== 'https://accounts.google.com' && ev.origin !== window.location.origin) return;
           const data = ev.data;
           if (!data) return;
           const token = data.access_token || data.token || (typeof data === 'string' && data.includes('access_token=') ? (data.match(/access_token=([^&]+)/)?.[1]) : null);
           if (token && window.pendingProviderConnection?.appId) {
-            completeGoogleOAuthConnection(window.pendingProviderConnection.appId, { access_token: token });
+            const lastAppId = window.pendingProviderConnection.appId;
+            setPendingProviderConnection(null); // Consume pending state to prevent reuse (Fixes Reviewer #18)
+            completeGoogleOAuthConnection(lastAppId, { access_token: token });
           }
         } catch (e) {}
       });
@@ -4736,6 +4762,7 @@ body > header,
           if (m) {
             const token = decodeURIComponent(m[1]);
             const lastAppId = window.pendingProviderConnection?.appId || 'gmail';
+            setPendingProviderConnection(null); // Consume pending state
             completeGoogleOAuthConnection(lastAppId, { access_token: token });
             history.replaceState(null, '', window.location.pathname);
           }
@@ -5374,12 +5401,12 @@ body > header,
         let foundPageName = '';
 
         if (customIgId) {
-          const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(customIgId)}?fields=id,username,name,profile_picture_url,followers_count,media_count&access_token=${encodeURIComponent(token)}`);
+          const res = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(customIgId)}?fields=id,username,name,profile_picture_url,followers_count,media_count`, { headers: { 'Authorization': `Bearer ${token}` } });
           if (res.ok) igAccount = await res.json();
         }
 
         if (!igAccount) {
-          const resMe = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,name,accounts{id,name,access_token,instagram_business_account{id,username,name,profile_picture_url,followers_count,media_count}}&access_token=${encodeURIComponent(token)}`);
+          const resMe = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,name,accounts{id,name,access_token,instagram_business_account{id,username,name,profile_picture_url,followers_count,media_count}}`, { headers: { 'Authorization': `Bearer ${token}` } });
           if (!resMe.ok) {
             const errData = await resMe.json().catch(() => null);
             throw new Error(errData?.error?.message || `Meta Graph API HTTP ${resMe.status}`);
@@ -5395,7 +5422,7 @@ body > header,
           }
 
           if (!igAccount) {
-            const resUser = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,username,name,profile_picture_url,followers_count,media_count&access_token=${encodeURIComponent(token)}`);
+            const resUser = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,username,name,profile_picture_url,followers_count,media_count`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (resUser.ok) {
               const u = await resUser.json();
               if (u.username || u.followers_count !== undefined) {
@@ -6650,7 +6677,7 @@ body > header,
         }
 
         if (!actId) {
-          const accRes = await fetch(`https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,currency,account_status&access_token=${encodeURIComponent(token)}`);
+          const accRes = await fetch(`https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,currency,account_status`, { headers: { 'Authorization': `Bearer ${token}` } });
           if (accRes.ok) {
             const accData = await accRes.json();
             if (accData.data && accData.data.length > 0) {
@@ -6660,7 +6687,7 @@ body > header,
         }
         if (!actId) actId = 'act_default';
 
-        const testRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,ctr&date_preset=last_30d&access_token=${encodeURIComponent(token)}`);
+        const testRes = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,ctr&date_preset=last_30d`, { headers: { 'Authorization': `Bearer ${token}` } });
         let insights = { spend: '0', impressions: '0', clicks: '0', ctr: '0' };
         if (testRes.ok) {
           const testData = await testRes.json();
@@ -6712,8 +6739,8 @@ body > header,
 
       try {
         const [insRes, campRes] = await Promise.all([
-          fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,ctr&date_preset=last_30d&access_token=${encodeURIComponent(t)}`),
-          fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/campaigns?fields=id,name,status,objective&limit=5&access_token=${encodeURIComponent(t)}`)
+          fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/insights?fields=spend,impressions,clicks,ctr&date_preset=last_30d`, { headers: { 'Authorization': `Bearer ${t}` } }),
+          fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(actId)}/campaigns?fields=id,name,status,objective&limit=5`, { headers: { 'Authorization': `Bearer ${t}` } })
         ]);
 
         if (insRes.ok) {
@@ -8976,6 +9003,10 @@ body > header,
         a => a.email.toLowerCase() !== email.toLowerCase()
       );
       accounts.push(account);
+
+      const isTokenAuth = Boolean(token);
+      account.authMethod = isTokenAuth ? 'direct_token' : 'context_handle';
+      account.hasToken = isTokenAuth;
 
       appState.appConnections[appId] = {
         ...conn,
@@ -19693,7 +19724,7 @@ let activeTtsSessionId = 0;
 let activeTtsWatchdogTimer = null;
 let activeTtsUtterance = null;
 let cachedSpeechVoices = [];
-let phase4PendingTasksQueue = [];
+let phase4PendingTasksQueue = []; window.phase4PendingTasksQueue = phase4PendingTasksQueue;
 let activeRoutineAbortSeq = 0;
 let telegramWebhookClearedOnce = false;
 let telegram409CooldownUntilTs = 0;
@@ -19887,6 +19918,8 @@ function renderPhase4SettingsRowBadges() {
 
 function drainPhase4PendingTasksQueue() {
   if (phase4PendingTasksQueue.length === 0) return;
+  // Battery and background performance guard (Fixes Reviewer #27)
+  if (typeof document !== 'undefined' && document.hidden) return;
   if (isRoutineExecutionBusy) return;
   if (typeof uiState.isOrchestratorRunning !== 'undefined' && uiState.isOrchestratorRunning) return;
   if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) return;
@@ -20795,7 +20828,7 @@ async function forwardMessageToTelegram(msgIndex, explicitChat = null) {
     } else if (data.retryable) {
       enqueueOfflineCloudTask('TELEGRAM_SEND', {
         chatId,
-        text: splitStringByCodePoints(formatted, 3500)[0] || formatted.slice(0, 3500)
+        text: formatted
       });
       showToast('⏳ سرور تلگرام موقتاً در دسترس نیست؛ پیام در صف ارسال مجدد ذخیره شد');
     } else {
@@ -20935,8 +20968,21 @@ async function pollTelegramUpdatesOnce() {
 
         const pairMatch = normalizedIncoming.match(/^\/pair\s+(\d{6})\b/i);
         if (pairMatch) {
+          const nowPairTs = Date.now();
+          if (typeof window._tgPairLockUntil === 'number' && nowPairTs < window._tgPairLockUntil) {
+            const remMin = Math.max(1, Math.ceil((window._tgPairLockUntil - nowPairTs) / 60000));
+            recordTelegramSecurityAudit(`Blocked /pair rate-limit cooldown from chat_id=${senderChatId}`);
+            await sendTelegramTextSafe(
+              token,
+              senderChatId,
+              `⛔ به دلیل تلاش‌های ناموفق مکرر، جفت‌سازی تا ${remMin} دقیقه مسدود است. لطفاً بعداً تلاش کنید.`
+            ).catch(() => {});
+            continue;
+          }
           const suppliedCode = pairMatch[1];
           if (suppliedCode === String(appState.telegramConfig.pairingCode)) {
+            window._tgPairFailCount = 0;
+            window._tgPairLockUntil = 0;
             if (senderChatId && !configuredAllowedChatIds.includes(senderChatId)) {
               configuredAllowedChatIds.push(senderChatId);
               appState.telegramConfig.chatId = configuredAllowedChatIds.join(', ');
@@ -20954,7 +21000,11 @@ async function pollTelegramUpdatesOnce() {
               `✅ جفت‌سازی امنیتی با موفقیت انجام شد!\n• شناسه چت مجاز: ${senderChatId}\n• شناسه مالک (from.id): ${senderUserId || 'ثبت شد'}\nاکنون می‌توانید از تمام دستورات ربات استفاده کنید.`
             ).catch(() => {});
           } else {
-            recordTelegramSecurityAudit(`Failed /pair attempt from chat_id=${senderChatId} user_id=${senderUserId}`);
+            window._tgPairFailCount = (window._tgPairFailCount || 0) + 1;
+            if (window._tgPairFailCount >= 5) {
+              window._tgPairLockUntil = nowPairTs + (15 * 60 * 1000); // 15-minute lock on brute-force (Fixes Reviewer #24)
+            }
+            recordTelegramSecurityAudit(`Failed /pair attempt (#${window._tgPairFailCount}) from chat_id=${senderChatId} user_id=${senderUserId}`);
             await sendTelegramTextSafe(
               token,
               senderChatId,
@@ -22385,8 +22435,7 @@ async function flushOfflineCloudQueue() {
 
 
 
-          if (workerUrl) {
-            if (!workerSecret) continue; // Skip sync if workerSecret is not configured (Fixes Reviewer #11)
+          if (workerUrl && workerSecret) {
             const headers = { 'Content-Type': 'application/json', 'X-Nexus-Secret': workerSecret };
             const res = await fetchWithPhase4Timeout(workerUrl, {
               method: 'POST',
@@ -22645,11 +22694,7 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
 
 
 
-    if (workerUrl) {
-      if (!workerSecret) {
-        console.warn('Worker sync skipped: workerSecret is not configured (Fixes Reviewer #10)');
-        return false;
-      }
+    if (workerUrl && workerSecret) {
       try {
         const headers = { 'Content-Type': 'application/json', 'X-Nexus-Secret': workerSecret };
 
@@ -23207,10 +23252,17 @@ return decodeQuotedPrintableUtf8(String(payload || "").replace(/_/g, " "), chars
 
 
 
-async function getCloudBrainContextSnippet(env) {
+async function getKvWithFallback(env, key, wsPrefix = 'default:') {
+  if (!env || !env.NEXUS_KV) return null;
+  const prefixed = await env.NEXUS_KV.get(wsPrefix + key);
+  if (prefixed !== null && prefixed !== undefined) return prefixed;
+  return await env.NEXUS_KV.get(key); // Fallback to legacy global key (Fixes Reviewer #2)
+}
+
+async function getCloudBrainContextSnippet(env, wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV) return "";
   try {
-const raw = await env.NEXUS_KV.get("brain_nodes");
+const raw = await getKvWithFallback(env, "brain_nodes", wsPrefix);
 const nodes = safeJsonParse(raw, []);
 if (!Array.isArray(nodes) || nodes.length === 0) return "";
 const lines = nodes
@@ -23275,9 +23327,9 @@ for (const part of chunks) {
 
 
 
-async function appendOfflineCompletedToKv(env, newMessages = []) {
+async function appendOfflineCompletedToKv(env, newMessages = [], wsPrefix = 'default:') {
   if (!env || !env.NEXUS_KV || !Array.isArray(newMessages) || newMessages.length === 0) return;
-  const currentList = safeJsonParse(await env.NEXUS_KV.get("offline_completed"), []);
+  const currentList = safeJsonParse(await getKvWithFallback(env, "offline_completed", wsPrefix), []);
   const byId = new Map();
   if (Array.isArray(currentList)) {
 currentList.forEach(m => {
@@ -23288,7 +23340,7 @@ currentList.forEach(m => {
 if (m && m.id) byId.set(String(m.id), m);
   });
   const combined = Array.from(byId.values()).slice(-MAX_OFFLINE_ITEMS);
-  await env.NEXUS_KV.put("offline_completed", JSON.stringify(combined));
+  await env.NEXUS_KV.put(wsPrefix + "offline_completed", JSON.stringify(combined));
 }
 
 
@@ -23296,46 +23348,28 @@ if (m && m.id) byId.set(String(m.id), m);
 
 async function acquireRoutineExecutionLock(env, routineId, nowTs = Date.now(), ttlMs = ROUTINE_LOCK_TTL_MS) {
   if (!env || !env.NEXUS_KV || !routineId) return true;
-  const locks = safeJsonParse(await env.NEXUS_KV.get("routine_locks"), {});
-  const existingLease = Number(locks[routineId]) || 0;
-  if (existingLease > nowTs) return false;
-  locks[routineId] = nowTs + ttlMs;
-  Object.keys(locks).forEach(k => {
-if ((Number(locks[k]) || 0) <= nowTs) delete locks[k];
-  });
-  await env.NEXUS_KV.put("routine_locks", JSON.stringify(locks));
+  const lockKey = "rt_lock:" + String(routineId).slice(0, 80);
+  const existing = await env.NEXUS_KV.get(lockKey);
+  if (existing && Number(existing) > nowTs) return false;
+  await env.NEXUS_KV.put(lockKey, String(nowTs + ttlMs), { expirationTtl: Math.max(10, Math.ceil(ttlMs / 1000) + 10) });
   return true;
 }
-
-
-
 
 async function releaseRoutineExecutionLock(env, routineId) {
   if (!env || !env.NEXUS_KV || !routineId) return;
   try {
-const locks = safeJsonParse(await env.NEXUS_KV.get("routine_locks"), {});
-delete locks[routineId];
-await env.NEXUS_KV.put("routine_locks", JSON.stringify(locks));
+    await env.NEXUS_KV.delete("rt_lock:" + String(routineId).slice(0, 80));
   } catch (e) {}
 }
-
-
-
 
 async function checkAndRecordWebhookIdempotency(env, eventId, nowTs = Date.now()) {
   if (!env || !env.NEXUS_KV || !eventId) return false;
   const cleanId = String(eventId).trim().slice(0, 120);
   if (!cleanId) return false;
-  const map = safeJsonParse(await env.NEXUS_KV.get("processed_webhook_ids"), {});
-  if (map[cleanId] && Number(map[cleanId]) > nowTs) {
-return true;
-  }
-  map[cleanId] = nowTs + (24 * 3600 * 1000);
-  const keys = Object.keys(map);
-  if (keys.length > 200) {
-keys.slice(0, keys.length - 200).forEach(k => delete map[k]);
-  }
-  await env.NEXUS_KV.put("processed_webhook_ids", JSON.stringify(map));
+  const dedupeKey = "wh_dedupe:" + cleanId;
+  const existing = await env.NEXUS_KV.get(dedupeKey);
+  if (existing) return true; // Already processed
+  await env.NEXUS_KV.put(dedupeKey, "1", { expirationTtl: 86400 }); // Atomic 24h expiration in KV (Fixes Reviewer #5)
   return false;
 }
 
@@ -23880,8 +23914,8 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
 
 
 
-  const routines = safeJsonParse(await env.NEXUS_KV.get("routines"), []);
-  const brainCtx = await getCloudBrainContextSnippet(env);
+  const routines = safeJsonParse(await getKvWithFallback(env, "routines", wsPrefix), []);
+  const brainCtx = await getCloudBrainContextSnippet(env, wsPrefix);
   const matched = (Array.isArray(routines) ? routines : []).filter(r =>
     r && r.enabled && (r.id === body.routineId || (!body.routineId && r.schedule === "webhook"))
   );
@@ -23933,12 +23967,12 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
 
 
   if (triggeredCount > 0) {
-    const latestKvRoutines = safeJsonParse(await env.NEXUS_KV.get("routines"), []);
-    const latestDeletedIds = safeJsonParse(await env.NEXUS_KV.get("deleted_routine_ids"), []);
-    const latestDeletedMeta = safeJsonParse(await env.NEXUS_KV.get("deleted_routine_meta"), {});
+    const latestKvRoutines = safeJsonParse(await getKvWithFallback(env, "routines", wsPrefix), []);
+    const latestDeletedIds = safeJsonParse(await getKvWithFallback(env, "deleted_routine_ids", wsPrefix), []);
+    const latestDeletedMeta = safeJsonParse(await getKvWithFallback(env, "deleted_routine_meta", wsPrefix), {});
     const mergedWhRoutines = mergeCloudAndClientRoutines(routines, latestKvRoutines, latestDeletedIds, latestDeletedMeta);
-    await env.NEXUS_KV.put("routines", JSON.stringify(mergedWhRoutines));
-    await appendOfflineCompletedToKv(env, newMessages);
+    await env.NEXUS_KV.put(wsPrefix + "routines", JSON.stringify(mergedWhRoutines));
+    await appendOfflineCompletedToKv(env, newMessages, wsPrefix);
   }
   return new Response(JSON.stringify({ ok: true, triggeredCount }), {
     headers: { ...cors, "Content-Type": "application/json" }
@@ -24016,15 +24050,12 @@ ctx.waitUntil((async () => {
 
 
 
-  const budgetRaw = safeJsonParse(await env.NEXUS_KV.get("daily_run_budget"), { dateKey: todayKey, count: 0 });
+  const budgetRaw = safeJsonParse(await getKvWithFallback(env, "daily_run_budget", "default:"), { dateKey: todayKey, count: 0 });
   const currentDailyCount = budgetRaw.dateKey === todayKey ? (Number(budgetRaw.count) || 0) : 0;
   if (currentDailyCount >= MAX_DAILY_CLOUD_RUNS) return;
 
-
-
-
-  const routines = safeJsonParse(await env.NEXUS_KV.get("routines"), []);
-  const brainCtx = await getCloudBrainContextSnippet(env);
+  const routines = safeJsonParse(await getKvWithFallback(env, "routines", "default:"), []);
+  const brainCtx = await getCloudBrainContextSnippet(env, "default:");
   const newMessages = [];
   let runsExecuted = 0;
 
@@ -24103,13 +24134,13 @@ ctx.waitUntil((async () => {
 
 
   if (runsExecuted > 0) {
-    await env.NEXUS_KV.put("daily_run_budget", JSON.stringify({ dateKey: todayKey, count: currentDailyCount + runsExecuted }));
-    const latestKvRoutines = safeJsonParse(await env.NEXUS_KV.get("routines"), []);
-    const latestDeletedIds = safeJsonParse(await env.NEXUS_KV.get("deleted_routine_ids"), []);
-    const latestDeletedMeta = safeJsonParse(await env.NEXUS_KV.get("deleted_routine_meta"), {});
+    await env.NEXUS_KV.put("default:daily_run_budget", JSON.stringify({ dateKey: todayKey, count: currentDailyCount + runsExecuted }));
+    const latestKvRoutines = safeJsonParse(await getKvWithFallback(env, "routines", "default:"), []);
+    const latestDeletedIds = safeJsonParse(await getKvWithFallback(env, "deleted_routine_ids", "default:"), []);
+    const latestDeletedMeta = safeJsonParse(await getKvWithFallback(env, "deleted_routine_meta", "default:"), {});
     const mergedCronRoutines = mergeCloudAndClientRoutines(routines, latestKvRoutines, latestDeletedIds, latestDeletedMeta);
-    await env.NEXUS_KV.put("routines", JSON.stringify(mergedCronRoutines));
-    await appendOfflineCompletedToKv(env, newMessages);
+    await env.NEXUS_KV.put("default:routines", JSON.stringify(mergedCronRoutines));
+    await appendOfflineCompletedToKv(env, newMessages, "default:");
   }
 })());
   },
@@ -28372,15 +28403,23 @@ if (typeof document !== 'undefined') {
         try { activeTermuxAbortController.abort(); } catch (e) {}
         activeTermuxAbortController = null;
       }
-      isTermuxExecBusy = false;
+      const targetJobId = window._currentTermuxJobId || '';
       const baseUrl = sanitizeLocalBridgeUrl(appState.localComputerConfig.bridgeUrl);
       fetchWithPhase5Timeout(`${baseUrl}/cancel`, {
         method: 'POST',
-        headers: { 'X-Nexus-Token': appState.localComputerConfig.bridgeToken }
-      }, 2500).then(r => disposePhase5Response(r)).catch(() => {});
+        headers: { 'Content-Type': 'application/json', 'X-Nexus-Token': appState.localComputerConfig.bridgeToken },
+        body: JSON.stringify({ jobId: targetJobId })
+      }, 2500).then(r => {
+        disposePhase5Response(r);
+        isTermuxExecBusy = false;
+        renderPhase5OperatorStudio();
+      }).catch(() => {
+        isTermuxExecBusy = false;
+        renderPhase5OperatorStudio();
+      });
       appState.localComputerConfig.lastTerminalOutput =
         String(appState.localComputerConfig.lastTerminalOutput || '') +
-        '\n\n⏹ [عملیات توسط کاربر لغو شد و سیگنال SIGTERM/SIGKILL به گروه پروسه در Termux ارسال گردید]';
+        '\n\n⏹ [عملیات توسط کاربر لغو شد و سیگنال SIGTERM/SIGKILL به پروسه در Termux ارسال گردید]';
       if (typeof saveState === 'function') saveState();
       renderPhase5OperatorStudio();
       showToast('⏹ اجرای فرمان در Termux لغو شد');
@@ -28476,6 +28515,7 @@ if (typeof document !== 'undefined') {
 
 
       try {
+        window._currentTermuxJobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
         const res = await fetchWithPhase5Timeout(`${baseUrl}/exec`, {
           method: 'POST',
           headers: {
@@ -28485,6 +28525,7 @@ if (typeof document !== 'undefined') {
             'X-Nexus-Nonce': reqNonce
           },
           body: JSON.stringify({
+            jobId: window._currentTermuxJobId,
             command: cmd,
             cwd: primaryFolder,
             category: category.key,
@@ -28598,6 +28639,7 @@ const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env(?:\\.[a-z0-9_-]+)?|
 const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|find|grep|rg|stat|du|df|pwd|wc|file|tree)\\b/i;
 const WORKSPACE_ESCAPE_REGEX = /(?:^|[\\s;&|])cd\\s+(?:\\/|~|\\$HOME|\\.\\.(?:\\/|$))|(?:^|[\\s"'=<>])\\/(?:etc|proc|sys|dev|data\\/data|system)\\b/i;
 const activeChildProcs = new Set();
+const activeJobsMap = new Map();
 const usedNonces = new Map();
 const rateWindowHits = new Float64Array(64);
 let rateWindowHead = 0;
@@ -28823,6 +28865,14 @@ process.on('SIGTERM', gracefulShutdown);
 
 
 http.createServer((req, res) => {
+  // Enforce loopback binding: reject non-loopback connections unless NEXUS_ALLOW_LAN=1 (Fixes Reviewer #7)
+  const remoteIp = String(req.socket.remoteAddress || '');
+  const isLoopbackIp = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
+  if (!isLoopbackIp && process.env.NEXUS_ALLOW_LAN !== '1') {
+    res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({ ok: false, error: 'Remote non-loopback connections disallowed without NEXUS_ALLOW_LAN=1' }));
+  }
+
   const origin = String(req.headers.origin || '');
   const isTrustedLocalOrigin = !origin || origin === 'null' || /^https?:\\/\\/(?:localhost|127\\.0\\.0\\.1)(?::\\d+)?$/i.test(origin) || /^capacitor:\\/\\/localhost$/i.test(origin);
   if (isTrustedLocalOrigin) {
@@ -28884,14 +28934,34 @@ http.createServer((req, res) => {
       res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify({ ok: false, error: 'Unauthorized X-Nexus-Token' }));
     }
-    let killedCount = 0;
-    for (const proc of activeChildProcs) {
-      killProcessTreeSafe(proc);
-      killedCount++;
-    }
-    activeChildProcs.clear();
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify({ ok: true, killedCount }));
+    let cancelBody = {};
+    const cancelChunks = [];
+    req.on('data', c => cancelChunks.push(c));
+    req.on('end', () => {
+      try { cancelBody = JSON.parse(Buffer.concat(cancelChunks).toString('utf8') || '{}'); } catch (e) {}
+      const targetJobId = String(cancelBody.jobId || '').trim();
+      let killedCount = 0;
+      if (targetJobId && activeJobsMap.has(targetJobId)) {
+        const proc = activeJobsMap.get(targetJobId);
+        killProcessTreeSafe(proc);
+        activeJobsMap.delete(targetJobId);
+        activeChildProcs.delete(proc);
+        killedCount = 1;
+      } else {
+        for (const [jid, proc] of activeJobsMap.entries()) {
+          killProcessTreeSafe(proc);
+          killedCount++;
+        }
+        for (const proc of activeChildProcs) {
+          killProcessTreeSafe(proc);
+        }
+        activeJobsMap.clear();
+        activeChildProcs.clear();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: true, killedCount, targetJobId: targetJobId || 'all' }));
+    });
+    return;
   }
 
 
@@ -28990,6 +29060,24 @@ http.createServer((req, res) => {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
           return res.end(JSON.stringify({ ok: false, error: 'Command violates server-side policyFileRead read-only guard' }));
         }
+        // Canonicalize real target path to prevent symlink bypass outside workspace roots (Fixes Reviewer #6)
+        try {
+          const parts = command.trim().split(/\s+/).filter(Boolean);
+          const candidateFiles = parts.slice(1).filter(p => !p.startsWith('-'));
+          for (const cand of candidateFiles) {
+            const targetAbs = path.resolve(safeCwd, cand);
+            if (fs.existsSync(targetAbs)) {
+              const realTarget = fs.realpathSync(targetAbs);
+              if (!isInsideAllowedRoots(realTarget, allowedRoots)) {
+                res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                return res.end(JSON.stringify({ ok: false, error: 'Access denied: target path or symlink resolves outside allowed workspace roots' }));
+              }
+            }
+          }
+        } catch (e) {
+          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+          return res.end(JSON.stringify({ ok: false, error: 'Failed to verify file path safety: ' + e.message }));
+        }
       }
 
 
@@ -29015,6 +29103,9 @@ http.createServer((req, res) => {
         env: buildSanitizedChildEnv()
       });
       activeChildProcs.add(childProc);
+      const activeJobId = String(parsed.jobId || ('job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)));
+      activeJobsMap.set(activeJobId, childProc);
+      childProc.on('close', () => activeJobsMap.delete(activeJobId));
 
 
       const appendChunk = (chunk) => {
@@ -29129,11 +29220,11 @@ fs.writeFileSync("capacitor.config.json", JSON.stringify({
   webDir: "www",
   server: {
     androidScheme: "https",
-    cleartext: false,
-    allowNavigation: ["localhost", "127.0.0.1"]
+    cleartext: true,
+    allowNavigation: ["localhost", "127.0.0.1", "*.local"]
   },
   android: {
-    allowMixedContent: false,
+    allowMixedContent: true,
     captureInput: true,
     webContentsDebuggingEnabled: false
   }

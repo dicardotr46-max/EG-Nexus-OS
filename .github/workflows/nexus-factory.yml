@@ -80,7 +80,7 @@ jobs:
           cp capacitor.config.json build_workspace/
           cd build_workspace
           npm init -y
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/app@latest @capacitor/browser@latest @capacitor/filesystem@latest @capacitor/share@latest
+          npm install --save-exact @capacitor/core@8.5.3 @capacitor/cli@8.5.3 @capacitor/android@8.5.3 @capacitor/app@8.0.0 @capacitor/browser@8.0.0 @capacitor/filesystem@8.0.0 @capacitor/share@8.0.0
 
       - name: 7. Compile Android APK
         run: |
@@ -101,8 +101,16 @@ jobs:
       - name: 9. Copy APK for Release
         run: cp build_workspace/android/app/build/outputs/apk/debug/app-debug.apk EG-Nexus-OS-v5.1.apk
 
+      - name: 9.5. Update Git Tag to Current Commit
+        run: |
+          git tag -f latest-apk ${{ github.sha }}
+          git push -f origin latest-apk || true
+
       - name: 10. Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-apk
+          target_commitish: ${{ github.sha }}
+          name: "EG Nexus OS v5.1"
+          body: "Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}."
           files: EG-Nexus-OS-v5.1.apk
