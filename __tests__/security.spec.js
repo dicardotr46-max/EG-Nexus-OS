@@ -14,6 +14,10 @@ describe('Security & Secrets Management', () => {
   let sessionStorageMock;
 
   beforeEach(() => {
+    const NexusSecrets = require('../src/security/secrets.js');
+    if (typeof NexusSecrets._resetSessionCryptoState === 'function') {
+      NexusSecrets._resetSessionCryptoState();
+    }
     sessionStorageMock = createStorageMock();
 
     context = vm.createContext({
@@ -35,13 +39,17 @@ describe('Security & Secrets Management', () => {
       TextDecoder,
       Math,
       parseInt,
+      window: {
+        _nexusCoreSecrets: NexusSecrets
+      },
+      _nexusCoreSecrets: NexusSecrets,
       _sessionCryptoKey: null,
       _sessionCryptoKeyPromise: null,
       _sessionKeyRaw: null,
       _cachedSessionSecrets: null
     });
 
-    ['_sha256Pure', '_sha256', '_getStorage', '_resolveSecretsStorageKey', '_normalizeSecretsPayload', '_quarantineCorruptedPayload', '_initMemorySessionKey', '_uint8ToHex', '_hexToUint8', '_syncTransform', '_getOrCreateWebCryptoKey'].forEach(fnName => {
+    ['_sha256Pure', '_sha256', '_getStorage', '_resolveSecretsStorageKey', '_normalizeSecretsPayload', '_quarantineCorruptedPayload', '_initMemorySessionKey', '_uint8ToHex', '_hexToUint8', '_createEmptySessionSecrets', '_syncTransform', '_getOrCreateWebCryptoKey'].forEach(fnName => {
       const fnCode = extractFunction(fnName);
       if (fnCode) vm.runInContext(fnCode, context);
     });
@@ -511,6 +519,91 @@ describe('Security & Secrets Management', () => {
       const quarantineKey = allKeys.find(k => k.startsWith(NexusSecrets.SESSION_SECRETS_KEY + '_corrupted_'));
       expect(quarantineKey).toBeDefined();
       expect(sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY)).toBeNull();
+    });
+  });
+
+  describe('Non-extractable WebCrypto Key in IndexedDB & Non-Crypto Compat Codec', () => {
+    it('should export _nonCryptoCompatCodec and retain _syncTransform as an alias', () => {
+      expect(typeof NexusSecrets._nonCryptoCompatCodec).toBe('function');
+      expect(NexusSecrets._syncTransform).toBe(NexusSecrets._nonCryptoCompatCodec);
+    });
+
+    it('should transform bytes reversibly using _nonCryptoCompatCodec', () => {
+      const data = new TextEncoder().encode('EG-Nexus-OS Non-Crypto Fallback Test');
+      const key = new Uint8Array(32).fill(42);
+      const iv = new Uint8Array(12).fill(7);
+
+      const encoded = NexusSecrets._nonCryptoCompatCodec(data, key, iv);
+      expect(encoded).toBeInstanceOf(Uint8Array);
+      expect(encoded.length).toBe(data.length);
+
+      // Symmetrical decode
+      const decoded = NexusSecrets._nonCryptoCompatCodec(encoded, key, iv);
+      expect(new TextDecoder().decode(decoded)).toBe('EG-Nexus-OS Non-Crypto Fallback Test');
+    });
+
+    it('should define correct IndexedDB keystore constants', () => {
+      expect(NexusSecrets.IDB_KEYSTORE_DB).toBe('nexus_crypto_keystore_db');
+      expect(NexusSecrets.IDB_KEYSTORE_STORE).toBe('keys');
+      expect(NexusSecrets.IDB_KEYSTORE_KEY).toBe('master_session_key');
+    });
+
+    it('should safely return null when IndexedDB is not present in Node environment', async () => {
+      const key = await NexusSecrets._getKeyFromIndexedDB();
+      expect(key).toBeNull();
+      const saved = await NexusSecrets._saveKeyToIndexedDB(null);
+      expect(saved).toBe(false);
+      const cleared = await NexusSecrets._clearKeyFromIndexedDB();
+      expect(cleared).toBe(false);
+    });
+  });
+
+  describe('Provider Capability Tiers & Offline Fallback Labeling', () => {
+    const registry = require('../src/providers/registry.js');
+
+    it('should export standard PROVIDER_TIERS', () => {
+      expect(registry.PROVIDER_TIERS).toBeDefined();
+      expect(registry.PROVIDER_TIERS.PRODUCTION_READY).toBe('production-ready');
+      expect(registry.PROVIDER_TIERS.CONTRACT_TESTED).toBe('contract-tested');
+      expect(registry.PROVIDER_TIERS.CATALOG_ADAPTER).toBe('catalog-adapter');
+    });
+
+    it('should assign production-ready tier to Google, GitHub, Cloudflare, and Supabase', () => {
+      const prodProviders = ['gmail', 'gcal', 'calendar', 'drive', 'google_drive', 'youtube', 'github', 'cloudflare', 'supabase', 'gworkspace', 'google_sheets', 'fitbit'];
+      prodProviders.forEach(pId => {
+        expect(registry.getProviderTier(pId)).toBe('production-ready');
+        const config = registry.getProviderConfig(pId);
+        expect(config).toBeDefined();
+        expect(config.tier).toBe('production-ready');
+      });
+    });
+
+    it('should assign contract-tested tier to Telegram, Termux, Clash Royale, and CoinGecko', () => {
+      const contractProviders = ['telegram', 'termux', 'clash_royale', 'coingecko'];
+      contractProviders.forEach(pId => {
+        expect(registry.getProviderTier(pId)).toBe('contract-tested');
+        const config = registry.getProviderConfig(pId);
+        expect(config).toBeDefined();
+        expect(config.tier).toBe('contract-tested');
+      });
+    });
+
+    it('should assign catalog-adapter tier to MCP servers, Tavily, and SaaS catalog adapters', () => {
+      const adapterProviders = ['tavily', 'web_search', 'picsart', 'tailscale', 'sentry', 'linear'];
+      adapterProviders.forEach(pId => {
+        expect(registry.getProviderTier(pId)).toBe('catalog-adapter');
+        const config = registry.getProviderConfig(pId);
+        expect(config).toBeDefined();
+        expect(config.tier).toBe('catalog-adapter');
+      });
+    });
+
+    it('should ensure all items in APPS_CATALOG have an explicit tier property', () => {
+      expect(registry.APPS_CATALOG.length).toBeGreaterThan(50);
+      registry.APPS_CATALOG.forEach(app => {
+        expect(app.tier).toBeDefined();
+        expect(['production-ready', 'contract-tested', 'catalog-adapter']).toContain(app.tier);
+      });
     });
   });
 });

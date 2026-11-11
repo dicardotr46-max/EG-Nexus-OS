@@ -470,5 +470,171 @@ describe('Coverage Boost Suite', () => {
       expect(res.initialized).toBe(false);
       expect(quarantined).toBe(true);
     });
+
+    test('covers IndexedDB Keystore success, upgrade, and error handling branches', async () => {
+      const mockDB = {
+        transaction: jest.fn(() => ({
+          objectStore: jest.fn(() => ({
+            get: jest.fn(() => {
+              const req = {};
+              setTimeout(() => { req.result = { type: 'mockCryptoKey' }; if (req.onsuccess) req.onsuccess(); }, 5);
+              return req;
+            }),
+            put: jest.fn(() => {
+              const req = {};
+              setTimeout(() => { if (req.onsuccess) req.onsuccess(); }, 5);
+              return req;
+            }),
+            delete: jest.fn(() => {
+              const req = {};
+              setTimeout(() => { if (req.onsuccess) req.onsuccess(); }, 5);
+              return req;
+            })
+          }))
+        }))
+      };
+
+      const mockIdb = {
+        open: jest.fn((name, ver) => {
+          const req = {};
+          setTimeout(() => {
+            if (req.onupgradeneeded) {
+              req.onupgradeneeded({
+                target: {
+                  result: {
+                    objectStoreNames: { contains: () => false },
+                    createObjectStore: jest.fn()
+                  }
+                }
+              });
+            }
+            req.result = mockDB;
+            if (req.onsuccess) req.onsuccess({ target: { result: mockDB } });
+          }, 5);
+          return req;
+        })
+      };
+
+      global.indexedDB = mockIdb;
+      const key = await secrets._getKeyFromIndexedDB();
+      expect(key).toEqual({ type: 'mockCryptoKey' });
+
+      const saved = await secrets._saveKeyToIndexedDB({ type: 'mockCryptoKey' });
+      expect(saved).toBe(true);
+
+      const cleared = await secrets._clearKeyFromIndexedDB();
+      expect(cleared).toBe(true);
+
+      // Error branches
+      const errorIdb = {
+        open: jest.fn(() => {
+          const req = {};
+          setTimeout(() => {
+            if (req.onerror) req.onerror();
+            if (req.onblocked) req.onblocked();
+          }, 5);
+          return req;
+        })
+      };
+      global.indexedDB = errorIdb;
+      const errKey = await secrets._getKeyFromIndexedDB();
+      expect(errKey).toBeNull();
+
+      delete global.indexedDB;
+    });
+
+    test('readSessionSecrets returns cached secrets directly when initialized', () => {
+      secrets._resetSessionMemoryCache();
+      const mockStorage = {
+        getItem: () => JSON.stringify({
+          encrypted: false,
+          initialized: true,
+          apiKeys: { gemini: 'cached_test_key' }
+        }),
+        setItem: () => {},
+        removeItem: () => {}
+      };
+
+      // First read caches it
+      const first = secrets.readSessionSecrets(mockStorage);
+      expect(first.apiKeys.gemini).toBe('cached_test_key');
+
+      // Second read should return from cache
+      const cached = secrets.readSessionSecrets(mockStorage);
+      expect(cached.apiKeys.gemini).toBe('cached_test_key');
+    });
+
+    test('readSessionSecrets catches decipher error on corrupted AES-GCM payload in Node and quarantines', () => {
+      secrets._resetSessionMemoryCache();
+      let quarantined = false;
+      const corruptAesStore = {
+        getItem: () => JSON.stringify({
+          encrypted: true,
+          algorithm: 'AES-GCM-256',
+          iv: '0102030405060708090a0b0c',
+          ciphertext: '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff' // corrupted tag
+        }),
+        setItem: k => { if (k.includes('_corrupted_')) quarantined = true; },
+        removeItem: () => {}
+      };
+
+      const res = secrets.readSessionSecrets(corruptAesStore);
+      expect(res.initialized).toBe(false);
+      expect(quarantined).toBe(true);
+    });
+
+    test('readSessionSecrets catches JSON decode error on sync-stream payload and quarantines', () => {
+      secrets._resetSessionMemoryCache();
+      let quarantined = false;
+      const corruptSyncStore = {
+        getItem: () => JSON.stringify({
+          encrypted: true,
+          algorithm: 'sync-stream-v1',
+          iv: '0102030405060708090a0b0c',
+          ciphertext: '01020304' // decodes to non-JSON garbage
+        }),
+        setItem: k => { if (k.includes('_corrupted_')) quarantined = true; },
+        removeItem: () => {}
+      };
+
+      const res = secrets.readSessionSecrets(corruptSyncStore);
+      expect(res.initialized).toBe(false);
+      expect(quarantined).toBe(true);
+    });
+
+    test('readSessionSecretsAsync handles tamper detection quarantine when both AES-GCM and fallback fail', async () => {
+      secrets._resetSessionMemoryCache();
+      let quarantined = false;
+      const tamperedStore = {
+        getItem: () => JSON.stringify({
+          encrypted: true,
+          algorithm: 'AES-GCM-256',
+          iv: '0102030405060708090a0b0c',
+          ciphertext: '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
+          syncCiphertext: 'bad_hex_sync_garbage!'
+        }),
+        setItem: k => { if (k.includes('_corrupted_')) quarantined = true; },
+        removeItem: () => {}
+      };
+
+      const res = await secrets.readSessionSecretsAsync(tamperedStore);
+      expect(res.initialized).toBe(false);
+      expect(quarantined).toBe(true);
+    });
+
+    test('persistence module error branch coverage', () => {
+      const persistence = require('../src/core/persistence');
+      // Storage null branch
+      expect(persistence.migrateLegacyStorage(null)).toBe(false);
+
+      // Storage throw branch
+      const throwStore = {
+        getItem: () => { throw new Error('Simulated disk error'); }
+      };
+      expect(persistence.migrateLegacyStorage(throwStore)).toBe(false);
+
+      // getStorageSizeEstimate
+      expect(persistence.getStorageSizeEstimate('non_existent_key')).toBe(0);
+    });
   });
 });

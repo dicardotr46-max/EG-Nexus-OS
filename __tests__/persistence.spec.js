@@ -8,6 +8,7 @@ const {
 
 describe('Persistence and State Storage', () => {
   let context;
+  const persistence = require('../src/core/persistence.js');
 
   beforeEach(() => {
     const buildPersistedStateCode = extractFunction('buildPersistedState');
@@ -16,7 +17,13 @@ describe('Persistence and State Storage', () => {
       emptyApiKeys,
       JSON,
       Array,
-      Object
+      Object,
+      window: {
+        _nexusCorePersistence: persistence,
+        API_KEY_NAMES,
+        emptyApiKeys
+      },
+      _nexusCorePersistence: persistence
     });
     vm.runInContext(buildPersistedStateCode, context);
   });
@@ -376,8 +383,8 @@ describe('Persistence and State Storage', () => {
         ]
       };
 
-      // Set threshold so full attachments (size ~420) fail, but evicted Stage 2 (size ~377) succeeds
-      const result = executeStorageSaveWithQuotaRecovery(appState, storageMock, 400);
+      // Set threshold so full attachments (size ~462) fail, but evicted Stage 2 (size ~442) succeeds
+      const result = executeStorageSaveWithQuotaRecovery(appState, storageMock, 450);
 
       expect(result.savedOk).toBe(true);
       const saved = JSON.parse(result.storedState);

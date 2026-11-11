@@ -3,15 +3,31 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  const exports = factory();
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
-    module.exports = factory();
-  } else {
-    /* istanbul ignore next */
-    Object.assign(root || {}, factory());
+    module.exports = exports;
+  }
+  /* istanbul ignore next */
+  if (root) {
+    Object.assign(root, exports);
+    root._nexusCoreState = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof globalThis !== 'undefined') {
+    globalThis._nexusCoreState = exports;
+  }
+  /* istanbul ignore next */
+  /* istanbul ignore next */
+  if (typeof window !== 'undefined') {
+    Object.assign(window, exports);
+    window._nexusCoreState = exports;
   }
 })(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
+
+  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
+  const LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
 
   const DEFAULT_WORKOUT_STUDIO_TEMPLATE = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -139,6 +155,8 @@
   const uiState = createInitialUiState();
 
   return {
+    STORAGE_KEY,
+    LEGACY_STORAGE_KEY,
     DEFAULT_WORKOUT_STUDIO_TEMPLATE,
     createInitialAppState,
     createInitialUiState,

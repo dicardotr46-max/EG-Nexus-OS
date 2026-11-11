@@ -32,7 +32,10 @@ function extractFunction(name, html = getIndexHtml()) {
   return html.slice(startIdx, endIdx);
 }
 
-const API_KEY_NAMES = ['openai', 'anthropic', 'google', 'groq', 'deepseek', 'mistral', 'openrouter', 'perplexica', 'cohere'];
+const API_KEY_NAMES = [
+  'gemini', 'openrouter', 'deepseek', 'grok', 'kimi', 'tavily', 'perplx',
+  'openai', 'anthropic', 'google', 'groq', 'mistral', 'perplexica', 'cohere'
+];
 const SESSION_SECRETS_KEY = 'eg_nexus_session_secrets_v1';
 const SESSION_SECRETS_SCHEMA_VERSION = 1;
 

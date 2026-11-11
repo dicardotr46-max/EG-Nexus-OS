@@ -666,8 +666,11 @@ body > header,
 <script src="src/providers/registry.js"></script>
 <script id="nexus-main-script">
     var STORAGE_KEY = 'eg_nexus_os_v5_master_state';
+    var LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
     window.STORAGE_KEY = STORAGE_KEY;
+    window.LEGACY_STORAGE_KEY = LEGACY_STORAGE_KEY;
     const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
+    window.SESSION_SECRETS_KEY = SESSION_SECRETS_KEY;
     const API_KEY_NAMES = ['gemini', 'deepseek', 'kimi', 'grok', 'openrouter', 'tavily'];
     const AVATAR_COLORS = [
       { id: 'gray', hex: '#8e8e98' },
@@ -945,373 +948,43 @@ body > header,
 
     const SESSION_SECRETS_SCHEMA_VERSION = 1;
 
-    // Client-side non-extractable AES-GCM 256-bit encryption key stored in memory
-    let _sessionCryptoKey = null;
-    let _sessionCryptoKeyPromise = null;
-    let _sessionKeyRaw = null;
-    let _cachedSessionSecrets = null;
-
-    function _initMemorySessionKey() {
-      if (_sessionKeyRaw) return _sessionKeyRaw;
-      _sessionKeyRaw = new Uint8Array(32);
-      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-      if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-        cryptoObj.getRandomValues(_sessionKeyRaw);
-      } else {
-        for (let i = 0; i < 32; i++) {
-          _sessionKeyRaw[i] = Math.floor(Math.random() * 256);
-        }
-      }
-      return _sessionKeyRaw;
-    }
-
-    function _uint8ToHex(bytes) {
-      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    function _hexToUint8(hexStr) {
-      if (typeof hexStr !== 'string' || !hexStr) return new Uint8Array(0);
-      const matches = hexStr.match(/.{1,2}/g);
-      return matches ? new Uint8Array(matches.map(b => parseInt(b, 16))) : new Uint8Array(0);
-    }
-
-    // Synchronous fallback cipher based on memory key + 12-byte IV for environments without crypto.subtle
-    function _syncTransform(bytes, keyBytes, ivBytes) {
-      const out = new Uint8Array(bytes.length);
-      const kLen = keyBytes.length || 32;
-      const ivLen = ivBytes.length || 12;
-      for (let i = 0; i < bytes.length; i++) {
-        const k = keyBytes[i % kLen];
-        const iv = ivBytes[i % ivLen];
-        const s = (k ^ iv ^ ((i * 31 + 17) & 0xFF));
-        out[i] = bytes[i] ^ s;
-      }
-      return out;
-    }
-
-    async function _getOrCreateWebCryptoKey() {
-      if (_sessionCryptoKey) return _sessionCryptoKey;
-      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-      if (!cryptoObj || !cryptoObj.subtle) return null;
-      if (!_sessionCryptoKeyPromise) {
-        _sessionCryptoKeyPromise = (async () => {
-          try {
-            const raw = _initMemorySessionKey();
-            _sessionCryptoKey = await cryptoObj.subtle.importKey(
-              'raw',
-              raw,
-              { name: 'AES-GCM', length: 256 },
-              false, // Non-extractable session key in memory
-              ['encrypt', 'decrypt']
-            );
-            return _sessionCryptoKey;
-          } catch (err) {
-            return null;
-          }
-        })();
-      }
-      return _sessionCryptoKeyPromise;
-    }
-
-    // Pre-initialize Web Crypto key if available
-    const _initialCrypto = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-    if (_initialCrypto && _initialCrypto.subtle) {
-      _getOrCreateWebCryptoKey().catch(() => {});
-    }
-
-    function readSessionSecrets() {
+    function readSessionSecrets(storage) {
       if (typeof window !== 'undefined' && window._nexusCoreSecrets?.readSessionSecrets) {
-        return window._nexusCoreSecrets.readSessionSecrets();
+        return window._nexusCoreSecrets.readSessionSecrets(storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
       }
-      const result = { version: SESSION_SECRETS_SCHEMA_VERSION, initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
-      if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
-        return JSON.parse(JSON.stringify(_cachedSessionSecrets));
-      }
-      try {
-        const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
-        if (!raw) return result;
-        let parsed = null;
-        try {
-          parsed = JSON.parse(raw);
-        } catch (jsonErr) {
-          // Quarantine corrupted session payload without crashing (Fixes Reviewer #8)
-          try {
-            sessionStorage.setItem(SESSION_SECRETS_KEY + '_corrupted_' + Date.now(), raw);
-            sessionStorage.removeItem(SESSION_SECRETS_KEY);
-          } catch (_) {}
-          return result;
-        }
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result;
-
-        // Legacy plaintext JSON migration & re-encryption
-        if (!parsed.encrypted) {
-          result.initialized = parsed.initialized === true;
-          API_KEY_NAMES.forEach(name => {
-            if (typeof parsed.apiKeys?.[name] === 'string') result.apiKeys[name] = parsed.apiKeys[name].trim();
-          });
-          if (parsed.connectionTokens && typeof parsed.connectionTokens === 'object' && !Array.isArray(parsed.connectionTokens)) {
-            Object.keys(parsed.connectionTokens).forEach(id => {
-              if (isSafeConnectionId(id) && typeof parsed.connectionTokens[id] === 'string') {
-                result.connectionTokens[id] = parsed.connectionTokens[id].trim();
-              }
-            });
-          }
-          if (parsed.accountTokens && typeof parsed.accountTokens === 'object' && !Array.isArray(parsed.accountTokens)) {
-            Object.keys(parsed.accountTokens).forEach(accId => {
-              if (typeof parsed.accountTokens[accId] === 'string') {
-                result.accountTokens[accId] = parsed.accountTokens[accId].trim();
-              }
-            });
-          }
-          if (typeof parsed.bridgeToken === 'string' && parsed.bridgeToken.trim()) {
-            result.bridgeToken = parsed.bridgeToken.trim();
-          }
-          _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
-          writeSessionSecrets(result);
-          return result;
-        }
-
-        // Encrypted payload
-        const iv = _hexToUint8(parsed.iv);
-        const ciphertext = _hexToUint8(parsed.ciphertext);
-        const keyRaw = _initMemorySessionKey();
-        const plainBytes = _syncTransform(ciphertext, keyRaw, iv);
-        const decStr = new TextDecoder().decode(plainBytes);
-        const dec = JSON.parse(decStr);
-
-        if (dec && typeof dec === 'object' && !Array.isArray(dec)) {
-          result.initialized = dec.initialized === true;
-          API_KEY_NAMES.forEach(name => {
-            if (typeof dec.apiKeys?.[name] === 'string') result.apiKeys[name] = dec.apiKeys[name].trim();
-          });
-          if (dec.connectionTokens && typeof dec.connectionTokens === 'object' && !Array.isArray(dec.connectionTokens)) {
-            Object.keys(dec.connectionTokens).forEach(id => {
-              if (isSafeConnectionId(id) && typeof dec.connectionTokens[id] === 'string') {
-                result.connectionTokens[id] = dec.connectionTokens[id].trim();
-              }
-            });
-          }
-          if (dec.accountTokens && typeof dec.accountTokens === 'object' && !Array.isArray(dec.accountTokens)) {
-            Object.keys(dec.accountTokens).forEach(accId => {
-              if (typeof dec.accountTokens[accId] === 'string') {
-                result.accountTokens[accId] = dec.accountTokens[accId].trim();
-              }
-            });
-          }
-          if (typeof dec.bridgeToken === 'string' && dec.bridgeToken.trim()) {
-            result.bridgeToken = dec.bridgeToken.trim();
-          }
-          _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
-        }
-      } catch (e) {
-        try {
-          const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
-          if (raw) {
-            sessionStorage.setItem(SESSION_SECRETS_KEY + '_corrupted_' + Date.now(), raw);
-            sessionStorage.removeItem(SESSION_SECRETS_KEY);
-          }
-        } catch (_) {}
-      }
-      return result;
-    }
-
-
-    function writeSessionSecrets(stateOrSecrets) {
-      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.writeSessionSecrets) {
-        return window._nexusCoreSecrets.writeSessionSecrets(stateOrSecrets);
-      }
-      const existing = readSessionSecrets();
-      const secrets = {
+      return {
         version: SESSION_SECRETS_SCHEMA_VERSION,
-        initialized: true,
-        apiKeys: { ...existing.apiKeys },
-        connectionTokens: { ...existing.connectionTokens },
-        accountTokens: { ...existing.accountTokens },
-        bridgeToken: existing.bridgeToken || ''
+        initialized: false,
+        apiKeys: emptyApiKeys(),
+        connectionTokens: {},
+        accountTokens: {},
+        bridgeToken: ''
       };
-
-      if (stateOrSecrets && stateOrSecrets.apiKeys && typeof stateOrSecrets.apiKeys === 'object' && !stateOrSecrets.appConnections) {
-        // Direct secrets object passed
-        API_KEY_NAMES.forEach(name => {
-          if (typeof stateOrSecrets.apiKeys[name] === 'string' && stateOrSecrets.apiKeys[name].trim()) {
-            secrets.apiKeys[name] = stateOrSecrets.apiKeys[name].trim();
-          }
-        });
-        if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object' && !Array.isArray(stateOrSecrets.connectionTokens)) {
-          Object.keys(stateOrSecrets.connectionTokens).forEach(id => {
-            if (isSafeConnectionId(id) && typeof stateOrSecrets.connectionTokens[id] === 'string') {
-              secrets.connectionTokens[id] = stateOrSecrets.connectionTokens[id].trim();
-            }
-          });
-        }
-        if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object' && !Array.isArray(stateOrSecrets.accountTokens)) {
-          Object.keys(stateOrSecrets.accountTokens).forEach(accId => {
-            if (typeof accId === 'string' && !['__proto__', 'constructor', 'prototype'].includes(accId) && typeof stateOrSecrets.accountTokens[accId] === 'string') {
-              secrets.accountTokens[accId] = stateOrSecrets.accountTokens[accId].trim();
-            }
-          });
-        }
-        if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
-          secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
-        }
-      } else if (stateOrSecrets && typeof stateOrSecrets === 'object') {
-        // State object passed
-        API_KEY_NAMES.forEach(name => {
-          const value = stateOrSecrets?.apiKeys?.[name];
-          if (typeof value === 'string' && value.trim()) secrets.apiKeys[name] = value.trim();
-        });
-        const connections = stateOrSecrets?.appConnections;
-        if (connections && typeof connections === 'object' && !Array.isArray(connections)) {
-          Object.keys(connections).forEach(id => {
-            const conn = connections[id];
-            const token = conn?.token;
-            if (isSafeConnectionId(id) && typeof token === 'string' && token.trim()) {
-              secrets.connectionTokens[id] = token.trim();
-            }
-            if (Array.isArray(conn?.accounts)) {
-              conn.accounts.forEach(acc => {
-                if (acc?.id && typeof acc.token === 'string' && acc.token.trim()) {
-                  secrets.accountTokens[acc.id] = acc.token.trim();
-                  secrets.accountTokens[`${id}_${acc.id}`] = acc.token.trim();
-                }
-              });
-            }
-          });
-        }
-        if (typeof stateOrSecrets?.localComputerConfig?.bridgeToken === 'string' && stateOrSecrets.localComputerConfig.bridgeToken.trim()) {
-          secrets.bridgeToken = stateOrSecrets.localComputerConfig.bridgeToken.trim();
-        }
-      }
-
-      _cachedSessionSecrets = JSON.parse(JSON.stringify(secrets));
-
-      try {
-        const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-        const iv = new Uint8Array(12);
-        if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-          cryptoObj.getRandomValues(iv);
-        } else {
-          for (let i = 0; i < 12; i++) iv[i] = Math.floor(Math.random() * 256);
-        }
-
-        const jsonStr = JSON.stringify(secrets);
-        const plainBytes = new TextEncoder().encode(jsonStr);
-        const keyRaw = _initMemorySessionKey();
-        const cipherBytes = _syncTransform(plainBytes, keyRaw, iv);
-
-        sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify({
-          encrypted: true,
-          initialized: true,
-          iv: _uint8ToHex(iv),
-          ciphertext: _uint8ToHex(cipherBytes),
-          version: SESSION_SECRETS_SCHEMA_VERSION
-        }));
-
-        if (cryptoObj && cryptoObj.subtle) {
-          _getOrCreateWebCryptoKey().then(async key => {
-            if (!key) return;
-            try {
-              const ab = await cryptoObj.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBytes);
-              sessionStorage.setItem(SESSION_SECRETS_KEY, JSON.stringify({
-                encrypted: true,
-                algorithm: 'AES-GCM-256',
-                initialized: true,
-                iv: _uint8ToHex(iv),
-                ciphertext: _uint8ToHex(new Uint8Array(ab)),
-                version: SESSION_SECRETS_SCHEMA_VERSION
-              }));
-            } catch (_) {}
-          }).catch(() => {});
-        }
-        return true;
-      } catch (e) {
-        return false;
-      }
     }
+    window.readSessionSecrets = readSessionSecrets;
 
+    function writeSessionSecrets(stateOrSecrets, storage) {
+      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.writeSessionSecrets) {
+        return window._nexusCoreSecrets.writeSessionSecrets(stateOrSecrets, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
+      }
+      return false;
+    }
+    window.writeSessionSecrets = writeSessionSecrets;
 
-    function applySessionSecrets(state) {
+    function applySessionSecrets(state, storage) {
       if (typeof window !== 'undefined' && window._nexusCoreSecrets?.applySessionSecrets) {
-        return window._nexusCoreSecrets.applySessionSecrets(state);
-      }
-      const secrets = readSessionSecrets();
-      if (secrets.initialized) {
-        API_KEY_NAMES.forEach(name => {
-          if (secrets.apiKeys[name]) state.apiKeys[name] = secrets.apiKeys[name];
-        });
-      }
-      if (!state.appConnections || typeof state.appConnections !== 'object' || Array.isArray(state.appConnections)) state.appConnections = {};
-      Object.keys(secrets.connectionTokens).forEach(id => {
-        if (secrets.connectionTokens[id]) {
-          if (!state.appConnections[id] || typeof state.appConnections[id] !== 'object') state.appConnections[id] = { accounts: [], mcpEnabled: false, connectedAt: '' };
-          state.appConnections[id].token = secrets.connectionTokens[id];
-        }
-      });
-      if (secrets.accountTokens) {
-        Object.keys(state.appConnections).forEach(id => {
-          const conn = state.appConnections[id];
-          if (conn && Array.isArray(conn.accounts)) {
-            conn.accounts.forEach(acc => {
-              if (acc?.id) {
-                const tok = secrets.accountTokens[`${id}_${acc.id}`] || secrets.accountTokens[acc.id];
-                if (tok) acc.token = tok;
-              }
-            });
-          }
-        });
-      }
-      if (secrets.bridgeToken) {
-        if (!state.localComputerConfig || typeof state.localComputerConfig !== 'object') state.localComputerConfig = {};
-        state.localComputerConfig.bridgeToken = secrets.bridgeToken;
+        return window._nexusCoreSecrets.applySessionSecrets(state, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
       }
       return state;
     }
-
+    window.applySessionSecrets = applySessionSecrets;
 
     function buildPersistedState(state) {
       if (typeof window !== 'undefined' && window._nexusCorePersistence?.buildPersistedState) {
         return window._nexusCorePersistence.buildPersistedState(state);
       }
-      const persisted = JSON.parse(JSON.stringify(state));
-      persisted.apiKeys = emptyApiKeys();
-      if (persisted.appConnections && typeof persisted.appConnections === 'object' && !Array.isArray(persisted.appConnections)) {
-        Object.keys(persisted.appConnections).forEach(id => {
-          if (persisted.appConnections[id] && typeof persisted.appConnections[id] === 'object') {
-            persisted.appConnections[id].token = '';
-            if (Array.isArray(persisted.appConnections[id].accounts)) {
-              persisted.appConnections[id].accounts.forEach(acc => {
-                if (acc && typeof acc === 'object') {
-                  acc.token = '';
-                  acc.refreshToken = '';
-                }
-              });
-            }
-          }
-        });
-      }
-      if (persisted.localComputerConfig && typeof persisted.localComputerConfig === 'object') {
-        persisted.localComputerConfig.bridgeToken = '';
-      }
-      if (persisted.cloudConfig && typeof persisted.cloudConfig === 'object') {
-        persisted.cloudConfig.workerSecret = '';
-        persisted.cloudConfig.supabaseKey = '';
-        persisted.cloudConfig.supabaseAuthToken = '';
-      }
-      if (persisted.telegramConfig && typeof persisted.telegramConfig === 'object') {
-        persisted.telegramConfig.botToken = '';
-      }
-      // Bounded chat serialization: enforce max 300 recent messages per chat to prevent storage exhaustion
-      const MAX_PERSISTED_MSGS_PER_CHAT = 300;
-      if (Array.isArray(persisted.chats)) {
-        persisted.chats.forEach(c => {
-          if (c && Array.isArray(c.messages) && c.messages.length > MAX_PERSISTED_MSGS_PER_CHAT) {
-            c.messages = c.messages.slice(-MAX_PERSISTED_MSGS_PER_CHAT);
-          }
-        });
-      }
-      return persisted;
+      return state;
     }
-    window.writeSessionSecrets = writeSessionSecrets;
     window.buildPersistedState = buildPersistedState;
 
     function getStorageSizeEstimate(key = STORAGE_KEY) {
@@ -1328,7 +1001,6 @@ body > header,
     }
     window.getStorageSizeEstimate = getStorageSizeEstimate;
 
-
     function assertUniqueIds(items, label) {
       if (!Array.isArray(items)) return false;
       const seen = new Set();
@@ -1343,141 +1015,15 @@ body > header,
       });
       return modified;
     }
-
+    window.assertUniqueIds = assertUniqueIds;
 
     function sanitizeLoadedState(s, fallbackState = appState) {
       if (typeof window !== 'undefined' && window._nexusCorePersistence?.sanitizeLoadedState) {
         return window._nexusCorePersistence.sanitizeLoadedState(s, fallbackState);
       }
-      const base = (fallbackState && typeof fallbackState === 'object') ? fallbackState : {};
-      const src = (s && typeof s === 'object' && !Array.isArray(s)) ? { ...base, ...s } : { ...base };
-      const validObjs = (arr, def = []) => Array.isArray(arr) ? arr.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : def;
-
-
-      src.profileName = (typeof src.profileName === 'string' && src.profileName.trim()) ? src.profileName.trim() : 'Ali';
-      src.dreamMemory = typeof src.dreamMemory === 'string' ? src.dreamMemory : (base.dreamMemory || '');
-      src.effortMode = ['light', 'standard', 'high', 'ultra'].includes(src.effortMode) ? src.effortMode : 'standard';
-      src.diffOnlyMode = typeof src.diffOnlyMode === 'boolean' ? src.diffOnlyMode : true;
-
-
-      const turnsNum = Number(src.maxGroupTurns);
-      src.maxGroupTurns = Number.isFinite(turnsNum) ? Math.min(6, Math.max(1, Math.round(turnsNum))) : 3;
-
-
-      const tokNum = Number(src.totalTokensUsed);
-      src.totalTokensUsed = (Number.isFinite(tokNum) && tokNum >= 0) ? Math.round(tokNum) : 0;
-
-
-      const costNum = Number(src.totalEstimatedCostUSD);
-      src.totalEstimatedCostUSD = (Number.isFinite(costNum) && costNum >= 0) ? costNum : 0;
-
-
-      const rawKeys = (src.apiKeys && typeof src.apiKeys === 'object' && !Array.isArray(src.apiKeys)) ? src.apiKeys : {};
-      src.apiKeys = {
-        gemini: typeof rawKeys.gemini === 'string' ? rawKeys.gemini.trim() : '',
-        deepseek: typeof rawKeys.deepseek === 'string' ? rawKeys.deepseek.trim() : '',
-        kimi: typeof rawKeys.kimi === 'string' ? rawKeys.kimi.trim() : '',
-        grok: typeof rawKeys.grok === 'string' ? rawKeys.grok.trim() : '',
-        openrouter: typeof rawKeys.openrouter === 'string' ? rawKeys.openrouter.trim() : '',
-        tavily: typeof rawKeys.tavily === 'string' ? rawKeys.tavily.trim() : ''
-      };
-
-
-      const rawConns = (src.appConnections && typeof src.appConnections === 'object' && !Array.isArray(src.appConnections)) ? src.appConnections : {};
-      const cleanConns = {};
-      Object.keys(rawConns).forEach(k => {
-        if (!isSafeConnectionId(k)) return;
-        const c = rawConns[k];
-        if (c && typeof c === 'object' && !Array.isArray(c)) {
-          Object.defineProperty(cleanConns, k, { value: {
-            ...c,
-            accounts: Array.isArray(c.accounts) ? c.accounts.map((a, accountIdx) => {
-              if (typeof a === 'string' && a.trim()) return a.trim();
-              if (a && typeof a === 'object' && !Array.isArray(a)) {
-                const email = typeof a.email === 'string' ? a.email.trim().slice(0, 320) : '';
-                const name = typeof (a.name || a.displayName) === 'string' ? String(a.name || a.displayName).trim().slice(0, 160) : '';
-                if (!email && !name) return null;
-                return { id: typeof a.id === 'string' ? a.id.slice(0, 160) : `account_${accountIdx}`, email, name: name || email.split('@')[0] || 'Connected account', avatar: typeof a.avatar === 'string' ? a.avatar.slice(0, 2) : (name[0] || email[0] || 'U'), connectedAt: typeof a.connectedAt === 'string' ? a.connectedAt : '' };
-              }
-              return null;
-            }).filter(Boolean) : [],
-            token: typeof c.token === 'string' ? c.token.trim() : '',
-            mcpEnabled: Boolean(c.mcpEnabled),
-            connectedAt: typeof c.connectedAt === 'string' ? c.connectedAt : ''
-          }, enumerable: true, writable: true, configurable: true });
-        }
-      });
-      src.appConnections = cleanConns;
-      src.addedAppIds = Array.isArray(src.addedAppIds) ? src.addedAppIds.filter(x => typeof x === 'string' && x.trim()) : [];
-
-
-      src.agentsCatalog = validObjs(src.agentsCatalog, []).map((ag, idx) => ({
-        ...ag,
-        id: (typeof ag.id === 'string' && ag.id.trim()) ? ag.id.trim() : generateUniqueId('ag_' + idx),
-        name: (typeof ag.name === 'string' && ag.name.trim()) ? ag.name.trim() : 'Agent ' + (idx + 1),
-        model: (typeof ag.model === 'string' && ag.model.trim()) ? ag.model.trim() : 'gemini-3.8-flash',
-        systemPrompt: typeof ag.systemPrompt === 'string' ? ag.systemPrompt : '',
-        memory: typeof ag.memory === 'string' ? ag.memory : '',
-        presetKey: typeof ag.presetKey === 'string' ? ag.presetKey : '',
-        isPreset: Boolean(ag.isPreset || ag.presetKey),
-        files: Array.isArray(ag.files) ? ag.files.filter(f => (typeof f === 'string' && f.trim()) || (f && typeof f === 'object' && typeof f.name === 'string')) : [],
-        avatar: sanitizeAvatarSpec(ag.avatar)
-      }));
-
-
-      src.chats = validObjs(src.chats, []).map((c, idx) => ({
-        ...c,
-        id: (typeof c.id === 'string' && c.id.trim()) ? c.id.trim() : generateUniqueId('chat_' + idx),
-        title: (typeof c.title === 'string' && c.title.trim()) ? c.title.trim() : 'گفتگو',
-        isGroup: Boolean(c.isGroup),
-        memberIds: Array.isArray(c.memberIds) ? c.memberIds.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()) : [],
-        updatedAt: (typeof c.updatedAt === 'string' && c.updatedAt.trim()) ? c.updatedAt : 'الان',
-        updatedAtTs: Number.isFinite(Number(c.updatedAtTs)) ? Number(c.updatedAtTs) : 0,
-        draftText: typeof c.draftText === 'string' ? c.draftText.slice(0, 50000) : '',
-        messages: validObjs(c.messages, []).slice(-300).map((m, mIdx) => ({
-          ...m,
-          id: (typeof m.id === 'string' && m.id.trim()) ? m.id.trim() : generateUniqueId('m_' + mIdx),
-          senderType: ['user', 'agent', 'system'].includes(m.senderType) ? m.senderType : 'agent',
-          senderId: typeof m.senderId === 'string' ? m.senderId.trim() : '',
-          senderName: typeof m.senderName === 'string' ? m.senderName : '',
-          text: String(m.text ?? ''),
-          options: Array.isArray(m.options) ? m.options.filter(o => typeof o === 'string' && o.trim()) : [],
-          attachmentName: typeof m.attachmentName === 'string' ? m.attachmentName : '',
-          attachmentImage: typeof m.attachmentImage === 'string' ? m.attachmentImage : '',
-          attachmentMime: typeof m.attachmentMime === 'string' ? m.attachmentMime : '',
-          attachmentTextSnippet: typeof m.attachmentTextSnippet === 'string' ? m.attachmentTextSnippet : '',
-          reaction: typeof m.reaction === 'string' ? m.reaction : 'eyes',
-          selfReviewed: Boolean(m.selfReviewed),
-          isSimulated: Boolean(m.isSimulated),
-          chattedWith: typeof m.chattedWith === 'string' ? m.chattedWith : '',
-          chattedWithId: typeof m.chattedWithId === 'string' ? m.chattedWithId.trim() : '',
-          timestamp: typeof m.timestamp === 'string' ? m.timestamp : 'الان'
-        }))
-      }));
-
-
-      src.skills = validObjs(src.skills, base.skills || []).map((sk, idx) => ({
-        ...sk,
-        id: (typeof sk.id === 'string' && sk.id.trim()) ? sk.id.trim() : generateUniqueId('sk_' + idx),
-        title: (typeof sk.title === 'string' && sk.title.trim()) ? sk.title.trim() : 'Skill ' + (idx + 1),
-        source: (typeof sk.source === 'string' && sk.source.trim()) ? sk.source.trim() : 'Custom Skill',
-        desc: String(sk.desc ?? '')
-      }));
-      const agentsRepaired = assertUniqueIds(src.agentsCatalog, 'agent');
-      const chatsRepaired = assertUniqueIds(src.chats, 'chat');
-      src._idsRepaired = Boolean(agentsRepaired || chatsRepaired);
-      src.skillsCatalog = src.skills;
-
-
-      if (typeof src.studioCode !== 'string' || !src.studioCode.trim()) {
-        src.studioCode = DEFAULT_WORKOUT_STUDIO_TEMPLATE;
-      }
-      src.activeChatId = (typeof src.activeChatId === 'string' && src.activeChatId.trim()) ? src.activeChatId.trim() : null;
-      src.activeAgentProfileId = (typeof src.activeAgentProfileId === 'string' && src.activeAgentProfileId.trim()) ? src.activeAgentProfileId.trim() : null;
-      if (!src.chats.some(c => c.id === src.activeChatId)) src.activeChatId = null;
-      if (!src.agentsCatalog.some(a => a.id === src.activeAgentProfileId)) src.activeAgentProfileId = null;
-      return src;
+      return (s && typeof s === 'object' && !Array.isArray(s)) ? { ...fallbackState, ...s } : { ...fallbackState };
     }
+    window.sanitizeLoadedState = sanitizeLoadedState;
 
 
     // ============================================================================
@@ -1697,7 +1243,17 @@ body > header,
     // Android WebView storage can throw SecurityError, QuotaExceededError, or return
     // malformed legacy JSON after an APK upgrade. Keep storage failures non-fatal.
     function nexusStorageGet(key) {
-      try { return window.localStorage?.getItem(String(key)) || null; } catch (e) { return null; }
+      try {
+        let val = window.localStorage?.getItem(String(key)) || null;
+        if (!val && (String(key) === STORAGE_KEY || String(key) === 'eg_nexus_os_v5_master_state')) {
+          const legacy = window.localStorage?.getItem(LEGACY_STORAGE_KEY) || null;
+          if (legacy) {
+            try { window.localStorage?.setItem(STORAGE_KEY, legacy); } catch (_) {}
+            val = legacy;
+          }
+        }
+        return val;
+      } catch (e) { return null; }
     }
     function nexusStorageSet(key, value) {
       try {
@@ -1714,6 +1270,18 @@ body > header,
       let raw = null;
       let parsed = null;
       try {
+        if (typeof window !== 'undefined' && window._nexusCorePersistence && typeof window._nexusCorePersistence.migrateLegacyStorage === 'function') {
+          window._nexusCorePersistence.migrateLegacyStorage();
+        } else {
+          const cur = nexusStorageGet(STORAGE_KEY);
+          if (!cur) {
+            const legacy = nexusStorageGet('eg_nexus_os_state_v5.1');
+            if (legacy) {
+              nexusStorageSet(STORAGE_KEY, legacy);
+              nexusStorageRemove('eg_nexus_os_state_v5.1');
+            }
+          }
+        }
         raw = nexusStorageGet(STORAGE_KEY);
         if (raw) {
             parsed = JSON.parse(raw);

@@ -4,17 +4,272 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  const exports = factory();
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
-    module.exports = factory();
-  } else {
-    /* istanbul ignore next */
-    const exports = factory();
-    /* istanbul ignore next */
-    if (root) Object.assign(root, exports);
+    module.exports = exports;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
+  /* istanbul ignore next */
+  if (root) {
+    Object.assign(root, exports);
+    root.NexusProviders = exports;
+    root._nexusCoreProviders = exports;
+    root._nexusCoreRegistry = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof globalThis !== 'undefined') {
+    globalThis.NexusProviders = exports;
+    globalThis._nexusCoreProviders = exports;
+    globalThis._nexusCoreRegistry = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof window !== 'undefined') {
+    Object.assign(window, exports);
+    window.NexusProviders = exports;
+    window._nexusCoreProviders = exports;
+    window._nexusCoreRegistry = exports;
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : /* istanbul ignore next */ this, function() {
   'use strict';
+
+  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
+
+  // Provider Capability Tiers
+  const PROVIDER_TIERS = {
+    PRODUCTION_READY: 'production-ready',
+    CONTRACT_TESTED: 'contract-tested',
+    CATALOG_ADAPTER: 'catalog-adapter'
+  };
+
+  // Full Provider Configurations with Explicit Capability Tiers
+  const PROVIDERS = {
+    // Production-Ready: Full OAuth 2.0 / REST contracts, scoped auth & production retry semantics
+    github: {
+      id: 'github',
+      name: 'GitHub',
+      tier: 'production-ready',
+      category: 'Dev & AI',
+      type: 'App',
+      website: 'https://github.com',
+      authType: 'pat_or_oauth'
+    },
+    gmail: {
+      id: 'gmail',
+      name: 'Gmail',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://mail.google.com',
+      authType: 'google_oauth'
+    },
+    gcal: {
+      id: 'gcal',
+      name: 'Google Calendar',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://calendar.google.com',
+      authType: 'google_oauth'
+    },
+    calendar: {
+      id: 'calendar',
+      name: 'Google Calendar',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://calendar.google.com',
+      authType: 'google_oauth'
+    },
+    google_drive: {
+      id: 'google_drive',
+      name: 'Google Drive',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://drive.google.com',
+      authType: 'google_oauth'
+    },
+    drive: {
+      id: 'drive',
+      name: 'Google Drive',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://drive.google.com',
+      authType: 'google_oauth'
+    },
+    gworkspace: {
+      id: 'gworkspace',
+      name: 'Google Workspace',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://workspace.google.com',
+      authType: 'google_oauth'
+    },
+    youtube: {
+      id: 'youtube',
+      name: 'YouTube',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://youtube.com',
+      authType: 'google_oauth'
+    },
+    google_sheets: {
+      id: 'google_sheets',
+      name: 'Google Sheets',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://sheets.google.com',
+      authType: 'google_oauth'
+    },
+    google_contacts: {
+      id: 'google_contacts',
+      name: 'Google Contacts',
+      tier: 'production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://contacts.google.com',
+      authType: 'google_oauth'
+    },
+    google_ads: {
+      id: 'google_ads',
+      name: 'Google Ads',
+      tier: 'production-ready',
+      category: 'Finance',
+      type: 'App',
+      website: 'https://ads.google.com',
+      authType: 'google_oauth'
+    },
+    fitbit: {
+      id: 'fitbit',
+      name: 'Fitbit',
+      tier: 'production-ready',
+      category: 'Health',
+      type: 'App',
+      website: 'https://fitbit.com',
+      authType: 'google_oauth'
+    },
+    cloudflare: {
+      id: 'cloudflare',
+      name: 'Cloudflare Worker',
+      tier: 'production-ready',
+      category: 'Dev & AI',
+      type: 'App',
+      website: 'https://cloudflare.com',
+      authType: 'api_token'
+    },
+    cloudflare_worker: {
+      id: 'cloudflare_worker',
+      name: 'Cloudflare Worker',
+      tier: 'production-ready',
+      category: 'Dev & AI',
+      type: 'App',
+      website: 'https://cloudflare.com',
+      authType: 'api_token'
+    },
+    supabase: {
+      id: 'supabase',
+      name: 'Supabase',
+      tier: 'production-ready',
+      category: 'Dev & AI',
+      type: 'App',
+      website: 'https://supabase.com',
+      authType: 'api_key_or_jwt'
+    },
+
+    // Contract-Tested: Formal schema validation, lease/webhook verification & local socket bridge
+    telegram: {
+      id: 'telegram',
+      name: 'Telegram Bot API',
+      tier: 'contract-tested',
+      category: 'Productivity',
+      type: 'App',
+      website: 'https://telegram.org',
+      authType: 'bot_token'
+    },
+    termux: {
+      id: 'termux',
+      name: 'Termux Local Bridge',
+      tier: 'contract-tested',
+      category: 'Dev & AI',
+      type: 'App',
+      website: 'https://termux.dev',
+      authType: 'local_socket'
+    },
+    clash_royale: {
+      id: 'clash_royale',
+      name: 'Clash Royale Official API',
+      tier: 'contract-tested',
+      category: 'Dev & AI',
+      type: 'App',
+      website: 'https://developer.clashroyale.com',
+      authType: 'api_token'
+    },
+    coingecko: {
+      id: 'coingecko',
+      name: 'CoinGecko',
+      tier: 'contract-tested',
+      category: 'Finance',
+      type: 'MCP',
+      website: 'https://coingecko.com',
+      authType: 'public_or_key'
+    },
+
+    // Catalog-Adapter: MCP tools, search bridges, and third-party SaaS adapters
+    tavily: {
+      id: 'tavily',
+      name: 'Tavily Search',
+      tier: 'catalog-adapter',
+      category: 'Dev & AI',
+      type: 'Search',
+      website: 'https://tavily.com',
+      authType: 'api_key'
+    },
+    web_search: {
+      id: 'web_search',
+      name: 'Web Search',
+      tier: 'catalog-adapter',
+      category: 'Dev & AI',
+      type: 'Search',
+      website: 'https://duckduckgo.com',
+      authType: 'none'
+    }
+  };
+
+  function getProviderConfig(providerId) {
+    if (!providerId || typeof providerId !== 'string') return null;
+    const norm = providerId.trim().toLowerCase();
+    if (PROVIDERS[norm]) return PROVIDERS[norm];
+    const cat = APPS_CATALOG.find(a => a.id.toLowerCase() === norm);
+    if (cat) {
+      return {
+        id: cat.id,
+        name: cat.name,
+        tier: cat.tier || 'catalog-adapter',
+        category: cat.category,
+        type: cat.type,
+        website: cat.website
+      };
+    }
+    return null;
+  }
+
+  function getProviderTier(providerId) {
+    if (!providerId || typeof providerId !== 'string') return 'catalog-adapter';
+    const cfg = getProviderConfig(providerId);
+    if (cfg && cfg.tier) return cfg.tier;
+    const norm = providerId.trim().toLowerCase();
+    if (['gmail', 'gcal', 'calendar', 'gworkspace', 'drive', 'google_drive', 'youtube', 'github', 'cloudflare', 'cloudflare_worker', 'supabase', 'google_sheets', 'google_contacts', 'google_ads', 'fitbit'].includes(norm)) {
+      return 'production-ready';
+    }
+    if (['telegram', 'termux', 'clash_royale', 'coingecko'].includes(norm)) {
+      return 'contract-tested';
+    }
+    return 'catalog-adapter';
+  }
 
   const GOOGLE_OAUTH_SCOPES = {
     gmail:           'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
@@ -657,7 +912,19 @@
     { id: 'clash_royale', name: 'Clash Royale Official API', category: 'Dev & AI', type: 'App', author: 'Supercell', website: 'https://developer.clashroyale.com', desc: 'Live player battle logs, Electro Giant meta win-rates, and clan analytics.' }
   ];
 
+  // Ensure all apps in catalog have their capability tier explicitly set
+  APPS_CATALOG.forEach(app => {
+    if (!app.tier) {
+      app.tier = getProviderTier(app.id);
+    }
+  });
+
   return {
+    STORAGE_KEY,
+    PROVIDER_TIERS,
+    PROVIDERS,
+    getProviderConfig,
+    getProviderTier,
     APPS_CATALOG,
     GOOGLE_OAUTH_SCOPES,
     PROVIDER_ACTION_SCOPES,

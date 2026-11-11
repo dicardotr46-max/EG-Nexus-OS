@@ -502,4 +502,55 @@ describe('Provider Contracts & Resilience Suite', () => {
       expect(lock.isLocked()).toBe(false);
     });
   });
+
+  // =========================================================================
+  // 8. Provider Capability Tiers Contract
+  // =========================================================================
+  describe('Provider Capability Tiers Contract', () => {
+    test('exposes PROVIDER_TIERS enumeration', () => {
+      expect(registry.PROVIDER_TIERS).toEqual({
+        PRODUCTION_READY: 'production-ready',
+        CONTRACT_TESTED: 'contract-tested',
+        CATALOG_ADAPTER: 'catalog-adapter'
+      });
+    });
+
+    test('getProviderTier returns production-ready for Google, GitHub, Cloudflare, and Supabase', () => {
+      const prodList = ['gmail', 'gcal', 'calendar', 'drive', 'google_drive', 'youtube', 'github', 'cloudflare', 'supabase', 'gworkspace'];
+      prodList.forEach(id => {
+        expect(registry.getProviderTier(id)).toBe('production-ready');
+        const cfg = registry.getProviderConfig(id);
+        expect(cfg).toBeDefined();
+        expect(cfg.tier).toBe('production-ready');
+      });
+    });
+
+    test('getProviderTier returns contract-tested for Telegram, Termux, Clash Royale, and CoinGecko', () => {
+      const contractList = ['telegram', 'termux', 'clash_royale', 'coingecko'];
+      contractList.forEach(id => {
+        expect(registry.getProviderTier(id)).toBe('contract-tested');
+        const cfg = registry.getProviderConfig(id);
+        expect(cfg).toBeDefined();
+        expect(cfg.tier).toBe('contract-tested');
+      });
+    });
+
+    test('getProviderTier returns catalog-adapter for MCP servers, Web Search, Tavily, and other catalog apps', () => {
+      const adapterList = ['tavily', 'web_search', 'picsart', 'tailscale', 'sentry', 'linear'];
+      adapterList.forEach(id => {
+        expect(registry.getProviderTier(id)).toBe('catalog-adapter');
+        const cfg = registry.getProviderConfig(id);
+        expect(cfg).toBeDefined();
+        expect(cfg.tier).toBe('catalog-adapter');
+      });
+    });
+
+    test('every catalog entry in APPS_CATALOG has a valid tier attribute', () => {
+      expect(registry.APPS_CATALOG.length).toBeGreaterThan(50);
+      registry.APPS_CATALOG.forEach(app => {
+        expect(app.tier).toBeDefined();
+        expect(['production-ready', 'contract-tested', 'catalog-adapter']).toContain(app.tier);
+      });
+    });
+  });
 });

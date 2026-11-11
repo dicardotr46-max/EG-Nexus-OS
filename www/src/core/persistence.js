@@ -3,27 +3,30 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  const exports = factory();
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
-    module.exports = factory();
-  } else {
-    /* istanbul ignore next */
-    const exports = factory();
-    /* istanbul ignore next */
-    if (root) {
-      Object.assign(root, exports);
-      root._nexusCorePersistence = exports;
-    }
-    /* istanbul ignore next */
-    if (typeof window !== 'undefined') {
-      Object.assign(window, exports);
-      window._nexusCorePersistence = exports;
-    }
+    module.exports = exports;
+  }
+  /* istanbul ignore next */
+  if (root) {
+    Object.assign(root, exports);
+    root._nexusCorePersistence = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof globalThis !== 'undefined') {
+    globalThis._nexusCorePersistence = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof window !== 'undefined') {
+    Object.assign(window, exports);
+    window._nexusCorePersistence = exports;
   }
 })(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
 
-  const STORAGE_KEY = 'eg_nexus_os_state_v5.1';
+  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
+  const LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
 
   function getLocalStorage() {
@@ -71,8 +74,35 @@
     }
   }
 
+  function migrateLegacyStorage(storage = getLocalStorage()) {
+    try {
+      if (!storage) return false;
+      const current = typeof storage.getItem === 'function' ? storage.getItem(STORAGE_KEY) : null;
+      if (!current) {
+        const legacy = typeof storage.getItem === 'function' ? storage.getItem(LEGACY_STORAGE_KEY) : null;
+        if (legacy) {
+          if (typeof storage.setItem === 'function') storage.setItem(STORAGE_KEY, legacy);
+          if (typeof storage.removeItem === 'function') storage.removeItem(LEGACY_STORAGE_KEY);
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const API_KEY_NAMES = [
+    'gemini', 'openrouter', 'deepseek', 'grok', 'kimi', 'tavily', 'perplx',
+    'openai', 'anthropic', 'google', 'groq', 'mistral', 'perplexica', 'cohere'
+  ];
+
   function emptyApiKeys() {
-    const names = ['gemini', 'openrouter', 'deepseek', 'grok', 'kimi', 'tavily', 'perplx'];
+    const names = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
+      ? globalThis.API_KEY_NAMES
+      : (typeof window !== 'undefined' && Array.isArray(window.API_KEY_NAMES)
+        ? window.API_KEY_NAMES
+        : API_KEY_NAMES);
     return names.reduce((out, name) => { out[name] = ''; return out; }, {});
   }
 
@@ -95,7 +125,17 @@
   function buildPersistedState(state) {
     if (!state || typeof state !== 'object') return {};
     const persisted = JSON.parse(JSON.stringify(state));
-    persisted.apiKeys = emptyApiKeys();
+    if (state.apiKeys !== undefined) {
+      const emptyKeys = emptyApiKeys();
+      if (persisted.apiKeys && typeof persisted.apiKeys === 'object' && !Array.isArray(persisted.apiKeys)) {
+        Object.keys(persisted.apiKeys).forEach(k => {
+          emptyKeys[k] = '';
+        });
+      }
+      persisted.apiKeys = emptyKeys;
+    } else {
+      delete persisted.apiKeys;
+    }
     if (persisted.appConnections && typeof persisted.appConnections === 'object' && !Array.isArray(persisted.appConnections)) {
       Object.keys(persisted.appConnections).forEach(id => {
         if (persisted.appConnections[id] && typeof persisted.appConnections[id] === 'object') {
@@ -295,10 +335,13 @@
 
   return {
     STORAGE_KEY,
+    LEGACY_STORAGE_KEY,
     SESSION_SECRETS_KEY,
+    API_KEY_NAMES,
     nexusStorageGet,
     nexusStorageSet,
     nexusStorageRemove,
+    migrateLegacyStorage,
     getStorageSizeEstimate,
     sanitizeLoadedState,
     buildPersistedState,

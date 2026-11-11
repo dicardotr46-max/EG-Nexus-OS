@@ -1,4 +1,4 @@
-name: EG Nexus OS v5.3 - Auto Audit & Signed APK Factory
+name: EG Nexus OS v5.4 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit & Mandatory Jest Gate
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.3..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.4..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -103,7 +103,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: 8. Sign and Verify Release APK with apksigner
+      - name: 8. Sign and Verify Release APK with Persistent Keystore
         run: |
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
           echo "Using Android Build Tools at: $BUILD_TOOLS_DIR"
@@ -116,31 +116,20 @@ jobs:
           fi
           echo "Found unsigned release APK: $UNSIGNED_APK"
 
-          KEYSTORE_FILE="ci-release.keystore"
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "🔑 Decoding repository secret keystore..."
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_FILE"
-            KS_PASS="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
-            KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}"
-            KEY_PASS="${{ secrets.ANDROID_KEY_PASSWORD }}"
-          else
-            echo "🔑 Generating secure ephemeral CI release keystore..."
-            keytool -genkeypair -v \
-              -keystore "$KEYSTORE_FILE" \
-              -alias "eg-nexus" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "nexus-ci-keystore-pass" \
-              -keypass "nexus-ci-keystore-pass" \
-              -dname "CN=EG Nexus OS, OU=Engineering, O=Nexus Foundation, L=Tehran, C=IR"
-            KS_PASS="nexus-ci-keystore-pass"
-            KEY_ALIAS="eg-nexus"
-            KEY_PASS="nexus-ci-keystore-pass"
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "❌ ERROR: Persistent ANDROID_KEYSTORE_BASE64 secret is required for production release signing."
+            exit 1
           fi
 
+          KEYSTORE_FILE="release.keystore"
+          echo "🔑 Decoding persistent repository release keystore from secrets..."
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_FILE"
+          KS_PASS="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+          KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}"
+          KEY_PASS="${{ secrets.ANDROID_KEY_PASSWORD }}"
+
           mkdir -p dist
-          SIGNED_APK="dist/EG-Nexus-OS-v5.3-release-signed.apk"
+          SIGNED_APK="dist/EG-Nexus-OS-v5.4-release-signed.apk"
           ALIGNED_APK="dist/temp-aligned.apk"
 
           if $BUILD_TOOLS_DIR/zipalign -c -v 4 "$UNSIGNED_APK" >/dev/null 2>&1; then
@@ -170,8 +159,8 @@ jobs:
       - name: 9. Upload Ready-to-Install Signed Android APK
         uses: actions/upload-artifact@v4.6.1
         with:
-          name: EG-Nexus-OS-v5.3-Signed-APK
-          path: dist/EG-Nexus-OS-v5.3-release-signed.apk
+          name: EG-Nexus-OS-v5.4-Signed-APK
+          path: dist/EG-Nexus-OS-v5.4-release-signed.apk
           retention-days: 30
 
   publish-release:
@@ -188,19 +177,19 @@ jobs:
       - name: 2. Download Built Signed APK Artifact
         uses: actions/download-artifact@v4.1.9
         with:
-          name: EG-Nexus-OS-v5.3-Signed-APK
+          name: EG-Nexus-OS-v5.4-Signed-APK
 
       - name: 3. Prepare APK and Checksum for Release
         run: |
-          cp EG-Nexus-OS-v5.3-release-signed.apk EG-Nexus-OS-v5.3.apk
-          sha256sum EG-Nexus-OS-v5.3.apk > EG-Nexus-OS-v5.3.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.3.apk.sha256)
+          cp EG-Nexus-OS-v5.4-release-signed.apk EG-Nexus-OS-v5.4.apk
+          sha256sum EG-Nexus-OS-v5.4.apk > EG-Nexus-OS-v5.4.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.4.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=v5.3-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v5.4-${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: 4. Update Git Tags for Release
         run: |
@@ -216,11 +205,11 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v5.3 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v5.4 (${{ env.SHORT_SHA }})"
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v5.3.0`
+            - **Release Version:** `v5.4.0`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**
@@ -234,5 +223,5 @@ jobs:
             - **Rolling Alias Pointer (`latest-apk`):**
               Serves as a dynamic distribution pointer continuously fast-forwarded to the latest verified production build on `main`. Enables seamless continuous deployment (CD), automated client updater polls, and permanent direct-download URLs.
           files: |
-            EG-Nexus-OS-v5.3.apk
-            EG-Nexus-OS-v5.3.apk.sha256
+            EG-Nexus-OS-v5.4.apk
+            EG-Nexus-OS-v5.4.apk.sha256

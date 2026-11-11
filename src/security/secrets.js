@@ -1,25 +1,62 @@
 /**
  * EG-Nexus-OS — Security & Secrets Module
- * AES-GCM 256-bit Web Crypto with Deterministic Session Key & Safe Sync Fallback
+ * AES-GCM 256-bit Web Crypto with Non-Extractable IndexedDB Keystore, Deterministic Session Key & Safe Sync Fallback
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
-  /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
-    module.exports = factory();
-  } else {
+    const exports = factory();
+    module.exports = exports;
     /* istanbul ignore next */
+    if (typeof window !== 'undefined') {
+      window._nexusCoreSecrets = exports;
+      window.NexusSecrets = exports;
+    }
+    /* istanbul ignore next */
+    if (root) {
+      root._nexusCoreSecrets = exports;
+      root.NexusSecrets = exports;
+    }
+  /* istanbul ignore next */
+  } else if (typeof define === 'function' && define.amd) {
+    define([], factory);
+  /* istanbul ignore next */
+  } else {
     const exports = factory();
     /* istanbul ignore next */
-    if (root) Object.assign(root, exports);
+    if (root) {
+      Object.assign(root, exports);
+      root._nexusCoreSecrets = exports;
+      root.NexusSecrets = exports;
+    }
+    /* istanbul ignore next */
+    if (typeof window !== 'undefined') {
+      Object.assign(window, exports);
+      window._nexusCoreSecrets = exports;
+      window.NexusSecrets = exports;
+    }
+    /* istanbul ignore next */
+    if (typeof globalThis !== 'undefined') {
+      Object.assign(globalThis, exports);
+      globalThis._nexusCoreSecrets = exports;
+      globalThis.NexusSecrets = exports;
+    }
   }
-})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ (typeof window !== 'undefined' ? window : this), function() {
   'use strict';
 
-  const STORAGE_KEY = 'eg_nexus_os_state_v5.1';
+  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
+  const LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
+  const LEGACY_SESSION_SECRETS_KEY = LEGACY_STORAGE_KEY + '_session_secrets';
   const SESSION_KEY_STORAGE = 'nexus_session_key_seed_v1';
   const SESSION_SECRETS_SCHEMA_VERSION = 1;
+
+  // IndexedDB non-extractable CryptoKey Keystore Constants
+  const IDB_KEYSTORE_DB = 'nexus_crypto_keystore_db';
+  const IDB_KEYSTORE_STORE = 'keys';
+  const IDB_KEYSTORE_KEY = 'master_session_key';
+
   const API_KEY_NAMES = [
     'gemini', 'openrouter', 'deepseek', 'grok', 'kimi', 'tavily', 'perplx',
     'openai', 'anthropic', 'google', 'groq', 'mistral', 'perplexica', 'cohere'
@@ -162,6 +199,109 @@
     return null;
   }
 
+  // =========================================================================
+  // IndexedDB Non-Extractable CryptoKey Helpers
+  // =========================================================================
+  /* istanbul ignore next */
+  function _getIdbFactory() {
+    try {
+      if (typeof indexedDB !== 'undefined' && indexedDB) return indexedDB;
+      if (typeof window !== 'undefined' && window.indexedDB) return window.indexedDB;
+      if (typeof globalThis !== 'undefined' && globalThis.indexedDB) return globalThis.indexedDB;
+    } catch (_) {}
+    return null;
+  }
+
+  /* istanbul ignore next */
+  function _openKeystoreDB() {
+    const idb = _getIdbFactory();
+    if (!idb || typeof idb.open !== 'function') return Promise.resolve(null);
+    return new Promise(resolve => {
+      try {
+        const req = idb.open(IDB_KEYSTORE_DB, 1);
+        req.onupgradeneeded = event => {
+          try {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(IDB_KEYSTORE_STORE)) {
+              db.createObjectStore(IDB_KEYSTORE_STORE);
+            }
+          } catch (_) {}
+        };
+        req.onsuccess = event => resolve(event.target.result);
+        req.onerror = () => resolve(null);
+        req.onblocked = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  /* istanbul ignore next */
+  async function _getKeyFromIndexedDB() {
+    try {
+      const db = await _openKeystoreDB();
+      if (!db) return null;
+      return new Promise(resolve => {
+        try {
+          const tx = db.transaction(IDB_KEYSTORE_STORE, 'readonly');
+          const store = tx.objectStore(IDB_KEYSTORE_STORE);
+          const req = store.get(IDB_KEYSTORE_KEY);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /* istanbul ignore next */
+  async function _saveKeyToIndexedDB(cryptoKey) {
+    try {
+      const db = await _openKeystoreDB();
+      if (!db) return false;
+      return new Promise(resolve => {
+        try {
+          const tx = db.transaction(IDB_KEYSTORE_STORE, 'readwrite');
+          const store = tx.objectStore(IDB_KEYSTORE_STORE);
+          const req = store.put(cryptoKey, IDB_KEYSTORE_KEY);
+          req.onsuccess = () => resolve(true);
+          req.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /* istanbul ignore next */
+  async function _clearKeyFromIndexedDB() {
+    try {
+      const db = await _openKeystoreDB();
+      if (!db) return false;
+      return new Promise(resolve => {
+        try {
+          const tx = db.transaction(IDB_KEYSTORE_STORE, 'readwrite');
+          const store = tx.objectStore(IDB_KEYSTORE_STORE);
+          const req = store.delete(IDB_KEYSTORE_KEY);
+          req.onsuccess = () => resolve(true);
+          req.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // =========================================================================
+  // Session Key Derivation (Deterministic Seed Fallback)
+  // =========================================================================
   function _initMemorySessionKey(storage) {
     const store = _getStorage(storage);
     let seedHex = null;
@@ -198,7 +338,6 @@
         generated = true;
       } catch (_) {}
     }
-    /* istanbul ignore if */
     if (!generated && typeof require === 'function') {
       try {
         const nodeCrypto = require('crypto');
@@ -208,7 +347,6 @@
         }
       } catch (_) {}
     }
-    /* istanbul ignore if */
     if (!generated) {
       for (let i = 0; i < 32; i++) {
         seedBytes[i] = Math.floor(Math.random() * 256);
@@ -226,8 +364,16 @@
     return _sessionKeyRaw;
   }
 
-  // Synchronous fallback cipher based on memory key + 12-byte IV for environments without crypto.subtle
-  function _syncTransform(bytes, keyBytes, ivBytes) {
+  /**
+   * Non-cryptographic compatibility fallback for synchronous/legacy test environments (not equivalent to AES-GCM).
+   * Used strictly for synchronous stream obfuscation when WebCrypto / async APIs are unavailable.
+   *
+   * @param {Uint8Array} bytes - Input plaintext or ciphertext bytes
+   * @param {Uint8Array} keyBytes - Session key bytes
+   * @param {Uint8Array} ivBytes - 12-byte initialization vector
+   * @returns {Uint8Array} Transformed output bytes
+   */
+  function _nonCryptoCompatCodec(bytes, keyBytes, ivBytes) {
     const out = new Uint8Array(bytes.length);
     const kLen = keyBytes.length || 32;
     const ivLen = ivBytes.length || 12;
@@ -240,6 +386,14 @@
     return out;
   }
 
+  // Backward-compatible alias for existing tests and consumers
+  const _syncTransform = _nonCryptoCompatCodec;
+
+  /**
+   * Retrieves or generates the WebCrypto AES-GCM 256-bit encryption key.
+   * When IndexedDB is available, persists a non-extractable CryptoKey in `nexus_crypto_keystore_db`.
+   * Falls back to deterministic in-memory session key when IndexedDB is unavailable (e.g. Node.js).
+   */
   async function _getOrCreateWebCryptoKey(storage) {
     if (_sessionCryptoKey) return _sessionCryptoKey;
     const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
@@ -247,6 +401,30 @@
     if (!_sessionCryptoKeyPromise) {
       _sessionCryptoKeyPromise = (async () => {
         try {
+          // 1. Check IndexedDB for persisted non-extractable CryptoKey
+          const idbKey = await _getKeyFromIndexedDB();
+          if (idbKey && typeof idbKey === 'object' && idbKey.algorithm) {
+            _sessionCryptoKey = idbKey;
+            return _sessionCryptoKey;
+          }
+
+          // 2. If IndexedDB is supported, generate a non-extractable CryptoKey and persist to IDB
+          if (_getIdbFactory()) {
+            try {
+              const generatedKey = await cryptoObj.subtle.generateKey(
+                { name: 'AES-GCM', length: 256 },
+                false, // Non-extractable: raw key bytes cannot be extracted by co-origin scripts
+                ['encrypt', 'decrypt']
+              );
+              if (generatedKey) {
+                await _saveKeyToIndexedDB(generatedKey);
+                _sessionCryptoKey = generatedKey;
+                return _sessionCryptoKey;
+              }
+            } catch (_) {}
+          }
+
+          // 3. Fallback: derive deterministic key from storage seed (for Node.js or environments without IDB)
           const raw = _initMemorySessionKey(storage);
           _sessionCryptoKey = await cryptoObj.subtle.importKey(
             'raw',
@@ -288,6 +466,15 @@
     if (store && typeof store.getItem === 'function') {
       try {
         if (store.getItem(SESSION_SECRETS_KEY) !== null) return SESSION_SECRETS_KEY;
+        const legacyVal = store.getItem(LEGACY_SESSION_SECRETS_KEY);
+        if (legacyVal !== null) {
+          try {
+            if (typeof store.setItem === 'function') {
+              store.setItem(SESSION_SECRETS_KEY, legacyVal);
+            }
+          } catch (_) {}
+          return SESSION_SECRETS_KEY;
+        }
         if (store.getItem('eg_nexus_session_secrets_v1') !== null) return 'eg_nexus_session_secrets_v1';
       } catch (_) {}
     }
@@ -498,7 +685,7 @@
       const cipherHex = parsed.syncCiphertext || parsed.ciphertext;
       const ciphertext = _hexToUint8(cipherHex);
       const keyRaw = _initMemorySessionKey(store);
-      const plainBytes = _syncTransform(ciphertext, keyRaw, iv);
+      const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
       const decStr = new TextDecoder().decode(plainBytes);
       const dec = JSON.parse(decStr);
       _populateResultFromDecrypted(result, dec);
@@ -592,7 +779,7 @@
         try {
           const ciphertext = _hexToUint8(parsed.syncCiphertext);
           const keyRaw = _initMemorySessionKey(store);
-          const plainBytes = _syncTransform(ciphertext, keyRaw, iv);
+          const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
           const fallbackStr = new TextDecoder().decode(plainBytes);
           const dec = JSON.parse(fallbackStr);
           _populateResultFromDecrypted(result, dec);
@@ -611,7 +798,7 @@
       const cipherHex = parsed.syncCiphertext || parsed.ciphertext;
       const ciphertext = _hexToUint8(cipherHex);
       const keyRaw = _initMemorySessionKey(store);
-      const plainBytes = _syncTransform(ciphertext, keyRaw, iv);
+      const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
       const decStr = new TextDecoder().decode(plainBytes);
       const dec = JSON.parse(decStr);
       _populateResultFromDecrypted(result, dec);
@@ -658,7 +845,7 @@
       const jsonStr = JSON.stringify(secrets);
       const plainBytes = new TextEncoder().encode(jsonStr);
       const keyRaw = _initMemorySessionKey(store);
-      const syncCipherBytes = _syncTransform(plainBytes, keyRaw, iv);
+      const syncCipherBytes = _nonCryptoCompatCodec(plainBytes, keyRaw, iv);
 
       const targetKey = _resolveSecretsStorageKey(store);
       store.setItem(targetKey, JSON.stringify({
@@ -714,7 +901,7 @@
       const jsonStr = JSON.stringify(secrets);
       const plainBytes = new TextEncoder().encode(jsonStr);
       const keyRaw = _initMemorySessionKey(store);
-      const syncCipherBytes = _syncTransform(plainBytes, keyRaw, iv);
+      const syncCipherBytes = _nonCryptoCompatCodec(plainBytes, keyRaw, iv);
 
       let hexCombined = null;
 
@@ -759,10 +946,10 @@
   function applySessionSecrets(state, storage) {
     if (!state || typeof state !== 'object') return state;
     const secrets = readSessionSecrets(storage);
-    if (!state.apiKeys || typeof state.apiKeys !== 'object') {
-      state.apiKeys = {};
-    }
     if (secrets.initialized) {
+      if (!state.apiKeys || typeof state.apiKeys !== 'object' || Array.isArray(state.apiKeys)) {
+        state.apiKeys = {};
+      }
       Object.keys(secrets.apiKeys).forEach(name => {
         if (secrets.apiKeys[name]) state.apiKeys[name] = secrets.apiKeys[name];
       });
@@ -801,9 +988,15 @@
   }
 
   return {
+    STORAGE_KEY,
+    LEGACY_STORAGE_KEY,
     SESSION_SECRETS_SCHEMA_VERSION,
     SESSION_SECRETS_KEY,
+    LEGACY_SESSION_SECRETS_KEY,
     SESSION_KEY_STORAGE,
+    IDB_KEYSTORE_DB,
+    IDB_KEYSTORE_STORE,
+    IDB_KEYSTORE_KEY,
     API_KEY_NAMES,
     emptyApiKeys,
     isSafeConnectionId,
@@ -812,6 +1005,7 @@
     writeSessionSecrets,
     writeSessionSecretsAsync,
     applySessionSecrets,
+    _nonCryptoCompatCodec,
     _syncTransform,
     _uint8ToHex,
     _hexToUint8,
@@ -819,6 +1013,9 @@
     _sha256Pure,
     _initMemorySessionKey,
     _getOrCreateWebCryptoKey,
+    _getKeyFromIndexedDB,
+    _saveKeyToIndexedDB,
+    _clearKeyFromIndexedDB,
     _resetSessionCryptoState,
     _resetSessionMemoryCache: _resetSessionCryptoState
   };

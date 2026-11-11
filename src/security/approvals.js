@@ -3,17 +3,29 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  const exports = factory();
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
-    module.exports = factory();
-  } else {
-    /* istanbul ignore next */
-    const exports = factory();
-    /* istanbul ignore next */
-    if (root) Object.assign(root, exports);
+    module.exports = exports;
+  }
+  /* istanbul ignore next */
+  if (root) {
+    Object.assign(root, exports);
+    root._nexusCoreApprovals = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof globalThis !== 'undefined') {
+    globalThis._nexusCoreApprovals = exports;
+  }
+  /* istanbul ignore next */
+  if (typeof window !== 'undefined') {
+    Object.assign(window, exports);
+    window._nexusCoreApprovals = exports;
   }
 })(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
+
+  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
 
   const _fallbackUiState = { pendingApprovalQueue: [], _isResolvingApproval: false };
 
@@ -64,6 +76,7 @@
   }
 
   return {
+    STORAGE_KEY,
     getUiState,
     triggerApprovalGate,
     resolveApprovalGate

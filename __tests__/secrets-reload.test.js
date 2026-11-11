@@ -330,4 +330,26 @@ describe('Secrets Real Reload Test Suite (Simulated Page Reload)', () => {
     expect(res.initialized).toBe(false);
     expect(res.bridgeToken).toBe('');
   });
+
+  test('_nonCryptoCompatCodec and _syncTransform alias operate interchangeably across reload contexts', () => {
+    const secretsC1 = require('../src/security/secrets.js');
+    expect(secretsC1._nonCryptoCompatCodec).toBeDefined();
+    expect(secretsC1._syncTransform).toBe(secretsC1._nonCryptoCompatCodec);
+
+    const data = new TextEncoder().encode('Test Reload NonCrypto Data 123');
+    const key = secretsC1._initMemorySessionKey(sharedSessionStorage);
+    const iv = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+    const encryptedBytes = secretsC1._nonCryptoCompatCodec(data, key, iv);
+
+    // Simulate page reload
+    jest.resetModules();
+
+    const secretsC2 = require('../src/security/secrets.js');
+    const key2 = secretsC2._initMemorySessionKey(sharedSessionStorage);
+    expect(key2).toEqual(key);
+
+    const decryptedBytes = secretsC2._syncTransform(encryptedBytes, key2, iv);
+    expect(new TextDecoder().decode(decryptedBytes)).toBe('Test Reload NonCrypto Data 123');
+  });
 });
