@@ -549,12 +549,84 @@ describe('Security & Secrets Management', () => {
     });
 
     it('should safely return null when IndexedDB is not present in Node environment', async () => {
-      const key = await NexusSecrets._getKeyFromIndexedDB();
-      expect(key).toBeNull();
-      const saved = await NexusSecrets._saveKeyToIndexedDB(null);
-      expect(saved).toBe(false);
-      const cleared = await NexusSecrets._clearKeyFromIndexedDB();
-      expect(cleared).toBe(false);
+      const origIdb = global.indexedDB;
+      delete global.indexedDB;
+      try {
+        const key = await NexusSecrets._getKeyFromIndexedDB();
+        expect(key).toBeNull();
+        const saved = await NexusSecrets._saveKeyToIndexedDB(null);
+        expect(saved).toBe(false);
+        const cleared = await NexusSecrets._clearKeyFromIndexedDB();
+        expect(cleared).toBe(false);
+      } finally {
+        if (origIdb) global.indexedDB = origIdb;
+      }
+    });
+
+    it('should generate non-extractable WebCrypto key ({ extractable: false }) in IndexedDB, survive RAM wipe, and recover secrets', async () => {
+      const { IDBFactory } = require('fake-indexeddb');
+      const fakeIdb = new IDBFactory();
+      const origIdb = global.indexedDB;
+      global.indexedDB = fakeIdb;
+
+      try {
+        NexusSecrets._resetSessionCryptoState();
+        const testStorage = createStorageMock();
+
+        // 1. Generate non-extractable CryptoKey in IndexedDB
+        const key = await NexusSecrets._getOrCreateWebCryptoKey(testStorage);
+        expect(key).toBeDefined();
+        expect(key.type).toBe('secret');
+        expect(key.algorithm.name).toBe('AES-GCM');
+        expect(key.algorithm.length).toBe(256);
+        expect(key.extractable).toBe(false);
+
+        // 2. Encrypt & write secrets with the non-extractable key
+        const writeOk = await NexusSecrets.writeSessionSecretsAsync({
+          apiKeys: {
+            gemini: 'GEMINI-IDB-NONEXTRACTABLE-KEY',
+            deepseek: 'DS-IDB-PRODUCTION-SECRET'
+          },
+          bridgeToken: 'bridge-non-extractable-token'
+        }, testStorage);
+        expect(writeOk).toBe(true);
+
+        const storedRaw = testStorage.getItem(NexusSecrets.SESSION_SECRETS_KEY);
+        expect(storedRaw).toBeTruthy();
+        const storedParsed = JSON.parse(storedRaw);
+        expect(storedParsed.encrypted).toBe(true);
+        expect(storedParsed.algorithm).toBe('AES-GCM-256');
+
+        // 3. Complete RAM wipe: zero out memory cache and promises
+        NexusSecrets._resetSessionCryptoState();
+
+        // 4. Re-retrieve key directly from IndexedDB and verify it remains non-extractable
+        const retrievedFromIDB = await NexusSecrets._getKeyFromIndexedDB();
+        expect(retrievedFromIDB).toBeDefined();
+        expect(retrievedFromIDB.algorithm.name).toBe('AES-GCM');
+        expect(retrievedFromIDB.algorithm.length).toBe(256);
+        expect(retrievedFromIDB.extractable).toBe(false);
+
+        // 5. Successful re-hydration and decryption of stored secrets
+        const recovered = await NexusSecrets.readSessionSecretsAsync(testStorage);
+        expect(recovered.initialized).toBe(true);
+        expect(recovered.apiKeys.gemini).toBe('GEMINI-IDB-NONEXTRACTABLE-KEY');
+        expect(recovered.apiKeys.deepseek).toBe('DS-IDB-PRODUCTION-SECRET');
+        expect(recovered.bridgeToken).toBe('bridge-non-extractable-token');
+
+        // 6. Verify keystore clearing
+        const cleared = await NexusSecrets._clearKeyFromIndexedDB();
+        expect(cleared).toBe(true);
+        const postClearKey = await NexusSecrets._getKeyFromIndexedDB();
+        expect(postClearKey).toBeNull();
+      } finally {
+        NexusSecrets._resetSessionCryptoState();
+        if (origIdb !== undefined) {
+          global.indexedDB = origIdb;
+        } else {
+          delete global.indexedDB;
+        }
+      }
     });
   });
 
@@ -563,38 +635,39 @@ describe('Security & Secrets Management', () => {
 
     it('should export standard PROVIDER_TIERS', () => {
       expect(registry.PROVIDER_TIERS).toBeDefined();
-      expect(registry.PROVIDER_TIERS.PRODUCTION_READY).toBe('production-ready');
-      expect(registry.PROVIDER_TIERS.CONTRACT_TESTED).toBe('contract-tested');
-      expect(registry.PROVIDER_TIERS.CATALOG_ADAPTER).toBe('catalog-adapter');
+      expect(registry.PROVIDER_TIERS.PRODUCTION_READY).toBe('Production-ready');
+      expect(registry.PROVIDER_TIERS.CONTRACT_TESTED).toBe('Contract-tested');
+      expect(registry.PROVIDER_TIERS.BETA).toBe('Beta');
+      expect(registry.PROVIDER_TIERS.CATALOG_ONLY).toBe('Catalog-only');
     });
 
-    it('should assign production-ready tier to Google, GitHub, Cloudflare, and Supabase', () => {
+    it('should assign Production-ready tier to Google, GitHub, Cloudflare, and Supabase', () => {
       const prodProviders = ['gmail', 'gcal', 'calendar', 'drive', 'google_drive', 'youtube', 'github', 'cloudflare', 'supabase', 'gworkspace', 'google_sheets', 'fitbit'];
       prodProviders.forEach(pId => {
-        expect(registry.getProviderTier(pId)).toBe('production-ready');
+        expect(registry.getProviderTier(pId)).toBe('Production-ready');
         const config = registry.getProviderConfig(pId);
         expect(config).toBeDefined();
-        expect(config.tier).toBe('production-ready');
+        expect(config.tier).toBe('Production-ready');
       });
     });
 
-    it('should assign contract-tested tier to Telegram, Termux, Clash Royale, and CoinGecko', () => {
+    it('should assign Contract-tested tier to Telegram, Termux, Clash Royale, and CoinGecko', () => {
       const contractProviders = ['telegram', 'termux', 'clash_royale', 'coingecko'];
       contractProviders.forEach(pId => {
-        expect(registry.getProviderTier(pId)).toBe('contract-tested');
+        expect(registry.getProviderTier(pId)).toBe('Contract-tested');
         const config = registry.getProviderConfig(pId);
         expect(config).toBeDefined();
-        expect(config.tier).toBe('contract-tested');
+        expect(config.tier).toBe('Contract-tested');
       });
     });
 
-    it('should assign catalog-adapter tier to MCP servers, Tavily, and SaaS catalog adapters', () => {
-      const adapterProviders = ['tavily', 'web_search', 'picsart', 'tailscale', 'sentry', 'linear'];
-      adapterProviders.forEach(pId => {
-        expect(registry.getProviderTier(pId)).toBe('catalog-adapter');
+    it('should assign Catalog-only tier to standard catalog apps without formal contract', () => {
+      const catalogProviders = ['tavily', 'web_search', 'picsart', 'tailscale', 'sentry', 'linear'];
+      catalogProviders.forEach(pId => {
+        expect(registry.getProviderTier(pId)).toBe('Catalog-only');
         const config = registry.getProviderConfig(pId);
         expect(config).toBeDefined();
-        expect(config.tier).toBe('catalog-adapter');
+        expect(config.tier).toBe('Catalog-only');
       });
     });
 
@@ -602,7 +675,7 @@ describe('Security & Secrets Management', () => {
       expect(registry.APPS_CATALOG.length).toBeGreaterThan(50);
       registry.APPS_CATALOG.forEach(app => {
         expect(app.tier).toBeDefined();
-        expect(['production-ready', 'contract-tested', 'catalog-adapter']).toContain(app.tier);
+        expect(['Production-ready', 'Contract-tested', 'Beta', 'Catalog-only']).toContain(app.tier);
       });
     });
   });

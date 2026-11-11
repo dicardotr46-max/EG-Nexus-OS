@@ -171,7 +171,7 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
       expect(result.message).toMatch(/Network offline/i);
     });
 
-    it('should preserve local state intact when mid-sync network disconnection aborts cloud worker push', async () => {
+    it('should preserve local state intact and execute real rollback when network error occurs in syncWithCloudWorker', async () => {
       const storage = createStorageMock();
       const initialState = {
         profileName: 'Ali',
@@ -187,28 +187,35 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
 
       storage.setItem(persistenceModule.STORAGE_KEY, JSON.stringify(initialState));
 
-      // Simulate a mid-sync network abort
-      async function syncWithCloudWorker() {
-        const backupSnapshot = JSON.parse(storage.getItem(persistenceModule.STORAGE_KEY));
-        try {
-          // Simulated offline error during network transmit
+      // Test real syncWithCloudWorker rollback upon network transport disconnection
+      const syncResult = await persistenceModule.syncWithCloudWorker({
+        storage,
+        transportFn: async () => {
           throw new Error('Connection reset by peer: Simulated mid-sync disconnect');
-        } catch (netErr) {
-          // Graceful rollback to backup snapshot
-          storage.setItem(persistenceModule.STORAGE_KEY, JSON.stringify(backupSnapshot));
-          return { ok: false, error: netErr.message, rolledBack: true };
         }
-      }
+      });
 
-      const syncResult = await syncWithCloudWorker();
       expect(syncResult.ok).toBe(false);
       expect(syncResult.rolledBack).toBe(true);
+      expect(syncResult.error).toMatch(/Connection reset by peer/i);
 
-      // Verify local storage is 100% intact
+      // Verify local storage is 100% intact after real rollback
       const preservedState = JSON.parse(storage.getItem(persistenceModule.STORAGE_KEY));
       expect(preservedState.cloudConfig.stateRevision).toBe(42);
       expect(preservedState.routines[0].id).toBe('rt_active_1');
       expect(preservedState.routines[0].version).toBe(2);
+
+      // Verify successful sync path with real syncWithCloudWorker
+      const successResult = await persistenceModule.syncWithCloudWorker({
+        storage,
+        transportFn: async (st) => ({
+          ok: true,
+          stateRevision: 43
+        })
+      });
+      expect(successResult.ok).toBe(true);
+      expect(successResult.rolledBack).toBe(false);
+      expect(successResult.stateRevision).toBe(43);
     });
 
     it('should release sync lock and not deadlock if an unexpected exception throws mid-sync', async () => {
@@ -241,35 +248,92 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
   // Requirement 2c: Multi-Tab Concurrency & Last-Write-Wins (LWW)
   // -------------------------------------------------------------
   describe('Requirement 2c: Multi-Tab Concurrency & Last-Write-Wins (LWW)', () => {
-    it('should resolve conflicting state writes between two tabs using Last-Write-Wins (LWW)', () => {
-      const storage = createStorageMock();
-
+    it('should perform field-level merge and prevent multi-tab conflicts with state_revision', () => {
       const tab1State = {
         profileName: 'Ali Tab 1',
+        draftText: 'Draft from Tab 1',
         updatedAtTs: 1700000000000,
-        activeChatId: 'chat_tab1'
+        state_revision: 5,
+        chats: [{ id: 'chat_1', title: 'Local Chat', updatedAtTs: 1700000000000 }]
       };
 
       const tab2State = {
-        profileName: 'Ali Tab 2',
-        updatedAtTs: 1700000005000, // Newer timestamp by 5 seconds
-        activeChatId: 'chat_tab2'
+        effortMode: 'ultra',
+        diffOnlyMode: false,
+        updatedAtTs: 1700000005000,
+        state_revision: 6,
+        routines: [{ id: 'rt_tab2', name: 'Routine from Tab 2', version: 1 }]
       };
 
-      // Tab 1 writes first
-      storage.setItem(persistenceModule.STORAGE_KEY, JSON.stringify(tab1State));
+      // Real field-level merge exported from persistence module
+      const mergeResult = persistenceModule.mergeMultiTabState(tab1State, tab2State);
 
-      // Tab 2 writes later with a higher timestamp
-      const existing = JSON.parse(storage.getItem(persistenceModule.STORAGE_KEY));
-      if (tab2State.updatedAtTs >= existing.updatedAtTs) {
-        storage.setItem(persistenceModule.STORAGE_KEY, JSON.stringify(tab2State));
-      }
+      expect(mergeResult.conflictResolved).toBe(true);
+      expect(mergeResult.winner).toBe('incoming');
 
-      // Assert Tab 2 won
-      const current = JSON.parse(storage.getItem(persistenceModule.STORAGE_KEY));
-      expect(current.profileName).toBe('Ali Tab 2');
-      expect(current.activeChatId).toBe('chat_tab2');
-      expect(current.updatedAtTs).toBe(1700000005000);
+      // Assert non-conflicting fields from both tabs are preserved (field-level merge)
+      expect(mergeResult.mergedState.profileName).toBe('Ali Tab 1');
+      expect(mergeResult.mergedState.draftText).toBe('Draft from Tab 1');
+      expect(mergeResult.mergedState.effortMode).toBe('ultra');
+      expect(mergeResult.mergedState.diffOnlyMode).toBe(false);
+
+      // Assert collections from both tabs are merged
+      expect(mergeResult.mergedState.chats.length).toBe(1);
+      expect(mergeResult.mergedState.chats[0].id).toBe('chat_1');
+      expect(mergeResult.mergedState.routines.length).toBe(1);
+      expect(mergeResult.mergedState.routines[0].id).toBe('rt_tab2');
+
+      // Assert state_revision was updated and prevents multi-tab collision
+      expect(mergeResult.mergedState.state_revision).toBeGreaterThanOrEqual(6);
+    });
+
+    it('should protect against clock skew when comparing timestamps across skewed tabs', () => {
+      const now = 1700000000000;
+      const normalPastTs = now - 5000; // 5 seconds ago
+      const skewedFutureTs = now + 7200000; // 2 hours in future due to faulty system clock
+
+      // 1. Direct clock skew comparison test
+      const skewCheck = persistenceModule.compareTimestampsWithClockSkewProtection(
+        normalPastTs,
+        skewedFutureTs,
+        { now, maxClockSkewMs: 60000 }
+      );
+
+      expect(skewCheck.clockSkewDetected).toBe(true);
+      expect(skewCheck.normalizedB).toBe(now); // Clamped to current time
+      expect(skewCheck.winner).toBe('B'); // B still newer than past, but not dangerously into future
+
+      // 2. Normal timestamps within threshold do not trigger clock skew
+      const normalCheck = persistenceModule.compareTimestampsWithClockSkewProtection(
+        now - 2000,
+        now - 1000,
+        { now, maxClockSkewMs: 60000 }
+      );
+      expect(normalCheck.clockSkewDetected).toBe(false);
+
+      // 3. Multi-tab merge with clock skew protection prevents tab with future clock from overriding newer revision
+      const tabWithNewerRevision = {
+        profileName: 'Real Master Revision',
+        state_revision: 10,
+        updatedAtTs: now - 1000
+      };
+
+      const tabWithSkewedClock = {
+        profileName: 'Rogue Skewed Tab',
+        state_revision: 4, // Lower revision
+        updatedAtTs: now + 3600000 // 1 hour in future
+      };
+
+      const mergeResult = persistenceModule.mergeMultiTabState(
+        tabWithNewerRevision,
+        tabWithSkewedClock,
+        { now, maxClockSkewMs: 60000 }
+      );
+
+      expect(mergeResult.clockSkewDetected).toBe(true);
+      expect(mergeResult.winner).toBe('local'); // Higher revision won despite Tab 2's future timestamp
+      expect(mergeResult.mergedState.profileName).toBe('Real Master Revision');
+      expect(mergeResult.mergedState.state_revision).toBeGreaterThanOrEqual(10);
     });
 
     it('should resolve routine conflicts via resolveRoutineConflicts based on version and timestamp', () => {

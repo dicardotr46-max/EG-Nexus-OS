@@ -9,25 +9,49 @@
     module.exports = exports;
   }
   /* istanbul ignore next */
+  function syncNexusCore(target) {
+    if (!target) return;
+    Object.assign(target, exports);
+    target._nexusCoreState = exports;
+    target.NexusState = exports;
+    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    target.NexusCore = Object.assign(
+      target.NexusCore || {},
+      target._nexusCoreSanitization || {},
+      target._nexusCoreState || {},
+      target._nexusCorePersistence || {},
+      target._nexusCoreSecrets || {},
+      target._nexusCoreApprovals || {},
+      target._nexusCoreProviders || {},
+      {
+        state: target._nexusCoreState,
+        persistence: target._nexusCorePersistence,
+        secrets: target._nexusCoreSecrets,
+        sanitization: target._nexusCoreSanitization,
+        approvals: target._nexusCoreApprovals,
+        providers: target._nexusCoreProviders,
+        STORAGE_KEYS
+      }
+    );
+  }
+  /* istanbul ignore next */
   if (root) {
-    Object.assign(root, exports);
-    root._nexusCoreState = exports;
+    syncNexusCore(root);
   }
   /* istanbul ignore next */
   if (typeof globalThis !== 'undefined') {
-    globalThis._nexusCoreState = exports;
+    syncNexusCore(globalThis);
   }
   /* istanbul ignore next */
-  /* istanbul ignore next */
   if (typeof window !== 'undefined') {
-    Object.assign(window, exports);
-    window._nexusCoreState = exports;
+    syncNexusCore(window);
   }
 })(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
 
-  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
-  const LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
+  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEY = STORAGE_KEYS.current;
+  const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
 
   const DEFAULT_WORKOUT_STUDIO_TEMPLATE = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -155,6 +179,7 @@
   const uiState = createInitialUiState();
 
   return {
+    STORAGE_KEYS,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     DEFAULT_WORKOUT_STUDIO_TEMPLATE,

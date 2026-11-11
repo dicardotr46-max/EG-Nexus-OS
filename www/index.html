@@ -665,12 +665,66 @@ body > header,
 <script src="src/core/persistence.js"></script>
 <script src="src/providers/registry.js"></script>
 <script id="nexus-main-script">
-    var STORAGE_KEY = 'eg_nexus_os_v5_master_state';
-    var LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
+    window.NexusCore = Object.assign(window.NexusCore || {}, window._nexusCoreSanitization || {});
+    window.NexusSecrets = window.NexusSecrets || window._nexusCoreSecrets;
+    window.NexusState = window.NexusState || window._nexusCoreState;
+    window.NexusPersistence = window.NexusPersistence || window._nexusCorePersistence;
+    window.NexusProviders = window.NexusProviders || window._nexusCoreProviders;
+    const STORAGE_KEYS = (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    var STORAGE_KEY = STORAGE_KEYS.current;
+    var LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
+    window.STORAGE_KEYS = STORAGE_KEYS;
     window.STORAGE_KEY = STORAGE_KEY;
     window.LEGACY_STORAGE_KEY = LEGACY_STORAGE_KEY;
     const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
     window.SESSION_SECRETS_KEY = SESSION_SECRETS_KEY;
+
+    window.NexusCore = Object.assign(
+      window._nexusCoreSanitization || {},
+      window._nexusCoreState || {},
+      window._nexusCorePersistence || {},
+      window._nexusCoreSecrets || {},
+      window._nexusCoreApprovals || {},
+      window._nexusCoreProviders || {},
+      window.NexusCore || {},
+      {
+        state: window._nexusCoreState,
+        persistence: window._nexusCorePersistence,
+        secrets: window._nexusCoreSecrets,
+        sanitization: window._nexusCoreSanitization,
+        approvals: window._nexusCoreApprovals,
+        providers: window._nexusCoreProviders,
+        STORAGE_KEYS
+      }
+    );
+    window.NexusSecrets = window.NexusSecrets || window._nexusCoreSecrets;
+    window.NexusState = window.NexusState || window._nexusCoreState;
+    window.NexusPersistence = window.NexusPersistence || window._nexusCorePersistence;
+    window.NexusProviders = window.NexusProviders || window._nexusCoreProviders;
+
+    // 4-Tier Provider Badges Architecture
+    const PROVIDER_TIERS = (typeof window !== 'undefined' && window.NexusProviders && window.NexusProviders.PROVIDER_TIERS) || Object.freeze({
+      PRODUCTION_READY: 'Production-ready',
+      CONTRACT_TESTED: 'Contract-tested',
+      BETA: 'Beta',
+      CATALOG_ONLY: 'Catalog-only'
+    });
+    window.PROVIDER_TIERS = PROVIDER_TIERS;
+
+    function getProviderTierBadge(tier) {
+      const t = String(tier || '').trim().toLowerCase();
+      if (t === 'production-ready') {
+        return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-medium app-tier-badge tier-production-ready">Production-ready</span>';
+      }
+      if (t === 'contract-tested') {
+        return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-500/30 text-sky-400 font-medium app-tier-badge tier-contract-tested">Contract-tested</span>';
+      }
+      if (t === 'beta') {
+        return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-medium app-tier-badge tier-beta">Beta</span>';
+      }
+      return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-500/15 border border-slate-500/30 text-slate-400 font-medium app-tier-badge tier-catalog-only">Catalog-only</span>';
+    }
+    window.getProviderTierBadge = getProviderTierBadge;
     const API_KEY_NAMES = ['gemini', 'deepseek', 'kimi', 'grok', 'openrouter', 'tavily'];
     const AVATAR_COLORS = [
       { id: 'gray', hex: '#8e8e98' },
@@ -949,41 +1003,37 @@ body > header,
     const SESSION_SECRETS_SCHEMA_VERSION = 1;
 
     function readSessionSecrets(storage) {
-      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.readSessionSecrets) {
-        return window._nexusCoreSecrets.readSessionSecrets(storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
-      }
-      return {
-        version: SESSION_SECRETS_SCHEMA_VERSION,
-        initialized: false,
-        apiKeys: emptyApiKeys(),
-        connectionTokens: {},
-        accountTokens: {},
-        bridgeToken: ''
-      };
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.readSessionSecrets(storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
     }
     window.readSessionSecrets = readSessionSecrets;
 
+    async function readSessionSecretsAsync(storage) {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.readSessionSecretsAsync(storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
+    }
+    window.readSessionSecretsAsync = readSessionSecretsAsync;
+
     function writeSessionSecrets(stateOrSecrets, storage) {
-      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.writeSessionSecrets) {
-        return window._nexusCoreSecrets.writeSessionSecrets(stateOrSecrets, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
-      }
-      return false;
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.writeSessionSecrets(stateOrSecrets, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
     }
     window.writeSessionSecrets = writeSessionSecrets;
 
+    async function writeSessionSecretsAsync(stateOrSecrets, storage) {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.writeSessionSecretsAsync(stateOrSecrets, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
+    }
+    window.writeSessionSecretsAsync = writeSessionSecretsAsync;
+
     function applySessionSecrets(state, storage) {
-      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.applySessionSecrets) {
-        return window._nexusCoreSecrets.applySessionSecrets(state, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
-      }
-      return state;
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.applySessionSecrets(state, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
     }
     window.applySessionSecrets = applySessionSecrets;
 
+    async function applySessionSecretsAsync(state, storage) {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.applySessionSecretsAsync(state, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
+    }
+    window.applySessionSecretsAsync = applySessionSecretsAsync;
+
     function buildPersistedState(state) {
-      if (typeof window !== 'undefined' && window._nexusCorePersistence?.buildPersistedState) {
-        return window._nexusCorePersistence.buildPersistedState(state);
-      }
-      return state;
+      return (window._nexusCorePersistence || window.NexusPersistence || window.NexusCore)?.buildPersistedState(state);
     }
     window.buildPersistedState = buildPersistedState;
 
@@ -1018,10 +1068,7 @@ body > header,
     window.assertUniqueIds = assertUniqueIds;
 
     function sanitizeLoadedState(s, fallbackState = appState) {
-      if (typeof window !== 'undefined' && window._nexusCorePersistence?.sanitizeLoadedState) {
-        return window._nexusCorePersistence.sanitizeLoadedState(s, fallbackState);
-      }
-      return (s && typeof s === 'object' && !Array.isArray(s)) ? { ...fallbackState, ...s } : { ...fallbackState };
+      return (window._nexusCorePersistence || window.NexusPersistence || window.NexusCore)?.sanitizeLoadedState(s, fallbackState);
     }
     window.sanitizeLoadedState = sanitizeLoadedState;
 
@@ -1245,7 +1292,7 @@ body > header,
     function nexusStorageGet(key) {
       try {
         let val = window.localStorage?.getItem(String(key)) || null;
-        if (!val && (String(key) === STORAGE_KEY || String(key) === 'eg_nexus_os_v5_master_state')) {
+        if (!val && (String(key) === STORAGE_KEY || String(key) === STORAGE_KEYS.current)) {
           const legacy = window.localStorage?.getItem(LEGACY_STORAGE_KEY) || null;
           if (legacy) {
             try { window.localStorage?.setItem(STORAGE_KEY, legacy); } catch (_) {}
@@ -1266,7 +1313,7 @@ body > header,
       try { window.localStorage?.removeItem(String(key)); return true; } catch (e) { return false; }
     }
 
-    function loadState() {
+    async function loadState() {
       let raw = null;
       let parsed = null;
       try {
@@ -1275,10 +1322,10 @@ body > header,
         } else {
           const cur = nexusStorageGet(STORAGE_KEY);
           if (!cur) {
-            const legacy = nexusStorageGet('eg_nexus_os_state_v5.1');
+            const legacy = nexusStorageGet(STORAGE_KEYS.legacy);
             if (legacy) {
               nexusStorageSet(STORAGE_KEY, legacy);
-              nexusStorageRemove('eg_nexus_os_state_v5.1');
+              nexusStorageRemove(STORAGE_KEYS.legacy);
             }
           }
         }
@@ -1312,6 +1359,9 @@ body > header,
         if (!parsed) {
           appState.skillsCatalog = appState.skills;
           applySessionSecrets(appState);
+          if (typeof applySessionSecretsAsync === 'function') {
+            await applySessionSecretsAsync(appState);
+          }
           window.appState = appState;
           return;
         }
@@ -1320,6 +1370,9 @@ body > header,
         const mergedConns = { ...appState.appConnections, ...((parsed.appConnections && typeof parsed.appConnections === 'object' && !Array.isArray(parsed.appConnections)) ? parsed.appConnections : {}) };
         appState = sanitizeLoadedState({ ...appState, ...parsed, apiKeys: mergedKeys, appConnections: mergedConns }, appState);
         applySessionSecrets(appState);
+        if (typeof applySessionSecretsAsync === 'function') {
+          await applySessionSecretsAsync(appState);
+        }
         window.appState = appState;
 
         if (appState._idsRepaired) {
@@ -1380,12 +1433,17 @@ body > header,
           }
 
           // Never erase the last durable legacy copy before the session write succeeds (Fixes Reviewer #10)
-          const sessionWriteFn = (typeof window !== 'undefined' && typeof window.writeSessionSecrets === 'function')
-            ? window.writeSessionSecrets
-            : writeSessionSecrets;
-          const sessionWriteOk = sessionWriteFn(appState);
+          let sessionWriteOk = false;
+          if (typeof writeSessionSecretsAsync === 'function') {
+            sessionWriteOk = await writeSessionSecretsAsync(appState);
+          } else {
+            const sessionWriteFn = (typeof window !== 'undefined' && typeof window.writeSessionSecrets === 'function')
+              ? window.writeSessionSecrets
+              : writeSessionSecrets;
+            sessionWriteOk = sessionWriteFn(appState);
+          }
 
-          const phase1Verify = (function() {
+          const phase1Verify = (await (async function() {
             try {
               const raw = sessionStorage.getItem(SESSION_SECRETS_KEY);
               const data = raw ? JSON.parse(raw) : null;
@@ -1393,13 +1451,13 @@ body > header,
               // Verify at least one non-empty field was migrated if legacy had fields
               const hasLegacyApiKeys = Object.values(parsed.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
               if (hasLegacyApiKeys) {
-                const sec = (typeof readSessionSecrets === 'function') ? readSessionSecrets() : data;
+                const sec = (typeof readSessionSecretsAsync === 'function') ? await readSessionSecretsAsync() : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : data);
                 const hasMigratedKey = Object.values(sec?.apiKeys || data?.apiKeys || {}).some(v => typeof v === 'string' && v.trim());
                 if (!hasMigratedKey) return false;
               }
               return true;
             } catch (_) { return false; }
-          })();
+          })());
           const hasPhase4Legacy = Boolean(
             (parsed.cloudConfig?.workerSecret && String(parsed.cloudConfig.workerSecret).trim()) ||
             (parsed.cloudConfig?.supabaseKey && String(parsed.cloudConfig.supabaseKey).trim()) ||
@@ -1471,6 +1529,12 @@ body > header,
           ? window.writeSessionSecrets
           : writeSessionSecrets;
         sessionSaveOk = writeFn(appState);
+        const writeAsyncFn = (typeof window !== 'undefined' && typeof window.writeSessionSecretsAsync === 'function')
+          ? window.writeSessionSecretsAsync
+          : writeSessionSecretsAsync;
+        if (typeof writeAsyncFn === 'function') {
+          writeAsyncFn(appState).catch(() => {});
+        }
       } catch (_) { sessionSaveOk = false; }
       if (!sessionSaveOk) {
         showToast('کلیدها در حافظه نشست ذخیره نشد؛ تغییرات بدون کلیدها روی دیسک ذخیره می‌شوند. پیش از بستن صفحه بکاپ بگیرید');
@@ -1575,16 +1639,9 @@ body > header,
 
 
     function escapeHtml(str) {
-      if (typeof window !== 'undefined' && window._nexusCoreSanitization?.escapeHtml) {
-        return window._nexusCoreSanitization.escapeHtml(str);
-      }
-      return String(str ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+      return (window._nexusCoreSanitization || window.NexusSanitization || window.NexusCore)?.escapeHtml(str);
     }
+    window.escapeHtml = escapeHtml;
 
     function sanitizeSafeUrl(url, fallback = '#') {
       if (!url || typeof url !== 'string') return fallback;
@@ -4385,6 +4442,7 @@ body > header,
         }
       }
     };
+    window.NexusMCP = NexusMCP;
 
     async function callAgentAPI(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1, extraContext = '', externalController = null) {
       const connectedAppIds = (appState.addedAppIds || []).filter(id => isAppGenuinelyConnected(id));
@@ -4857,7 +4915,7 @@ body > header,
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-bold text-white truncate app-row-title">${escapeHtml(app.name)}</span>
-                  ${app.beta ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted app-beta-badge">Beta</span>` : ''}
+                  ${getProviderTierBadge(app.tier || (typeof getProviderTier === 'function' ? getProviderTier(app.id) : (app.beta ? 'Beta' : 'Catalog-only')))}
                 </div>
                 <div class="text-xs text-cue-muted truncate mt-0.5">${escapeHtml(app.desc)}</div>
               </div>
@@ -11355,7 +11413,7 @@ body > header,
           </div>
           <div class="flex items-center gap-2">
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(app.name)}</h2>
-            ${app.beta ? `<span class="text-xs px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-cue-muted app-beta-badge">Beta</span>` : ''}
+            ${getProviderTierBadge(app.tier || (typeof getProviderTier === 'function' ? getProviderTier(app.id) : (app.beta ? 'Beta' : 'Catalog-only')))}
           </div>
           <p class="mt-2.5 text-xs text-cue-muted leading-relaxed max-w-xs">${escapeHtml(app.desc)}</p>
           ${primaryButtonHtml}
@@ -11367,6 +11425,10 @@ body > header,
         <div class="mt-6">
           <div class="text-xs font-semibold text-cue-muted mb-2 px-1">Details</div>
           <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden text-sm">
+            <div class="px-4 py-3.5 flex items-center justify-between">
+              <span class="text-slate-200">Capability Tier</span>
+              <span>${getProviderTierBadge(app.tier || (typeof getProviderTier === 'function' ? getProviderTier(app.id) : (app.beta ? 'Beta' : 'Catalog-only')))}</span>
+            </div>
             <div class="px-4 py-3.5 flex items-center justify-between">
               <span class="text-slate-200">App Type</span>
               <span class="text-cue-muted">${app.type === 'MCP' ? 'MCP' : 'App'}</span>
@@ -12504,11 +12566,11 @@ body > header,
       showView('view-home', true);
       return false;
     }
-    function initApp() {
+    async function initApp() {
       if (typeof window.installPhase4SecretPersistenceBoundary === 'function') {
         window.installPhase4SecretPersistenceBoundary();
       }
-      loadState();
+      await loadState();
       if (typeof window.applyPhase4SessionSecrets === 'function') {
         window.applyPhase4SessionSecrets();
       }
@@ -30553,7 +30615,7 @@ jobs:
       if (window.__egNexusBusAndBlackBoxInitialized) return;
       window.__egNexusBusAndBlackBoxInitialized = true;
 
-      const BLACKBOX_STORAGE_KEY = (window.STORAGE_KEY || 'eg_nexus_os_v5_master_state') + '_blackbox_logs_v1';
+      const BLACKBOX_STORAGE_KEY = (window.STORAGE_KEYS ? window.STORAGE_KEYS.current : (window.STORAGE_KEY || STORAGE_KEYS.current)) + '_blackbox_logs_v1';
       const MAX_BLACKBOX_LOGS = 50;
       const TELEGRAM_ERROR_COOLDOWN_MS = 60000;
       const SECRET_REDACTION_REGEX = /(?:sk-[a-zA-Z0-9_-]{12,}|xai-[a-zA-Z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|tvly-[a-zA-Z0-9_-]{12,}|ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|\b\d{8,12}:[A-Za-z0-9_-]{25,}\b|\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b|Bearer\s+[A-Za-z0-9._~+/=-]{12,})/gi;

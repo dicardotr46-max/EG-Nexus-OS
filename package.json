@@ -1,11 +1,12 @@
 {
   "name": "eg-nexus-os",
-  "version": "5.4.0",
-  "description": "EG Nexus OS v5.4 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
+  "version": "5.5.0",
+  "description": "EG Nexus OS v5.5 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
   "private": true,
   "scripts": {
     "test:syntax": "node -e \"const fs=require('fs'),vm=require('vm');const html=fs.readFileSync('index.html','utf8');const lines=html.split('\\n');let inS=false,start=-1,blocks=[];for(let i=0;i<lines.length;i++){const l=lines[i].trim();if(!inS&&(l==='<script>'||l.startsWith('<script id='))){inS=true;start=i;}else if(inS&&l==='</script>'){blocks.push(lines.slice(start+1,i).join('\\n'));inS=false;}}blocks.forEach((b,idx)=>new vm.Script(b,{filename:'block_'+(idx+1)+'.js'}));new vm.Script(blocks.join('\\n;\\n'),{filename:'combined.js'});console.log('AST Syntax Check Passed:',blocks.length,'blocks');\"",
-    "test": "jest"
+    "test": "jest",
+    "audit:sync": "node scripts/sync-audit-report.js"
   },
   "dependencies": {
     "@capacitor/android": "8.6.0",
@@ -17,13 +18,14 @@
     "@capacitor/share": "8.0.3"
   },
   "devDependencies": {
-    "jest": "^30.5.2",
-    "jsdom": "^31.0.0"
+    "fake-indexeddb": "6.2.8",
+    "jest": "30.5.2",
+    "jsdom": "31.0.0"
   },
   "overrides": {
-    "glob": "^14.0.4",
-    "minimatch": "^11.0.6",
-    "uuid": "^11.1.1",
+    "glob": "14.0.4",
+    "minimatch": "11.1.1",
+    "uuid": "11.1.1",
     "deepmerge": "4.1.2"
   },
   "jest": {
@@ -31,6 +33,10 @@
       "**/__tests__/**/*.spec.js",
       "**/__tests__/**/*.test.js"
     ],
+    "moduleNameMapper": {
+      "^@exodus/bytes/(.*)$": "<rootDir>/__mocks__/@exodus/bytes/$1",
+      "^@exodus/bytes$": "<rootDir>/__mocks__/@exodus/bytes/index.js"
+    },
     "collectCoverageFrom": [
       "src/**/*.js"
     ],

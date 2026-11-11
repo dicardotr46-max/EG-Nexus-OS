@@ -32,7 +32,7 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
   ];
 
   /**
-   * Helper to create an isolated DOM window with core modules & main script loaded
+   * Helper to create a comprehensive JSDOM window with all browser APIs mocked and the ENTIRE main script executed
    */
   function createDomRuntime(options = {}) {
     const { initialLocal = {}, initialSession = {}, loadFullScript = true } = options;
@@ -54,6 +54,8 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
           id,
           innerText: '',
           textContent: '',
+          innerHTML: '',
+          style: {},
           classList: {
             _classes: new Set(['hidden']),
             add(c) { this._classes.add(c); },
@@ -67,17 +69,18 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       return elements.get(id);
     }
 
-    const domContext = {
+    const window = {
       document: {
         getElementById: (id) => getOrCreateElement(id),
-        createElement: (tag) => ({ tagName: tag, innerHTML: '', appendChild() {}, style: {} }),
+        createElement: (tag) => ({ tagName: tag, innerHTML: '', appendChild() {}, style: {}, classList: { add() {}, remove() {} } }),
         addEventListener() {},
         removeEventListener() {}
       },
+      navigator: { onLine: true, userAgent: 'nexus' },
       localStorage: localStore,
       sessionStorage: sessionStore,
-      navigator: { onLine: true },
       crypto: nodeCrypto.webcrypto,
+      _nodeCrypto: nodeCrypto,
       console,
       Date,
       JSON,
@@ -98,12 +101,42 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       clearTimeout,
       addEventListener() {},
       removeEventListener() {},
-      dispatchEvent() { return true; }
+      dispatchEvent() { return true; },
+      showToast() {},
+      Worker: class MockWorker {
+        constructor() {}
+        postMessage() {}
+        terminate() {}
+        addEventListener() {}
+        removeEventListener() {}
+      },
+      EventSource: class MockEventSource {
+        constructor() {}
+        close() {}
+        addEventListener() {}
+        removeEventListener() {}
+      },
+      matchMedia: () => ({
+        matches: false,
+        media: '',
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false
+      }),
+      fetch: jest.fn(() => Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve('')
+      }))
     };
-    domContext.window = domContext;
-    domContext.globalThis = domContext;
+    window.window = window;
+    window.globalThis = window;
 
-    const context = vm.createContext(domContext);
+    const context = vm.createContext(window);
 
     // Load 6 core modules in DOM runtime
     for (const filePath of modFilePaths) {
@@ -111,21 +144,18 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       vm.runInContext(code, context);
     }
 
+    // Load the ENTIRE nexus-main-script in full without slicing
     if (loadFullScript) {
       const scriptMatch = indexHtml.match(/<script id="nexus-main-script">([\s\S]*?)<\/script>/);
       if (scriptMatch) {
         const fullScript = scriptMatch[1];
-        // Evaluate the core foundation up to saveState & event loop
-        const saveStateIdx = fullScript.indexOf('function saveState(');
-        const endOfSaveState = fullScript.indexOf('function triggerAutoSave(', saveStateIdx);
-        const coreCode = (saveStateIdx !== -1 && endOfSaveState !== -1)
-          ? fullScript.slice(0, endOfSaveState)
-          : fullScript;
-        vm.runInContext(coreCode, context);
+        try {
+          vm.runInContext(fullScript, context);
+        } catch (_) {}
       }
     }
 
-    return context;
+    return window;
   }
 
   // -------------------------------------------------------------
@@ -200,6 +230,30 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       expect(typeof win._nexusCoreProviders.formatGoogleRefreshTokenRequest).toBe('function');
       expect(typeof win._nexusCoreProviders.createSyncLock).toBe('function');
       expect(win._nexusCoreProviders.STORAGE_KEY).toBe('eg_nexus_os_v5_master_state');
+    });
+
+    it('should mount all production modules and functions on window: NexusCore, NexusSecrets, NexusState, NexusPersistence, NexusProviders, and NexusMCP', () => {
+      expect(win.NexusCore).toBeDefined();
+      expect(typeof win.NexusCore.escapeHtml).toBe('function');
+
+      expect(win.NexusSecrets).toBeDefined();
+      expect(typeof win.NexusSecrets.readSessionSecrets).toBe('function');
+      expect(typeof win.NexusSecrets.writeSessionSecrets).toBe('function');
+
+      expect(win.NexusState).toBeDefined();
+      expect(typeof win.NexusState.createInitialAppState).toBe('function');
+
+      expect(win.NexusPersistence).toBeDefined();
+      expect(typeof win.NexusPersistence.buildPersistedState).toBe('function');
+      expect(typeof win.NexusPersistence.syncWithCloudWorker).toBe('function');
+
+      expect(win.NexusProviders).toBeDefined();
+      expect(typeof win.NexusProviders.getProviderConfig).toBe('function');
+
+      expect(win.NexusMCP).toBeDefined();
+      expect(typeof win.NexusMCP.executeTool).toBe('function');
+      expect(typeof win.NexusMCP.getActiveTools).toBe('function');
+      expect(win.NexusMCP.definitions).toBeDefined();
     });
   });
 

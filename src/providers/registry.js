@@ -10,36 +10,64 @@
     module.exports = exports;
   }
   /* istanbul ignore next */
+  function syncNexusCore(target) {
+    if (!target) return;
+    Object.assign(target, exports);
+    target.NexusProviders = exports;
+    target._nexusCoreProviders = exports;
+    target._nexusCoreRegistry = exports;
+    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    target.NexusCore = Object.assign(
+      target.NexusCore || {},
+      target._nexusCoreSanitization || {},
+      target._nexusCoreState || {},
+      target._nexusCorePersistence || {},
+      target._nexusCoreSecrets || {},
+      target._nexusCoreApprovals || {},
+      target._nexusCoreProviders || {},
+      {
+        state: target._nexusCoreState,
+        persistence: target._nexusCorePersistence,
+        secrets: target._nexusCoreSecrets,
+        sanitization: target._nexusCoreSanitization,
+        approvals: target._nexusCoreApprovals,
+        providers: target._nexusCoreProviders,
+        STORAGE_KEYS
+      }
+    );
+  }
+  /* istanbul ignore next */
   if (root) {
-    Object.assign(root, exports);
-    root.NexusProviders = exports;
-    root._nexusCoreProviders = exports;
-    root._nexusCoreRegistry = exports;
+    syncNexusCore(root);
   }
   /* istanbul ignore next */
   if (typeof globalThis !== 'undefined') {
-    globalThis.NexusProviders = exports;
-    globalThis._nexusCoreProviders = exports;
-    globalThis._nexusCoreRegistry = exports;
+    syncNexusCore(globalThis);
   }
   /* istanbul ignore next */
   if (typeof window !== 'undefined') {
-    Object.assign(window, exports);
-    window.NexusProviders = exports;
-    window._nexusCoreProviders = exports;
-    window._nexusCoreRegistry = exports;
+    syncNexusCore(window);
   }
 })(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : /* istanbul ignore next */ this, function() {
   'use strict';
 
-  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
+  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEY = STORAGE_KEYS.current;
 
-  // Provider Capability Tiers
+  // Provider Capability Tiers (4-Tier Architecture)
   const PROVIDER_TIERS = {
-    PRODUCTION_READY: 'production-ready',
-    CONTRACT_TESTED: 'contract-tested',
-    CATALOG_ADAPTER: 'catalog-adapter'
+    PRODUCTION_READY: 'Production-ready',
+    CONTRACT_TESTED: 'Contract-tested',
+    BETA: 'Beta',
+    CATALOG_ONLY: 'Catalog-only'
   };
+  Object.defineProperty(PROVIDER_TIERS, 'CATALOG_ADAPTER', { value: 'Catalog-only', enumerable: false, writable: true, configurable: true });
+  Object.defineProperty(PROVIDER_TIERS, 'production-ready', { value: 'Production-ready', enumerable: false, writable: true, configurable: true });
+  Object.defineProperty(PROVIDER_TIERS, 'contract-tested', { value: 'Contract-tested', enumerable: false, writable: true, configurable: true });
+  Object.defineProperty(PROVIDER_TIERS, 'beta', { value: 'Beta', enumerable: false, writable: true, configurable: true });
+  Object.defineProperty(PROVIDER_TIERS, 'catalog-only', { value: 'Catalog-only', enumerable: false, writable: true, configurable: true });
+  Object.defineProperty(PROVIDER_TIERS, 'catalog-adapter', { value: 'Catalog-only', enumerable: false, writable: true, configurable: true });
+  Object.freeze(PROVIDER_TIERS);
 
   // Full Provider Configurations with Explicit Capability Tiers
   const PROVIDERS = {
@@ -47,7 +75,7 @@
     github: {
       id: 'github',
       name: 'GitHub',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Dev & AI',
       type: 'App',
       website: 'https://github.com',
@@ -56,7 +84,7 @@
     gmail: {
       id: 'gmail',
       name: 'Gmail',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://mail.google.com',
@@ -65,7 +93,7 @@
     gcal: {
       id: 'gcal',
       name: 'Google Calendar',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://calendar.google.com',
@@ -74,7 +102,7 @@
     calendar: {
       id: 'calendar',
       name: 'Google Calendar',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://calendar.google.com',
@@ -83,7 +111,7 @@
     google_drive: {
       id: 'google_drive',
       name: 'Google Drive',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://drive.google.com',
@@ -92,7 +120,7 @@
     drive: {
       id: 'drive',
       name: 'Google Drive',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://drive.google.com',
@@ -101,7 +129,7 @@
     gworkspace: {
       id: 'gworkspace',
       name: 'Google Workspace',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://workspace.google.com',
@@ -110,7 +138,7 @@
     youtube: {
       id: 'youtube',
       name: 'YouTube',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://youtube.com',
@@ -119,7 +147,7 @@
     google_sheets: {
       id: 'google_sheets',
       name: 'Google Sheets',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://sheets.google.com',
@@ -128,7 +156,7 @@
     google_contacts: {
       id: 'google_contacts',
       name: 'Google Contacts',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Productivity',
       type: 'MultiAccount',
       website: 'https://contacts.google.com',
@@ -137,7 +165,7 @@
     google_ads: {
       id: 'google_ads',
       name: 'Google Ads',
-      tier: 'production-ready',
+      tier: 'Beta',
       category: 'Finance',
       type: 'App',
       website: 'https://ads.google.com',
@@ -146,7 +174,7 @@
     fitbit: {
       id: 'fitbit',
       name: 'Fitbit',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Health',
       type: 'App',
       website: 'https://fitbit.com',
@@ -155,7 +183,7 @@
     cloudflare: {
       id: 'cloudflare',
       name: 'Cloudflare Worker',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Dev & AI',
       type: 'App',
       website: 'https://cloudflare.com',
@@ -164,7 +192,7 @@
     cloudflare_worker: {
       id: 'cloudflare_worker',
       name: 'Cloudflare Worker',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Dev & AI',
       type: 'App',
       website: 'https://cloudflare.com',
@@ -173,7 +201,7 @@
     supabase: {
       id: 'supabase',
       name: 'Supabase',
-      tier: 'production-ready',
+      tier: 'Production-ready',
       category: 'Dev & AI',
       type: 'App',
       website: 'https://supabase.com',
@@ -184,7 +212,7 @@
     telegram: {
       id: 'telegram',
       name: 'Telegram Bot API',
-      tier: 'contract-tested',
+      tier: 'Contract-tested',
       category: 'Productivity',
       type: 'App',
       website: 'https://telegram.org',
@@ -193,7 +221,7 @@
     termux: {
       id: 'termux',
       name: 'Termux Local Bridge',
-      tier: 'contract-tested',
+      tier: 'Contract-tested',
       category: 'Dev & AI',
       type: 'App',
       website: 'https://termux.dev',
@@ -202,7 +230,7 @@
     clash_royale: {
       id: 'clash_royale',
       name: 'Clash Royale Official API',
-      tier: 'contract-tested',
+      tier: 'Contract-tested',
       category: 'Dev & AI',
       type: 'App',
       website: 'https://developer.clashroyale.com',
@@ -211,18 +239,18 @@
     coingecko: {
       id: 'coingecko',
       name: 'CoinGecko',
-      tier: 'contract-tested',
+      tier: 'Contract-tested',
       category: 'Finance',
       type: 'MCP',
       website: 'https://coingecko.com',
       authType: 'public_or_key'
     },
 
-    // Catalog-Adapter: MCP tools, search bridges, and third-party SaaS adapters
+    // Catalog-Only: MCP tools, search bridges, and third-party SaaS adapters
     tavily: {
       id: 'tavily',
       name: 'Tavily Search',
-      tier: 'catalog-adapter',
+      tier: 'Catalog-only',
       category: 'Dev & AI',
       type: 'Search',
       website: 'https://tavily.com',
@@ -231,7 +259,7 @@
     web_search: {
       id: 'web_search',
       name: 'Web Search',
-      tier: 'catalog-adapter',
+      tier: 'Catalog-only',
       category: 'Dev & AI',
       type: 'Search',
       website: 'https://duckduckgo.com',
@@ -239,16 +267,45 @@
     }
   };
 
+  function normalizeProviderTier(rawTier) {
+    if (!rawTier || typeof rawTier !== 'string') return PROVIDER_TIERS.CATALOG_ONLY;
+    const t = rawTier.trim().toLowerCase();
+    if (t === 'production-ready') return PROVIDER_TIERS.PRODUCTION_READY;
+    if (t === 'contract-tested') return PROVIDER_TIERS.CONTRACT_TESTED;
+    if (t === 'beta') return PROVIDER_TIERS.BETA;
+    if (t === 'catalog-only' || t === 'catalog-adapter') return PROVIDER_TIERS.CATALOG_ONLY;
+    return PROVIDER_TIERS.CATALOG_ONLY;
+  }
+
+  function getProviderTierBadge(tier) {
+    const t = String(tier || '').trim().toLowerCase();
+    if (t === 'production-ready') {
+      return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-medium app-tier-badge tier-production-ready">Production-ready</span>';
+    }
+    if (t === 'contract-tested') {
+      return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-500/30 text-sky-400 font-medium app-tier-badge tier-contract-tested">Contract-tested</span>';
+    }
+    if (t === 'beta') {
+      return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-medium app-tier-badge tier-beta">Beta</span>';
+    }
+    return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-500/15 border border-slate-500/30 text-slate-400 font-medium app-tier-badge tier-catalog-only">Catalog-only</span>';
+  }
+
   function getProviderConfig(providerId) {
     if (!providerId || typeof providerId !== 'string') return null;
     const norm = providerId.trim().toLowerCase();
-    if (PROVIDERS[norm]) return PROVIDERS[norm];
+    if (PROVIDERS[norm]) {
+      return {
+        ...PROVIDERS[norm],
+        tier: normalizeProviderTier(PROVIDERS[norm].tier)
+      };
+    }
     const cat = APPS_CATALOG.find(a => a.id.toLowerCase() === norm);
     if (cat) {
       return {
         id: cat.id,
         name: cat.name,
-        tier: cat.tier || 'catalog-adapter',
+        tier: cat.tier || getProviderTier(cat.id),
         category: cat.category,
         type: cat.type,
         website: cat.website
@@ -258,17 +315,25 @@
   }
 
   function getProviderTier(providerId) {
-    if (!providerId || typeof providerId !== 'string') return 'catalog-adapter';
-    const cfg = getProviderConfig(providerId);
-    if (cfg && cfg.tier) return cfg.tier;
+    if (!providerId || typeof providerId !== 'string') return PROVIDER_TIERS.CATALOG_ONLY;
     const norm = providerId.trim().toLowerCase();
-    if (['gmail', 'gcal', 'calendar', 'gworkspace', 'drive', 'google_drive', 'youtube', 'github', 'cloudflare', 'cloudflare_worker', 'supabase', 'google_sheets', 'google_contacts', 'google_ads', 'fitbit'].includes(norm)) {
-      return 'production-ready';
+    const cfg = PROVIDERS[norm];
+    if (cfg && cfg.tier) return normalizeProviderTier(cfg.tier);
+    const cat = APPS_CATALOG.find(a => a.id.toLowerCase() === norm);
+    if (cat) {
+      if (cat.tier) return normalizeProviderTier(cat.tier);
+      if (cat.beta) return PROVIDER_TIERS.BETA;
+    }
+    if (['gmail', 'gcal', 'calendar', 'gworkspace', 'drive', 'google_drive', 'youtube', 'github', 'cloudflare', 'cloudflare_worker', 'supabase', 'google_sheets', 'google_contacts', 'fitbit'].includes(norm)) {
+      return PROVIDER_TIERS.PRODUCTION_READY;
     }
     if (['telegram', 'termux', 'clash_royale', 'coingecko'].includes(norm)) {
-      return 'contract-tested';
+      return PROVIDER_TIERS.CONTRACT_TESTED;
     }
-    return 'catalog-adapter';
+    if (['instagram', 'ig_creator', 'meta_ads', 'shopify', 'hubspot', 'morningstar', 'mercury', 'zoho', 'google_ads'].includes(norm)) {
+      return PROVIDER_TIERS.BETA;
+    }
+    return PROVIDER_TIERS.CATALOG_ONLY;
   }
 
   const GOOGLE_OAUTH_SCOPES = {
@@ -708,23 +773,61 @@
     return Array.from(map.values());
   }
 
-  function resolveRoutineConflicts(localRoutine, remoteRoutine) {
+  function resolveRoutineConflicts(localRoutine, remoteRoutine, options = {}) {
     if (!localRoutine) return { resolved: remoteRoutine, winner: 'remote' };
     if (!remoteRoutine) return { resolved: localRoutine, winner: 'local' };
 
     const localVer = Number(localRoutine.version) || 0;
     const remoteVer = Number(remoteRoutine.version) || 0;
 
-    if (localVer > remoteVer) return { resolved: localRoutine, winner: 'local' };
-    if (remoteVer > localVer) return { resolved: remoteRoutine, winner: 'remote' };
+    let winner = 'local';
+    let resolved = localRoutine;
 
-    const localTime = new Date(localRoutine.updated_at || localRoutine.lastRunAt || 0).getTime();
-    const remoteTime = new Date(remoteRoutine.updated_at || remoteRoutine.lastRunAt || 0).getTime();
+    if (localVer > remoteVer) {
+      winner = 'local';
+      resolved = localRoutine;
+    } else if (remoteVer > localVer) {
+      winner = 'remote';
+      resolved = remoteRoutine;
+    } else {
+      const localTime = new Date(localRoutine.updated_at || localRoutine.lastRunAt || 0).getTime();
+      const remoteTime = new Date(remoteRoutine.updated_at || remoteRoutine.lastRunAt || 0).getTime();
 
-    if (remoteTime > localTime) {
-      return { resolved: remoteRoutine, winner: 'remote' };
+      if (remoteTime > localTime) {
+        winner = 'remote';
+        resolved = remoteRoutine;
+      } else {
+        winner = 'local';
+        resolved = localRoutine;
+      }
     }
-    return { resolved: localRoutine, winner: 'local' };
+
+    const isDifferent = JSON.stringify(localRoutine) !== JSON.stringify(remoteRoutine);
+    if (isDifferent) {
+      const conflictEvent = {
+        type: 'routine_conflict',
+        id: localRoutine.id || remoteRoutine.id,
+        local: localRoutine,
+        remote: remoteRoutine,
+        winner,
+        resolved,
+        timestamp: Date.now()
+      };
+      if (options && typeof options.onConflict === 'function') {
+        try { options.onConflict(conflictEvent); } catch (e) {}
+      }
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+        try {
+          window.dispatchEvent(new CustomEvent('nexus:conflict', { detail: conflictEvent }));
+        } catch (e) {}
+      }
+    }
+
+    return {
+      resolved,
+      winner,
+      rollback: () => JSON.parse(JSON.stringify(localRoutine))
+    };
   }
 
   // MCP Server Contract
@@ -920,11 +1023,14 @@
   });
 
   return {
+    STORAGE_KEYS,
     STORAGE_KEY,
     PROVIDER_TIERS,
     PROVIDERS,
+    normalizeProviderTier,
     getProviderConfig,
     getProviderTier,
+    getProviderTierBadge,
     APPS_CATALOG,
     GOOGLE_OAUTH_SCOPES,
     PROVIDER_ACTION_SCOPES,

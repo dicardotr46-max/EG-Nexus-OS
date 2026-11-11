@@ -4,49 +4,69 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  const exports = factory();
+  /* istanbul ignore next */
+  function syncNexusCore(target) {
+    if (!target) return;
+    target._nexusCoreSecrets = exports;
+    target.NexusSecrets = exports;
+    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    target.NexusCore = Object.assign(
+      target.NexusCore || {},
+      target._nexusCoreSanitization || {},
+      target._nexusCoreState || {},
+      target._nexusCorePersistence || {},
+      target._nexusCoreSecrets || {},
+      target._nexusCoreApprovals || {},
+      target._nexusCoreProviders || {},
+      {
+        state: target._nexusCoreState,
+        persistence: target._nexusCorePersistence,
+        secrets: target._nexusCoreSecrets,
+        sanitization: target._nexusCoreSanitization,
+        approvals: target._nexusCoreApprovals,
+        providers: target._nexusCoreProviders,
+        STORAGE_KEYS
+      }
+    );
+  }
   if (typeof module === 'object' && typeof module.exports === 'object') {
-    const exports = factory();
     module.exports = exports;
     /* istanbul ignore next */
     if (typeof window !== 'undefined') {
-      window._nexusCoreSecrets = exports;
-      window.NexusSecrets = exports;
+      syncNexusCore(window);
     }
     /* istanbul ignore next */
     if (root) {
-      root._nexusCoreSecrets = exports;
-      root.NexusSecrets = exports;
+      syncNexusCore(root);
     }
   /* istanbul ignore next */
   } else if (typeof define === 'function' && define.amd) {
     define([], factory);
   /* istanbul ignore next */
   } else {
-    const exports = factory();
     /* istanbul ignore next */
     if (root) {
       Object.assign(root, exports);
-      root._nexusCoreSecrets = exports;
-      root.NexusSecrets = exports;
+      syncNexusCore(root);
     }
     /* istanbul ignore next */
     if (typeof window !== 'undefined') {
       Object.assign(window, exports);
-      window._nexusCoreSecrets = exports;
-      window.NexusSecrets = exports;
+      syncNexusCore(window);
     }
     /* istanbul ignore next */
     if (typeof globalThis !== 'undefined') {
       Object.assign(globalThis, exports);
-      globalThis._nexusCoreSecrets = exports;
-      globalThis.NexusSecrets = exports;
+      syncNexusCore(globalThis);
     }
   }
 })(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ (typeof window !== 'undefined' ? window : this), function() {
   'use strict';
 
-  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
-  const LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
+  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEY = STORAGE_KEYS.current;
+  const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
   const LEGACY_SESSION_SECRETS_KEY = LEGACY_STORAGE_KEY + '_session_secrets';
   const SESSION_KEY_STORAGE = 'nexus_session_key_seed_v1';
@@ -153,14 +173,29 @@
     return out;
   }
 
-  function _sha256(bytes) {
+  function _getNodeCrypto() {
     if (typeof require === 'function') {
       try {
-        const nodeCrypto = require('crypto');
-        if (nodeCrypto && typeof nodeCrypto.createHash === 'function') {
-          return new Uint8Array(nodeCrypto.createHash('sha256').update(bytes).digest());
-        }
+        const nc = require('crypto');
+        if (nc && typeof nc.createCipheriv === 'function') return nc;
       } catch (_) {}
+    }
+    if (typeof _nodeCrypto !== 'undefined' && _nodeCrypto && typeof _nodeCrypto.createCipheriv === 'function') {
+      return _nodeCrypto;
+    }
+    if (typeof globalThis !== 'undefined' && globalThis._nodeCrypto && typeof globalThis._nodeCrypto.createCipheriv === 'function') {
+      return globalThis._nodeCrypto;
+    }
+    if (typeof window !== 'undefined' && window._nodeCrypto && typeof window._nodeCrypto.createCipheriv === 'function') {
+      return window._nodeCrypto;
+    }
+    return null;
+  }
+
+  function _sha256(bytes) {
+    const nodeCrypto = _getNodeCrypto();
+    if (nodeCrypto && typeof nodeCrypto.createHash === 'function') {
+      return new Uint8Array(nodeCrypto.createHash('sha256').update(bytes).digest());
     }
     return _sha256Pure(bytes);
   }
@@ -178,16 +213,40 @@
     return matches ? new Uint8Array(matches.map(b => parseInt(b, 16))) : new Uint8Array(0);
   }
 
+  function _concatUint8(arrays) {
+    if (typeof Buffer !== 'undefined' && typeof Buffer.concat === 'function') {
+      try {
+        return Buffer.concat(arrays);
+      } catch (_) {}
+    }
+    let total = 0;
+    for (let i = 0; i < arrays.length; i++) {
+      total += arrays[i] ? arrays[i].length : 0;
+    }
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (let i = 0; i < arrays.length; i++) {
+      const arr = arrays[i];
+      if (arr) {
+        out.set(arr, offset);
+        offset += arr.length;
+      }
+    }
+    return out;
+  }
+
   // Client-side AES-GCM 256-bit encryption key stored in memory and persisted per session
   let _sessionCryptoKey = null;
   let _sessionCryptoKeyPromise = null;
   let _sessionKeyRaw = null;
+  let _sessionSeedRaw = null;
   let _cachedSessionSecrets = null;
 
   function _resetSessionCryptoState() {
     _sessionCryptoKey = null;
     _sessionCryptoKeyPromise = null;
     _sessionKeyRaw = null;
+    _sessionSeedRaw = null;
     _cachedSessionSecrets = null;
   }
 
@@ -316,14 +375,15 @@
 
     if (seedHex && typeof seedHex === 'string' && /^[0-9a-fA-F]{32,}$/.test(seedHex.trim())) {
       const seedBytes = _hexToUint8(seedHex.trim());
+      _sessionSeedRaw = seedBytes;
       _sessionKeyRaw = _sha256(seedBytes);
       return _sessionKeyRaw;
     }
 
     if (_sessionKeyRaw) {
-      if (store && typeof store.setItem === 'function') {
+      if (store && typeof store.setItem === 'function' && _sessionSeedRaw) {
         try {
-          store.setItem('nexus_session_key_seed_v1', _uint8ToHex(_sessionKeyRaw));
+          store.setItem('nexus_session_key_seed_v1', _uint8ToHex(_sessionSeedRaw));
         } catch (_) {}
       }
       return _sessionKeyRaw;
@@ -338,14 +398,14 @@
         generated = true;
       } catch (_) {}
     }
-    if (!generated && typeof require === 'function') {
-      try {
-        const nodeCrypto = require('crypto');
-        if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+    if (!generated) {
+      const nodeCrypto = _getNodeCrypto();
+      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+        try {
           seedBytes.set(nodeCrypto.randomBytes(32));
           generated = true;
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
     if (!generated) {
       for (let i = 0; i < 32; i++) {
@@ -353,6 +413,7 @@
       }
     }
 
+    _sessionSeedRaw = seedBytes;
     const generatedHex = _uint8ToHex(seedBytes);
     if (store && typeof store.setItem === 'function') {
       try {
@@ -401,6 +462,8 @@
     if (!_sessionCryptoKeyPromise) {
       _sessionCryptoKeyPromise = (async () => {
         try {
+          const raw = _initMemorySessionKey(storage);
+
           // 1. Check IndexedDB for persisted non-extractable CryptoKey
           const idbKey = await _getKeyFromIndexedDB();
           if (idbKey && typeof idbKey === 'object' && idbKey.algorithm) {
@@ -408,31 +471,23 @@
             return _sessionCryptoKey;
           }
 
-          // 2. If IndexedDB is supported, generate a non-extractable CryptoKey and persist to IDB
-          if (_getIdbFactory()) {
-            try {
-              const generatedKey = await cryptoObj.subtle.generateKey(
-                { name: 'AES-GCM', length: 256 },
-                false, // Non-extractable: raw key bytes cannot be extracted by co-origin scripts
-                ['encrypt', 'decrypt']
-              );
-              if (generatedKey) {
-                await _saveKeyToIndexedDB(generatedKey);
-                _sessionCryptoKey = generatedKey;
-                return _sessionCryptoKey;
-              }
-            } catch (_) {}
-          }
-
-          // 3. Fallback: derive deterministic key from storage seed (for Node.js or environments without IDB)
-          const raw = _initMemorySessionKey(storage);
-          _sessionCryptoKey = await cryptoObj.subtle.importKey(
+          // 2. Import non-extractable CryptoKey from unified session key seed
+          const importedKey = await cryptoObj.subtle.importKey(
             'raw',
             raw,
             { name: 'AES-GCM', length: 256 },
-            false, // Non-extractable session key in memory
+            false, // Non-extractable: raw key bytes cannot be extracted by co-origin scripts
             ['encrypt', 'decrypt']
           );
+
+          // 3. Persist non-extractable CryptoKey to IndexedDB if IDB is available
+          if (_getIdbFactory()) {
+            try {
+              await _saveKeyToIndexedDB(importedKey);
+            } catch (_) {}
+          }
+
+          _sessionCryptoKey = importedKey;
           return _sessionCryptoKey;
         } catch (err) {
           return null;
@@ -449,7 +504,7 @@
   }
 
   function _createEmptySessionSecrets() {
-    return {
+    const res = {
       version: SESSION_SECRETS_SCHEMA_VERSION,
       initialized: false,
       apiKeys: emptyApiKeys(),
@@ -457,6 +512,34 @@
       accountTokens: {},
       bridgeToken: ''
     };
+
+    const keyList = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
+      ? globalThis.API_KEY_NAMES
+      : API_KEY_NAMES;
+
+    keyList.forEach(key => {
+      Object.defineProperty(res, key, {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return this.apiKeys?.[key] || '';
+        },
+        set(val) {
+          if (!this.apiKeys) this.apiKeys = emptyApiKeys();
+          this.apiKeys[key] = typeof val === 'string' ? val : String(val || '');
+        }
+      });
+    });
+
+    return res;
+  }
+
+  function _cloneSessionSecrets(secrets) {
+    const copy = _createEmptySessionSecrets();
+    if (secrets && typeof secrets === 'object') {
+      _populateResultFromDecrypted(copy, secrets);
+    }
+    return copy;
   }
 
   function _resolveSecretsStorageKey(store) {
@@ -504,6 +587,9 @@
       : API_KEY_NAMES;
 
     keyList.forEach(name => {
+      if (typeof dec[name] === 'string' && dec[name].trim()) {
+        result.apiKeys[name] = dec[name].trim();
+      }
       if (typeof dec.apiKeys?.[name] === 'string') {
         result.apiKeys[name] = dec.apiKeys[name].trim();
       }
@@ -572,10 +658,34 @@
         secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
       }
     } else if (stateOrSecrets && typeof stateOrSecrets === 'object') {
+      const allNames = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
+        ? globalThis.API_KEY_NAMES
+        : API_KEY_NAMES;
+      allNames.forEach(name => {
+        const value = stateOrSecrets[name];
+        if (typeof value === 'string' && value.trim()) secrets.apiKeys[name] = value.trim();
+      });
       if (stateOrSecrets.apiKeys && typeof stateOrSecrets.apiKeys === 'object') {
         Object.keys(stateOrSecrets.apiKeys).forEach(name => {
           const value = stateOrSecrets.apiKeys[name];
           if (typeof value === 'string' && value.trim()) secrets.apiKeys[name] = value.trim();
+        });
+      }
+      if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
+        secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
+      }
+      if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object' && !Array.isArray(stateOrSecrets.connectionTokens)) {
+        Object.keys(stateOrSecrets.connectionTokens).forEach(id => {
+          if (isSafeConnectionId(id) && typeof stateOrSecrets.connectionTokens[id] === 'string') {
+            secrets.connectionTokens[id] = stateOrSecrets.connectionTokens[id].trim();
+          }
+        });
+      }
+      if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object' && !Array.isArray(stateOrSecrets.accountTokens)) {
+        Object.keys(stateOrSecrets.accountTokens).forEach(id => {
+          if (typeof id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(id) && typeof stateOrSecrets.accountTokens[id] === 'string') {
+            secrets.accountTokens[id] = stateOrSecrets.accountTokens[id].trim();
+          }
         });
       }
       const connections = stateOrSecrets.appConnections;
@@ -608,7 +718,7 @@
   function readSessionSecrets(storage) {
     const result = _createEmptySessionSecrets();
     if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
-      return JSON.parse(JSON.stringify(_cachedSessionSecrets));
+      return _cloneSessionSecrets(_cachedSessionSecrets);
     }
 
     const store = _getStorage(storage);
@@ -634,7 +744,7 @@
     if (!parsed.encrypted) {
       _populateResultFromDecrypted(result, parsed);
       result.initialized = true;
-      _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+      _cachedSessionSecrets = _cloneSessionSecrets(result);
       writeSessionSecrets(result, store);
       return result;
     }
@@ -644,13 +754,13 @@
     // Handle AES-GCM-256
     if (algorithm === 'AES-GCM-256') {
       if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
-        return JSON.parse(JSON.stringify(_cachedSessionSecrets));
+        return _cloneSessionSecrets(_cachedSessionSecrets);
       }
 
-      // If in Node.js (where require('crypto') is available), decrypt synchronously using decipheriv
-      if (typeof require === 'function') {
+      // If Node.js crypto is available, decrypt synchronously using decipheriv
+      const nodeCrypto = _getNodeCrypto();
+      if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
         try {
-          const nodeCrypto = require('crypto');
           const keyBytes = _initMemorySessionKey(store);
           const ivBytes = _hexToUint8(parsed.iv);
           const combined = _hexToUint8(parsed.ciphertext);
@@ -659,23 +769,38 @@
             const encData = combined.subarray(0, combined.length - 16);
             const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBytes, ivBytes);
             decipher.setAuthTag(authTag);
-            const plainBytes = Buffer.concat([decipher.update(encData), decipher.final()]);
+            const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
             const decStr = new TextDecoder().decode(plainBytes);
             const dec = JSON.parse(decStr);
             _populateResultFromDecrypted(result, dec);
-            _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+            _cachedSessionSecrets = _cloneSessionSecrets(result);
             return result;
           }
         } catch (err) {
-          _quarantineCorruptedPayload(store, targetKey, raw);
-          return result;
+          // Fall back to sync fallback ciphertext
         }
+      }
+
+      // If syncCiphertext is present in AES-GCM payload, decrypt via sync codec
+      if (parsed.syncCiphertext) {
+        try {
+          const iv = _hexToUint8(parsed.iv);
+          const ciphertext = _hexToUint8(parsed.syncCiphertext);
+          const keyRaw = _initMemorySessionKey(store);
+          const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
+          const fallbackStr = new TextDecoder().decode(plainBytes);
+          const dec = JSON.parse(fallbackStr);
+          _populateResultFromDecrypted(result, dec);
+          _cachedSessionSecrets = _cloneSessionSecrets(result);
+          return result;
+        } catch (_) {}
       }
 
       // If in browser without async, return cached secrets or gracefully return empty structure
       if (_cachedSessionSecrets) {
-        return JSON.parse(JSON.stringify(_cachedSessionSecrets));
+        return _cloneSessionSecrets(_cachedSessionSecrets);
       }
+      _quarantineCorruptedPayload(store, targetKey, raw);
       return result;
     }
 
@@ -689,7 +814,7 @@
       const decStr = new TextDecoder().decode(plainBytes);
       const dec = JSON.parse(decStr);
       _populateResultFromDecrypted(result, dec);
-      _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+      _cachedSessionSecrets = _cloneSessionSecrets(result);
     } catch (e) {
       _quarantineCorruptedPayload(store, targetKey, raw);
     }
@@ -699,7 +824,7 @@
   async function readSessionSecretsAsync(storage) {
     const result = _createEmptySessionSecrets();
     if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
-      return JSON.parse(JSON.stringify(_cachedSessionSecrets));
+      return _cloneSessionSecrets(_cachedSessionSecrets);
     }
 
     const store = _getStorage(storage);
@@ -725,7 +850,7 @@
     if (!parsed.encrypted) {
       _populateResultFromDecrypted(result, parsed);
       result.initialized = true;
-      _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+      _cachedSessionSecrets = _cloneSessionSecrets(result);
       await writeSessionSecretsAsync(result, store);
       return result;
     }
@@ -750,26 +875,28 @@
       }
 
       /* istanbul ignore if */
-      if (!decStr && typeof require === 'function') {
-        try {
-          const nodeCrypto = require('crypto');
-          const keyBytes = _initMemorySessionKey(store);
-          if (combined.length >= 16) {
-            const authTag = combined.subarray(combined.length - 16);
-            const encData = combined.subarray(0, combined.length - 16);
-            const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBytes, iv);
-            decipher.setAuthTag(authTag);
-            const plainBytes = Buffer.concat([decipher.update(encData), decipher.final()]);
-            decStr = new TextDecoder().decode(plainBytes);
-          }
-        } catch (_) {}
+      if (!decStr) {
+        const nodeCrypto = _getNodeCrypto();
+        if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
+          try {
+            const keyBytes = _initMemorySessionKey(store);
+            if (combined.length >= 16) {
+              const authTag = combined.subarray(combined.length - 16);
+              const encData = combined.subarray(0, combined.length - 16);
+              const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBytes, iv);
+              decipher.setAuthTag(authTag);
+              const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
+              decStr = new TextDecoder().decode(plainBytes);
+            }
+          } catch (_) {}
+        }
       }
 
       if (decStr) {
         try {
           const dec = JSON.parse(decStr);
           _populateResultFromDecrypted(result, dec);
-          _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+          _cachedSessionSecrets = _cloneSessionSecrets(result);
           return result;
         } catch (_) {}
       }
@@ -783,7 +910,7 @@
           const fallbackStr = new TextDecoder().decode(plainBytes);
           const dec = JSON.parse(fallbackStr);
           _populateResultFromDecrypted(result, dec);
-          _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+          _cachedSessionSecrets = _cloneSessionSecrets(result);
           return result;
         } catch (_) {}
       }
@@ -802,7 +929,7 @@
       const decStr = new TextDecoder().decode(plainBytes);
       const dec = JSON.parse(decStr);
       _populateResultFromDecrypted(result, dec);
-      _cachedSessionSecrets = JSON.parse(JSON.stringify(result));
+      _cachedSessionSecrets = _cloneSessionSecrets(result);
     } catch (err) {
       _quarantineCorruptedPayload(store, targetKey, raw);
     }
@@ -813,7 +940,7 @@
     const store = _getStorage(storage);
     const existing = readSessionSecrets(store);
     const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
-    _cachedSessionSecrets = JSON.parse(JSON.stringify(secrets));
+    _cachedSessionSecrets = _cloneSessionSecrets(secrets);
 
     if (!store || typeof store.setItem !== 'function') return true;
 
@@ -869,7 +996,7 @@
     const store = _getStorage(storage);
     const existing = await readSessionSecretsAsync(store);
     const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
-    _cachedSessionSecrets = JSON.parse(JSON.stringify(secrets));
+    _cachedSessionSecrets = _cloneSessionSecrets(secrets);
 
     if (!store || typeof store.setItem !== 'function') return true;
 
@@ -901,7 +1028,6 @@
       const jsonStr = JSON.stringify(secrets);
       const plainBytes = new TextEncoder().encode(jsonStr);
       const keyRaw = _initMemorySessionKey(store);
-      const syncCipherBytes = _nonCryptoCompatCodec(plainBytes, keyRaw, iv);
 
       let hexCombined = null;
 
@@ -916,16 +1042,21 @@
       }
 
       /* istanbul ignore if */
-      if (!hexCombined && typeof require === 'function') {
-        try {
-          const nodeCrypto = require('crypto');
-          const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
-          const enc = Buffer.concat([cipher.update(plainBytes), cipher.final()]);
-          const tag = cipher.getAuthTag();
-          const combined = Buffer.concat([enc, tag]);
-          hexCombined = _uint8ToHex(combined);
-        } catch (_) {}
+      if (!hexCombined) {
+        const nodeCrypto = _getNodeCrypto();
+        if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
+          try {
+            const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
+            const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
+            const tag = cipher.getAuthTag();
+            const combined = _concatUint8([enc, tag]);
+            hexCombined = _uint8ToHex(combined);
+          } catch (_) {}
+        }
       }
+
+      const syncCipherBytes = _nonCryptoCompatCodec(plainBytes, keyRaw, iv);
+      const hexSync = _uint8ToHex(syncCipherBytes);
 
       const targetKey = _resolveSecretsStorageKey(store);
       store.setItem(targetKey, JSON.stringify({
@@ -933,8 +1064,8 @@
         algorithm: 'AES-GCM-256',
         initialized: true,
         iv: _uint8ToHex(iv),
-        ciphertext: hexCombined || _uint8ToHex(syncCipherBytes),
-        syncCiphertext: _uint8ToHex(syncCipherBytes),
+        ciphertext: hexCombined || hexSync,
+        syncCiphertext: hexSync,
         version: SESSION_SECRETS_SCHEMA_VERSION
       }));
       return true;
@@ -943,9 +1074,8 @@
     }
   }
 
-  function applySessionSecrets(state, storage) {
-    if (!state || typeof state !== 'object') return state;
-    const secrets = readSessionSecrets(storage);
+  function _hydrateStateWithSecrets(state, secrets) {
+    if (!state || typeof state !== 'object' || !secrets) return state;
     if (secrets.initialized) {
       if (!state.apiKeys || typeof state.apiKeys !== 'object' || Array.isArray(state.apiKeys)) {
         state.apiKeys = {};
@@ -987,7 +1117,20 @@
     return state;
   }
 
+  function applySessionSecrets(state, storage) {
+    if (!state || typeof state !== 'object') return state;
+    const secrets = readSessionSecrets(storage);
+    return _hydrateStateWithSecrets(state, secrets);
+  }
+
+  async function applySessionSecretsAsync(state, storage) {
+    if (!state || typeof state !== 'object') return state;
+    const secrets = await readSessionSecretsAsync(storage);
+    return _hydrateStateWithSecrets(state, secrets);
+  }
+
   return {
+    STORAGE_KEYS,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     SESSION_SECRETS_SCHEMA_VERSION,
@@ -1005,6 +1148,7 @@
     writeSessionSecrets,
     writeSessionSecretsAsync,
     applySessionSecrets,
+    applySessionSecretsAsync,
     _nonCryptoCompatCodec,
     _syncTransform,
     _uint8ToHex,
@@ -1017,6 +1161,11 @@
     _saveKeyToIndexedDB,
     _clearKeyFromIndexedDB,
     _resetSessionCryptoState,
-    _resetSessionMemoryCache: _resetSessionCryptoState
+    _resetSessionMemoryCache: _resetSessionCryptoState,
+    _concatUint8,
+    _quarantineCorruptedPayload,
+    _resolveSecretsStorageKey,
+    _getNodeCrypto,
+    _normalizeSecretsPayload
   };
 });

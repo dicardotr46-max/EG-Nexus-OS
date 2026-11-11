@@ -5,6 +5,7 @@ describe('Sanitization (XSS Prevention) & Telegram Rate Limiting', () => {
   let context;
 
   beforeEach(() => {
+    const sanitization = require('../src/core/sanitization.js');
     context = vm.createContext({
       String,
       Number,
@@ -13,7 +14,11 @@ describe('Sanitization (XSS Prevention) & Telegram Rate Limiting', () => {
       Math,
       Array,
       Set,
-      JSON
+      JSON,
+      window: {
+        _nexusCoreSanitization: sanitization
+      },
+      _nexusCoreSanitization: sanitization
     });
 
     vm.runInContext(extractFunction('escapeHtml'), context);

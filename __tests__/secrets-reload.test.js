@@ -173,6 +173,45 @@ describe('Secrets Real Reload Test Suite (Simulated Page Reload)', () => {
     expect(syncRestored.bridgeToken).toBe('bridge-cross-compat');
   });
 
+  test('Auditor Mandatory Verification: writeSessionSecretsAsync with flat keys -> RAM Wipe -> Synchronous readSessionSecrets', async () => {
+    // === Step 1: Write with writeSessionSecretsAsync({ gemini: 'ASYNC-SECRET', deepseek: 'DS-KEY', ... }) ===
+    const secretsC1 = require('../src/security/secrets.js');
+    const writeOk = await secretsC1.writeSessionSecretsAsync({
+      gemini: 'ASYNC-SECRET',
+      deepseek: 'DS-KEY',
+      bridgeToken: 'AUDIT-BRIDGE-TOKEN'
+    });
+    expect(writeOk).toBe(true);
+
+    // Verify standard AES-GCM-256 payload in sessionStorage
+    const rawStored = sharedSessionStorage.getItem(secretsC1.SESSION_SECRETS_KEY);
+    expect(rawStored).toBeTruthy();
+    const parsedPayload = JSON.parse(rawStored);
+    expect(parsedPayload.encrypted).toBe(true);
+    expect(parsedPayload.algorithm).toBe('AES-GCM-256');
+    expect(parsedPayload.ciphertext).toBeDefined();
+
+    // === Step 2: RAM Wipe (zero out memory cache, promises, and reset module registry) ===
+    if (typeof secretsC1._resetSessionCryptoState === 'function') {
+      secretsC1._resetSessionCryptoState();
+    }
+    jest.resetModules();
+
+    // === Step 3: Synchronous read with readSessionSecrets() in fresh context ===
+    const secretsC2 = require('../src/security/secrets.js');
+    expect(secretsC2).not.toBe(secretsC1);
+
+    const result = secretsC2.readSessionSecrets();
+
+    // === Step 4: Strict Auditor Validations ===
+    expect(result.initialized).toBe(true);
+    expect(result.gemini).toBe('ASYNC-SECRET');
+    expect(result.deepseek).toBe('DS-KEY');
+    expect(result.apiKeys.gemini).toBe('ASYNC-SECRET');
+    expect(result.apiKeys.deepseek).toBe('DS-KEY');
+    expect(result.bridgeToken).toBe('AUDIT-BRIDGE-TOKEN');
+  });
+
   test('Cross-compatibility: Sync write in Context 1 can be read by Async readSessionSecretsAsync in Context 2', async () => {
     const secretsC1 = require('../src/security/secrets.js');
     secretsC1.writeSessionSecrets({

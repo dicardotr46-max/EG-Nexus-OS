@@ -504,4 +504,236 @@ describe('Modular Core Architecture & Security', () => {
       delete global.window;
     });
   });
+
+  // =========================================================================
+  // v5.5 Core Architecture, Multi-Tab Sync & Unified NexusCore Suite
+  // =========================================================================
+  describe('v5.5 Unified NexusCore & Multi-Tab Monotonic Sync Suite', () => {
+    test('all src modules export frozen STORAGE_KEYS object with current and legacy keys', () => {
+      const expectedKeys = {
+        current: 'eg_nexus_os_v5_master_state',
+        legacy: 'eg_nexus_os_state_v5.1'
+      };
+
+      [state, persistence, secrets, sanitization, approvals, registry].forEach(mod => {
+        expect(mod.STORAGE_KEYS).toBeDefined();
+        expect(mod.STORAGE_KEYS).toEqual(expectedKeys);
+        expect(Object.isFrozen(mod.STORAGE_KEYS)).toBe(true);
+        expect(mod.STORAGE_KEY).toBe(expectedKeys.current);
+      });
+    });
+
+    test('window.NexusCore registers unified exports while strictly preserving legacy aliases', () => {
+      const mockWindow = {};
+      const origWindow = global.window;
+      global.window = mockWindow;
+
+      try {
+        jest.isolateModules(() => {
+          const modSanit = require('../src/core/sanitization.js');
+          const modSecr = require('../src/security/secrets.js');
+          const modAppr = require('../src/security/approvals.js');
+          const modState = require('../src/core/state.js');
+          const modPers = require('../src/core/persistence.js');
+          const modProv = require('../src/providers/registry.js');
+
+          // Verify window.NexusCore unified registry
+          expect(mockWindow.NexusCore).toBeDefined();
+          expect(mockWindow.NexusCore.state).toBe(modState);
+          expect(mockWindow.NexusCore.persistence).toBe(modPers);
+          expect(mockWindow.NexusCore.secrets).toBe(modSecr);
+          expect(mockWindow.NexusCore.sanitization).toBe(modSanit);
+          expect(mockWindow.NexusCore.approvals).toBe(modAppr);
+          expect(mockWindow.NexusCore.providers).toBe(modProv);
+          expect(mockWindow.NexusCore.STORAGE_KEYS).toEqual({
+            current: 'eg_nexus_os_v5_master_state',
+            legacy: 'eg_nexus_os_state_v5.1'
+          });
+
+          // Verify legacy aliases strictly preserved
+          expect(mockWindow._nexusCoreState).toBe(modState);
+          expect(mockWindow._nexusCorePersistence).toBe(modPers);
+          expect(mockWindow._nexusCoreSecrets).toBe(modSecr);
+          expect(mockWindow._nexusCoreSanitization).toBe(modSanit);
+          expect(mockWindow._nexusCoreApprovals).toBe(modAppr);
+          expect(mockWindow._nexusCoreProviders).toBe(modProv);
+          expect(mockWindow.NexusSecrets).toBe(modSecr);
+          expect(mockWindow.NexusProviders).toBe(modProv);
+        });
+      } finally {
+        if (origWindow !== undefined) {
+          global.window = origWindow;
+        } else {
+          delete global.window;
+        }
+      }
+    });
+
+    test('mergeStateWithRevision enforces monotonic state_revision counter', () => {
+      const local = { state_revision: 5, routines: [] };
+      const remote = { state_revision: 8, routines: [] };
+
+      const res = persistence.mergeStateWithRevision(local, remote);
+      expect(res.success).toBe(true);
+      expect(res.revision).toBe(9);
+      expect(res.state.state_revision).toBe(9);
+      expect(res.state.cloudConfig.stateRevision).toBe(9);
+
+      // Monotonic increment when versions match
+      const localSame = { state_revision: 12 };
+      const remoteSame = { state_revision: 12 };
+      const resSame = persistence.mergeStateWithRevision(localSame, remoteSame);
+      expect(resSame.revision).toBe(13);
+      expect(resSame.state.state_revision).toBe(13);
+    });
+
+    test('mergeStateWithRevision performs Field-Level Merge on routines, conversations, and brain.nodes', () => {
+      persistence.clearConflictHistory();
+
+      const localState = {
+        state_revision: 2,
+        routines: [
+          { id: 'rt_keep_local', title: 'Local Only', version: 1, updatedAtTs: 1000 },
+          { id: 'rt_conflict_version', title: 'Old Local Title', version: 1, updatedAtTs: 2000 },
+          { id: 'rt_conflict_time', title: 'Same Ver Local', version: 2, updatedAtTs: 3000 }
+        ],
+        conversations: [
+          { id: 'conv_1', title: 'Local Chat Title', updatedAtTs: 4000 }
+        ],
+        brain: {
+          nodes: [
+            { id: 'node_1', label: 'Local Brain Node', updatedAtTs: 1000 }
+          ]
+        }
+      };
+
+      const remoteState = {
+        state_revision: 3,
+        routines: [
+          { id: 'rt_keep_remote', title: 'Remote Only', version: 1, updatedAtTs: 1500 },
+          { id: 'rt_conflict_version', title: 'New Remote Title (Ver Win)', version: 2, updatedAtTs: 1000 },
+          { id: 'rt_conflict_time', title: 'Same Ver Remote (Time Win)', version: 2, updatedAtTs: 3500 }
+        ],
+        conversations: [
+          { id: 'conv_1', title: 'Remote Chat Title (Newer)', updatedAtTs: 4500 },
+          { id: 'conv_2', title: 'Remote Only Chat', updatedAtTs: 2000 }
+        ],
+        brain: {
+          nodes: [
+            { id: 'node_1', label: 'Remote Brain Node (Newer)', updatedAtTs: 2000 },
+            { id: 'node_2', label: 'Remote Only Node', updatedAtTs: 1200 }
+          ]
+        }
+      };
+
+      const mergeRes = persistence.mergeStateWithRevision(localState, remoteState);
+      expect(mergeRes.success).toBe(true);
+      expect(mergeRes.revision).toBe(4);
+
+      // Verify routines merge
+      const mergedRoutines = mergeRes.state.routines;
+      expect(mergedRoutines).toHaveLength(4);
+      expect(mergedRoutines.find(r => r.id === 'rt_keep_local').title).toBe('Local Only');
+      expect(mergedRoutines.find(r => r.id === 'rt_keep_remote').title).toBe('Remote Only');
+      expect(mergedRoutines.find(r => r.id === 'rt_conflict_version').title).toBe('New Remote Title (Ver Win)');
+      expect(mergedRoutines.find(r => r.id === 'rt_conflict_time').title).toBe('Same Ver Remote (Time Win)');
+
+      // Verify conversations merge
+      const mergedConvs = mergeRes.state.conversations;
+      expect(mergedConvs).toHaveLength(2);
+      expect(mergedConvs.find(c => c.id === 'conv_1').title).toBe('Remote Chat Title (Newer)');
+      expect(mergedConvs.find(c => c.id === 'conv_2').title).toBe('Remote Only Chat');
+
+      // Verify brain.nodes merge
+      const mergedNodes = mergeRes.state.brain.nodes;
+      expect(mergedNodes).toHaveLength(2);
+      expect(mergedNodes.find(n => n.id === 'node_1').label).toBe('Remote Brain Node (Newer)');
+      expect(mergedNodes.find(n => n.id === 'node_2').label).toBe('Remote Only Node');
+
+      // Verify conflicts were recorded
+      expect(mergeRes.conflicts.length).toBeGreaterThan(0);
+      const conflictRoutines = mergeRes.conflicts.filter(c => c.fieldName === 'routines');
+      expect(conflictRoutines.length).toBe(2);
+    });
+
+    test('conflict notification emits events to listener and window event bus', () => {
+      persistence.clearConflictHistory();
+
+      const receivedEvents = [];
+      const unsubscribe = persistence.onConflict(evt => receivedEvents.push(evt));
+
+      const r1 = { id: 'rt_sync', title: 'Local', version: 1, updatedAtTs: 100 };
+      const r2 = { id: 'rt_sync', title: 'Remote', version: 2, updatedAtTs: 200 };
+
+      persistence.resolveRoutineConflicts(r1, r2);
+
+      expect(receivedEvents.length).toBe(1);
+      expect(receivedEvents[0].type).toBe('routine_conflict');
+      expect(receivedEvents[0].id).toBe('rt_sync');
+      expect(receivedEvents[0].winner).toBe('remote');
+
+      // Conflict history buffer check
+      const history = persistence.getConflictHistory();
+      expect(history.length).toBeGreaterThanOrEqual(1);
+      expect(history[history.length - 1].id).toBe('rt_sync');
+
+      unsubscribe();
+    });
+
+    test('real rollback mechanics restore local state snapshot on error or manual invocation', () => {
+      const mockStorage = {
+        store: {},
+        setItem(k, v) { this.store[k] = v; },
+        getItem(k) { return this.store[k] || null; }
+      };
+
+      const localState = {
+        state_revision: 10,
+        profileName: 'Ali Original',
+        routines: [{ id: 'rt_1', title: 'Safe Routine' }]
+      };
+      mockStorage.setItem(persistence.STORAGE_KEYS.current, JSON.stringify(localState));
+
+      // 1. Error during merge triggers automatic real rollback
+      const errorRes = persistence.mergeStateWithRevision(localState, { state_revision: 11 }, {
+        storage: mockStorage,
+        forceError: true
+      });
+
+      expect(errorRes.success).toBe(false);
+      expect(errorRes.rolledBack).toBe(true);
+      expect(errorRes.state.profileName).toBe('Ali Original');
+      expect(errorRes.state.state_revision).toBe(10);
+      expect(JSON.parse(mockStorage.getItem(persistence.STORAGE_KEYS.current)).profileName).toBe('Ali Original');
+
+      // 2. Successful merge provides manual rollback capability
+      const successRes = persistence.mergeStateWithRevision(localState, {
+        state_revision: 12,
+        profileName: 'Ali Updated',
+        routines: []
+      }, { storage: mockStorage });
+
+      expect(successRes.success).toBe(true);
+      expect(successRes.state.profileName).toBe('Ali Updated');
+
+      // Manually trigger rollback
+      const restored = successRes.rollback();
+      expect(restored.profileName).toBe('Ali Original');
+      expect(restored.state_revision).toBe(10);
+      expect(JSON.parse(mockStorage.getItem(persistence.STORAGE_KEYS.current)).profileName).toBe('Ali Original');
+    });
+
+    test('resolveRoutineConflicts rollback restores exact local routine', () => {
+      const local = { id: 'rt_1', title: 'Local Version 1', version: 1 };
+      const remote = { id: 'rt_1', title: 'Remote Version 2', version: 2 };
+
+      const conflictRes = persistence.resolveRoutineConflicts(local, remote);
+      expect(conflictRes.winner).toBe('remote');
+      expect(conflictRes.resolved.title).toBe('Remote Version 2');
+
+      const rolledBack = conflictRes.rollback();
+      expect(rolledBack.title).toBe('Local Version 1');
+      expect(rolledBack.version).toBe(1);
+    });
+  });
 });

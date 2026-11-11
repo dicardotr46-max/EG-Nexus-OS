@@ -9,24 +9,49 @@
     module.exports = exports;
   }
   /* istanbul ignore next */
+  function syncNexusCore(target) {
+    if (!target) return;
+    Object.assign(target, exports);
+    target._nexusCorePersistence = exports;
+    target.NexusPersistence = exports;
+    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    target.NexusCore = Object.assign(
+      target.NexusCore || {},
+      target._nexusCoreSanitization || {},
+      target._nexusCoreState || {},
+      target._nexusCorePersistence || {},
+      target._nexusCoreSecrets || {},
+      target._nexusCoreApprovals || {},
+      target._nexusCoreProviders || {},
+      {
+        state: target._nexusCoreState,
+        persistence: target._nexusCorePersistence,
+        secrets: target._nexusCoreSecrets,
+        sanitization: target._nexusCoreSanitization,
+        approvals: target._nexusCoreApprovals,
+        providers: target._nexusCoreProviders,
+        STORAGE_KEYS
+      }
+    );
+  }
+  /* istanbul ignore next */
   if (root) {
-    Object.assign(root, exports);
-    root._nexusCorePersistence = exports;
+    syncNexusCore(root);
   }
   /* istanbul ignore next */
   if (typeof globalThis !== 'undefined') {
-    globalThis._nexusCorePersistence = exports;
+    syncNexusCore(globalThis);
   }
   /* istanbul ignore next */
   if (typeof window !== 'undefined') {
-    Object.assign(window, exports);
-    window._nexusCorePersistence = exports;
+    syncNexusCore(window);
   }
 })(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
 
-  const STORAGE_KEY = 'eg_nexus_os_v5_master_state';
-  const LEGACY_STORAGE_KEY = 'eg_nexus_os_state_v5.1';
+  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEY = STORAGE_KEYS.current;
+  const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
 
   function getLocalStorage() {
@@ -333,7 +358,506 @@
     return src;
   }
 
+  // Conflict Recording & Notification Bus
+  const _conflictEvents = [];
+  const MAX_CONFLICT_LOGS = 100;
+  const _conflictListeners = new Set();
+
+  function recordConflictEvent(event) {
+    if (!event || typeof event !== 'object') return null;
+    const item = {
+      ...event,
+      timestamp: event.timestamp || Date.now()
+    };
+    _conflictEvents.push(item);
+    if (_conflictEvents.length > MAX_CONFLICT_LOGS) {
+      _conflictEvents.shift();
+    }
+    _conflictListeners.forEach(fn => {
+      try { fn(item); } catch (e) {}
+    });
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('nexus:conflict', { detail: item }));
+      } catch (e) {}
+    }
+    return item;
+  }
+
+  function getConflictHistory() {
+    return _conflictEvents.slice();
+  }
+
+  function clearConflictHistory() {
+    _conflictEvents.length = 0;
+  }
+
+  function onConflict(listener) {
+    if (typeof listener === 'function') {
+      _conflictListeners.add(listener);
+      return () => _conflictListeners.delete(listener);
+    }
+    return () => {};
+  }
+
+  function getStateRevision(state) {
+    if (!state || typeof state !== 'object') return 0;
+    const direct = Number(state.state_revision ?? state.stateRevision);
+    if (Number.isFinite(direct) && direct > 0) return direct;
+    const cloudRev = Number(state.cloudConfig?.stateRevision ?? state.cloudConfig?.state_revision);
+    if (Number.isFinite(cloudRev) && cloudRev > 0) return cloudRev;
+    return 1;
+  }
+
+  function getItemTimestamp(item) {
+    if (!item || typeof item !== 'object') return 0;
+    if (Number.isFinite(Number(item.updatedAtTs))) return Number(item.updatedAtTs);
+    const dateFields = [item.updated_at, item.updatedAt, item.timestamp, item.lastRunAt, item.created_at, item.createdAt];
+    for (const d of dateFields) {
+      if (typeof d === 'string' && d.trim()) {
+        const parsed = new Date(d).getTime();
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      } else if (Number.isFinite(Number(d)) && Number(d) > 0) {
+        return Number(d);
+      }
+    }
+    return 0;
+  }
+
+  function getItemVersion(item) {
+    if (!item || typeof item !== 'object') return 0;
+    return Number(item.version ?? item.revision ?? 0) || 0;
+  }
+
+  function mergeArrayById(fieldName, localArr, remoteArr, onConflictFn = recordConflictEvent) {
+    const listA = Array.isArray(localArr) ? localArr : [];
+    const listB = Array.isArray(remoteArr) ? remoteArr : [];
+
+    const map = new Map();
+    const order = [];
+
+    listA.forEach((item, idx) => {
+      if (!item || typeof item !== 'object') return;
+      const id = String(item.id ?? idx);
+      map.set(id, { item, origin: 'local' });
+      order.push(id);
+    });
+
+    listB.forEach((remoteItem, idx) => {
+      if (!remoteItem || typeof remoteItem !== 'object') return;
+      const id = String(remoteItem.id ?? idx);
+
+      if (!map.has(id)) {
+        map.set(id, { item: remoteItem, origin: 'remote' });
+        order.push(id);
+        return;
+      }
+
+      const existing = map.get(id);
+      const localItem = existing.item;
+
+      const localVer = getItemVersion(localItem);
+      const remoteVer = getItemVersion(remoteItem);
+
+      let winner = 'local';
+      let resolved = localItem;
+
+      if (remoteVer > localVer) {
+        winner = 'remote';
+        resolved = remoteItem;
+      } else if (localVer > remoteVer) {
+        winner = 'local';
+        resolved = localItem;
+      } else {
+        const localTs = getItemTimestamp(localItem);
+        const remoteTs = getItemTimestamp(remoteItem);
+        if (remoteTs > localTs) {
+          winner = 'remote';
+          resolved = remoteItem;
+        } else {
+          winner = 'local';
+          resolved = localItem;
+        }
+      }
+
+      const isDifferent = JSON.stringify(localItem) !== JSON.stringify(remoteItem);
+      if (isDifferent) {
+        const conflict = {
+          type: 'array_field_conflict',
+          fieldName,
+          id,
+          local: localItem,
+          remote: remoteItem,
+          winner,
+          resolved,
+          timestamp: Date.now()
+        };
+        if (typeof onConflictFn === 'function') {
+          onConflictFn(conflict);
+        }
+      }
+
+      map.set(id, { item: resolved, origin: winner });
+    });
+
+    return order.map(id => map.get(id).item);
+  }
+
+  function mergeStateWithRevision(localState, remoteState, options = {}) {
+    const rollbackSnapshot = localState ? JSON.parse(JSON.stringify(localState)) : {};
+    const recordedConflicts = [];
+    const handleConflict = (c) => {
+      recordedConflicts.push(c);
+      recordConflictEvent(c);
+      if (typeof options.onConflict === 'function') {
+        try { options.onConflict(c); } catch (e) {}
+      }
+    };
+
+    try {
+      if (options.forceError) {
+        throw new Error('Forced sync error for rollback simulation');
+      }
+
+      if (!localState || typeof localState !== 'object') {
+        const sanitized = sanitizeLoadedState(remoteState || {});
+        return {
+          success: true,
+          state: sanitized,
+          revision: getStateRevision(sanitized),
+          conflicts: [],
+          rollback: () => rollbackSnapshot
+        };
+      }
+      if (!remoteState || typeof remoteState !== 'object') {
+        const sanitized = sanitizeLoadedState(localState);
+        return {
+          success: true,
+          state: sanitized,
+          revision: getStateRevision(sanitized),
+          conflicts: [],
+          rollback: () => rollbackSnapshot
+        };
+      }
+
+      const localRev = getStateRevision(localState);
+      const remoteRev = getStateRevision(remoteState);
+      const nextRevision = Math.max(localRev, remoteRev) + 1;
+
+      const merged = { ...localState, ...remoteState };
+
+      merged.cloudConfig = {
+        ...(localState.cloudConfig || {}),
+        ...(remoteState.cloudConfig || {}),
+        stateRevision: nextRevision,
+        lastSyncAt: new Date().toISOString()
+      };
+
+      merged.routines = mergeArrayById('routines', localState.routines, remoteState.routines, handleConflict);
+
+      if (Array.isArray(localState.conversations) || Array.isArray(remoteState.conversations)) {
+        merged.conversations = mergeArrayById('conversations', localState.conversations, remoteState.conversations, handleConflict);
+      }
+      if (Array.isArray(localState.chats) || Array.isArray(remoteState.chats)) {
+        merged.chats = mergeArrayById('chats', localState.chats, remoteState.chats, handleConflict);
+      }
+
+      if (localState.brain?.nodes || remoteState.brain?.nodes) {
+        merged.brain = merged.brain || {};
+        merged.brain.nodes = mergeArrayById('brain.nodes', localState.brain?.nodes, remoteState.brain?.nodes, handleConflict);
+      }
+      if (Array.isArray(localState.brainNodes) || Array.isArray(remoteState.brainNodes)) {
+        merged.brainNodes = mergeArrayById('brainNodes', localState.brainNodes, remoteState.brainNodes, handleConflict);
+      }
+
+      merged.state_revision = nextRevision;
+      if (merged.cloudConfig) {
+        merged.cloudConfig.stateRevision = nextRevision;
+        merged.cloudConfig.lastSyncAt = new Date().toISOString();
+      }
+
+      const sanitizedState = sanitizeLoadedState(merged);
+      sanitizedState.state_revision = nextRevision;
+      if (sanitizedState.cloudConfig) {
+        sanitizedState.cloudConfig.stateRevision = nextRevision;
+      }
+
+      if (options.storage && typeof options.storage.setItem === 'function') {
+        const key = options.storageKey || STORAGE_KEYS.current;
+        options.storage.setItem(key, JSON.stringify(buildPersistedState(sanitizedState)));
+      }
+
+      return {
+        success: true,
+        state: sanitizedState,
+        revision: nextRevision,
+        conflicts: recordedConflicts,
+        rollback: function() {
+          if (options.storage && typeof options.storage.setItem === 'function') {
+            const key = options.storageKey || STORAGE_KEYS.current;
+            options.storage.setItem(key, JSON.stringify(buildPersistedState(rollbackSnapshot)));
+          }
+          recordConflictEvent({
+            type: 'state_rollback',
+            restoredRevision: getStateRevision(rollbackSnapshot),
+            timestamp: Date.now()
+          });
+          return JSON.parse(JSON.stringify(rollbackSnapshot));
+        }
+      };
+    } catch (err) {
+      if (options.storage && typeof options.storage.setItem === 'function') {
+        try {
+          const key = options.storageKey || STORAGE_KEYS.current;
+          options.storage.setItem(key, JSON.stringify(buildPersistedState(rollbackSnapshot)));
+        } catch (storageErr) {}
+      }
+
+      const rollbackEvent = {
+        type: 'sync_error_rollback',
+        error: err.message,
+        restoredRevision: getStateRevision(rollbackSnapshot),
+        timestamp: Date.now()
+      };
+      recordConflictEvent(rollbackEvent);
+
+      return {
+        success: false,
+        rolledBack: true,
+        state: JSON.parse(JSON.stringify(rollbackSnapshot)),
+        error: err.message,
+        conflicts: recordedConflicts,
+        rollback: () => JSON.parse(JSON.stringify(rollbackSnapshot))
+      };
+    }
+  }
+
+  function resolveRoutineConflicts(localRoutine, remoteRoutine, options = {}) {
+    if (!localRoutine) return { resolved: remoteRoutine, winner: 'remote' };
+    if (!remoteRoutine) return { resolved: localRoutine, winner: 'local' };
+
+    const localVer = Number(localRoutine.version) || 0;
+    const remoteVer = Number(remoteRoutine.version) || 0;
+
+    let winner = 'local';
+    let resolved = localRoutine;
+
+    if (localVer > remoteVer) {
+      winner = 'local';
+      resolved = localRoutine;
+    } else if (remoteVer > localVer) {
+      winner = 'remote';
+      resolved = remoteRoutine;
+    } else {
+      const localTime = new Date(localRoutine.updated_at || localRoutine.lastRunAt || localRoutine.updatedAt || 0).getTime();
+      const remoteTime = new Date(remoteRoutine.updated_at || remoteRoutine.lastRunAt || remoteRoutine.updatedAt || 0).getTime();
+
+      if (remoteTime > localTime) {
+        winner = 'remote';
+        resolved = remoteRoutine;
+      } else {
+        winner = 'local';
+        resolved = localRoutine;
+      }
+    }
+
+    const isDifferent = JSON.stringify(localRoutine) !== JSON.stringify(remoteRoutine);
+    if (isDifferent) {
+      const conflictEvent = {
+        type: 'routine_conflict',
+        id: localRoutine.id || remoteRoutine.id,
+        local: localRoutine,
+        remote: remoteRoutine,
+        winner,
+        resolved,
+        timestamp: Date.now()
+      };
+      recordConflictEvent(conflictEvent);
+      if (options && typeof options.onConflict === 'function') {
+        try { options.onConflict(conflictEvent); } catch (e) {}
+      }
+    }
+
+    return {
+      resolved,
+      winner,
+      rollback: () => JSON.parse(JSON.stringify(localRoutine))
+    };
+  }
+
+  function compareTimestampsWithClockSkewProtection(tsA, tsB, options = {}) {
+    const now = typeof options.now === 'number' ? options.now : Date.now();
+    const maxSkew = typeof options.maxClockSkewMs === 'number' ? options.maxClockSkewMs : 60000;
+
+    let a = Number(tsA) || 0;
+    let b = Number(tsB) || 0;
+    let clockSkewDetected = false;
+
+    if (a > now + maxSkew) {
+      clockSkewDetected = true;
+      a = now;
+    }
+    if (b > now + maxSkew) {
+      clockSkewDetected = true;
+      b = now;
+    }
+
+    const diff = a - b;
+    return {
+      clockSkewDetected,
+      diff,
+      winner: diff > 0 ? 'A' : (diff < 0 ? 'B' : 'equal'),
+      normalizedA: a,
+      normalizedB: b
+    };
+  }
+
+  async function syncWithCloudWorker(options = {}) {
+    const storage = options.storage || getLocalStorage();
+    const storageKey = options.storageKey || STORAGE_KEY;
+    const backupRaw = storage && typeof storage.getItem === 'function' ? storage.getItem(storageKey) : null;
+    let backupSnapshot = null;
+    try {
+      if (backupRaw) backupSnapshot = JSON.parse(backupRaw);
+    } catch (_) {}
+
+    try {
+      let stateToSync = options.state || backupSnapshot;
+      if (!stateToSync && backupRaw) {
+        try { stateToSync = JSON.parse(backupRaw); } catch (_) {}
+      }
+      if (!stateToSync) {
+        throw new Error('No state available to sync');
+      }
+
+      if (typeof options.transportFn !== 'function') {
+        throw new Error('Transport function required for cloud sync');
+      }
+
+      const res = await options.transportFn(stateToSync);
+      if (!res || res.ok === false) {
+        throw new Error((res && res.error) || 'Cloud worker sync rejected');
+      }
+
+      const rev = (res && Number(res.stateRevision)) || (stateToSync.cloudConfig && Number(stateToSync.cloudConfig.stateRevision)) || (Number(stateToSync.state_revision) || 1);
+      return {
+        ok: true,
+        rolledBack: false,
+        result: res,
+        stateRevision: rev
+      };
+    } catch (netErr) {
+      if (storage && typeof storage.setItem === 'function' && backupRaw !== null) {
+        storage.setItem(storageKey, backupRaw);
+      }
+      return {
+        ok: false,
+        rolledBack: true,
+        error: netErr.message || String(netErr)
+      };
+    }
+  }
+
+  function mergeMultiTabState(localState, incomingState, options = {}) {
+    if (!localState && !incomingState) {
+      return { mergedState: {}, winner: 'equal', clockSkewDetected: false, conflictResolved: false };
+    }
+    if (!localState) {
+      return { mergedState: JSON.parse(JSON.stringify(incomingState)), winner: 'incoming', clockSkewDetected: false, conflictResolved: false };
+    }
+    if (!incomingState) {
+      return { mergedState: JSON.parse(JSON.stringify(localState)), winner: 'local', clockSkewDetected: false, conflictResolved: false };
+    }
+
+    const localRev = getStateRevision(localState);
+    const incomingRev = getStateRevision(incomingState);
+
+    const localTs = Number(localState.updatedAtTs) || 0;
+    const incomingTs = Number(incomingState.updatedAtTs) || 0;
+
+    const timeComp = compareTimestampsWithClockSkewProtection(localTs, incomingTs, options);
+    const clockSkewDetected = timeComp.clockSkewDetected;
+
+    const merged = JSON.parse(JSON.stringify(localState));
+
+    let primaryWinner = 'merged';
+    if (incomingRev > localRev) {
+      primaryWinner = 'incoming';
+    } else if (localRev > incomingRev) {
+      primaryWinner = 'local';
+    } else {
+      primaryWinner = timeComp.winner === 'B' ? 'incoming' : (timeComp.winner === 'A' ? 'local' : 'merged');
+    }
+
+    const allKeys = new Set([...Object.keys(localState), ...Object.keys(incomingState)]);
+    allKeys.forEach(k => {
+      if (['chats', 'routines', 'agentsCatalog', 'skills', 'addedAppIds'].includes(k)) {
+        return;
+      }
+      if (localState[k] === undefined && incomingState[k] !== undefined) {
+        merged[k] = JSON.parse(JSON.stringify(incomingState[k]));
+      } else if (incomingState[k] !== undefined) {
+        if (primaryWinner === 'incoming') {
+          merged[k] = JSON.parse(JSON.stringify(incomingState[k]));
+        } else if (primaryWinner === 'local') {
+          merged[k] = JSON.parse(JSON.stringify(localState[k]));
+        } else {
+          merged[k] = (incomingState[k] !== '' && incomingState[k] !== null)
+            ? JSON.parse(JSON.stringify(incomingState[k]))
+            : JSON.parse(JSON.stringify(localState[k]));
+        }
+      }
+    });
+
+    function mergeCollection(localArr = [], incomingArr = [], itemTsField = 'updatedAtTs') {
+      const map = new Map();
+      (Array.isArray(localArr) ? localArr : []).forEach(item => {
+        if (item && item.id) map.set(item.id, JSON.parse(JSON.stringify(item)));
+      });
+      (Array.isArray(incomingArr) ? incomingArr : []).forEach(item => {
+        if (!item || !item.id) return;
+        if (!map.has(item.id)) {
+          map.set(item.id, JSON.parse(JSON.stringify(item)));
+        } else {
+          const existing = map.get(item.id);
+          const exTs = Number(existing[itemTsField]) || Number(existing.version) || 0;
+          const inTs = Number(item[itemTsField]) || Number(item.version) || 0;
+          const comp = compareTimestampsWithClockSkewProtection(exTs, inTs, options);
+          if (comp.winner === 'B' || (comp.winner === 'equal' && primaryWinner === 'incoming')) {
+            map.set(item.id, JSON.parse(JSON.stringify(item)));
+          }
+        }
+      });
+      return Array.from(map.values());
+    }
+
+    if (Array.isArray(localState.chats) || Array.isArray(incomingState.chats)) {
+      merged.chats = mergeCollection(localState.chats, incomingState.chats, 'updatedAtTs');
+    }
+    if (Array.isArray(localState.routines) || Array.isArray(incomingState.routines)) {
+      merged.routines = mergeCollection(localState.routines, incomingState.routines, 'updated_at');
+    }
+    if (Array.isArray(localState.agentsCatalog) || Array.isArray(incomingState.agentsCatalog)) {
+      merged.agentsCatalog = mergeCollection(localState.agentsCatalog, incomingState.agentsCatalog, 'version');
+    }
+
+    const targetRev = Math.max(localRev, incomingRev) + (primaryWinner === 'merged' ? 1 : 0);
+    if (!merged.cloudConfig) merged.cloudConfig = {};
+    merged.cloudConfig.stateRevision = targetRev;
+    merged.state_revision = targetRev;
+    merged.stateRevision = targetRev;
+    merged.updatedAtTs = Math.max(timeComp.normalizedA, timeComp.normalizedB, typeof options.now === 'number' ? options.now : Date.now());
+
+    return {
+      mergedState: merged,
+      winner: primaryWinner,
+      clockSkewDetected,
+      conflictResolved: true
+    };
+  }
+
   return {
+    STORAGE_KEYS,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     SESSION_SECRETS_KEY,
@@ -345,6 +869,18 @@
     getStorageSizeEstimate,
     sanitizeLoadedState,
     buildPersistedState,
-    emptyApiKeys
+    emptyApiKeys,
+    getStateRevision,
+    mergeArrayById,
+    mergeStateWithRevision,
+    mergeMultiTabState,
+    resolveMultiTabStateConflict: mergeMultiTabState,
+    syncWithCloudWorker,
+    compareTimestampsWithClockSkewProtection,
+    resolveRoutineConflicts,
+    recordConflictEvent,
+    getConflictHistory,
+    clearConflictHistory,
+    onConflict
   };
 });

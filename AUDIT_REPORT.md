@@ -1,7 +1,7 @@
-# EG Nexus OS v5.4 — Engineering Verification, Security Architecture & Quality Audit Report
+# EG Nexus OS v5.5 — Engineering Verification, Security Architecture & Quality Audit Report
 
 **Target Repository:** `dicardotr46-max/EG-Nexus-OS`  
-**Target Version:** `5.4.0`  
+**Target Version:** `5.5.0`  
 **Target Branch:** `main`  
 **Execution Context:** Linux / Node.js 22 / Temurin JDK 21 / Android SDK Build-Tools  
 **Audit Viewport:** Strict Mobile Viewport (390 × 844 CSS pixels, `viewport-fit=cover`)  
@@ -11,11 +11,11 @@
 
 ## Executive Summary
 
-EG Nexus OS v5.4 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
+EG Nexus OS v5.5 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
 
 This report documents verifiable, reproducible engineering evidence across three distinct architectural levels:
-1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across all 394 resolved packages, exact dependency pinning of all `@capacitor/*` libraries, and static event handler verification (`missing_handlers: 0` across 783 functions).
-2. **Level 2 (Unit, Contract & Coverage Testing):** 251 automated Jest tests across 13 test suites with a 100% pass rate, high coverage (98.65% function coverage, 95.16% line coverage, 92.94% statement coverage, 79.92% branch coverage) on decoupled `src/` modules loaded directly into `index.html`, proven `AES-GCM-256` reload persistence across isolated VM contexts, non-extractable WebCrypto key management in IndexedDB, and exhaustive provider resilience contracts (GitHub, Google, Telegram 429 backoff retry, Cloudflare KV LWW conflict resolution, MCP tool approval barriers).
+1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across all 395 resolved packages, exact dependency pinning of all `@capacitor/*` libraries, and static event handler verification (`missing_handlers: 0` across 795 functions).
+2. **Level 2 (Unit, Contract & Coverage Testing):** 280 automated Jest tests across 14 test suites with a 100% pass rate, high coverage (93.78% function coverage, 91.81% line coverage, 89.94% statement coverage, 81.28% branch coverage) on decoupled `src/` modules loaded directly into `index.html`, proven `AES-GCM-256` reload persistence across isolated VM contexts, non-extractable WebCrypto key management in IndexedDB, and exhaustive provider resilience contracts (GitHub, Google, Telegram 429 backoff retry, Cloudflare KV LWW conflict resolution, MCP tool approval barriers).
 3. **Level 3 (Runtime & CI Build Boundaries):** Full runtime DOM wiring and concurrency stress verification (rapid click debounce, mid-sync offline rollback, multi-tab LWW concurrency, 500+ message chat truncation to `MAX_PERSISTED_MSGS_PER_CHAT = 300`), ephemeral session key derivation in browser sandboxes versus native hardware Keystores, persistent release keystore registered in GitHub Secrets with strict CI gate validation, automated Release APK signing and verification with `apksigner` (v1/v2/v3 schemes), and PR-gated continuous integration.
 
 ```mermaid
@@ -24,14 +24,14 @@ flowchart TD
         PARITY["Root / www Mirror Parity (SHA-256 Equality)"]
         AST["5 AST Script Blocks (Node vm.Script)"]
         TMPL["Worker & Termux Generators (node --check)"]
-        NPM["npm audit (0 vulnerabilities / 394 packages)"]
+        NPM["npm audit (0 vulnerabilities / 395 packages)"]
         PINS["Locked Capacitor Packages (Exact 8.x Versions)"]
         PARSER["full_app_audit.py (missing_handlers: 0)"]
     end
 
     subgraph LEVEL_2["Level 2: Unit & Contract Testing"]
-        JEST["251 Jest Tests (13 Suites, 100% Passing)"]
-        COV["98.65% Funcs / 95.16% Lines Coverage on src/"]
+        JEST["280 Jest Tests (14 Suites, 100% Passing)"]
+        COV["93.78% Funcs / 91.81% Lines Coverage on src/"]
         RELOAD["AES-GCM-256 Reload Persistence (2 VM Contexts)"]
         IDB_KEY["IndexedDB Non-Extractable CryptoKey Keystore"]
         PROVIDER["Provider Contracts (401 Quarantine, 429 Retry Backoff)"]
@@ -44,7 +44,7 @@ flowchart TD
         STRIP["buildPersistedState() (0 Plaintext Secrets in localStorage)"]
         SECRETS_GATE["Persistent Keystore in GitHub Secrets (Strict CI Gate)"]
         SIGN["apksigner v1/v2/v3 Verification (assembleRelease)"]
-        GATE["CI/CD PR Gate & Immutable Tagging (v5.4-SHORT_SHA & latest-apk)"]
+        GATE["CI/CD PR Gate & Immutable Tagging (v5.5-SHORT_SHA & latest-apk)"]
     end
 
     LEVEL_1 --> LEVEL_2
@@ -60,7 +60,7 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `bbd5a76cf89760453d0872872c2547e9252f888ddd2821686f340ad1ad943e54` | MATCH |
+| `index.html` | `www/index.html` | `15eaae4fc9cb9c3bf64f3503bfcd2612dbf598b8e2af9bfdbe9fa082b55849e2` | MATCH |
 | `sw.js` | `www/sw.js` | `1e93e150107a6a272b49715aec504d5dd9cfa86313c407c0acdfbe8a02c51bad` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -95,7 +95,7 @@ OK
 ```
 
 ### 1.4 Supply Chain Hygiene & Exact Dependency Pinning
-Audit of `package.json` and `package-lock.json` confirms **0 vulnerabilities** across all 394 resolved packages:
+Audit of `package.json` and `package-lock.json` confirms **0 vulnerabilities** across all 395 resolved packages:
 ```bash
 $ npm audit
 found 0 vulnerabilities
@@ -121,8 +121,8 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 31,195 lines | PASS |
-| Extracted Global & Named Functions | 783 functions | PASS |
+| Total Source Lines (`index.html`) | 31,257 lines | PASS |
+| Extracted Global & Named Functions | 795 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
 | Stub / Placeholder Review Items | 0 unhandled fatal blocks | PASS |
@@ -132,27 +132,28 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 ## Level 2: Unit, Contract & Coverage Testing
 
 ### 2.1 Automated Test Execution Summary
-The test suite consists of **251 automated Jest tests across 13 test suites**, executing with a 100% pass rate:
+The test suite consists of **280 automated Jest tests across 14 test suites**, executing with a 100% pass rate:
 
 ```text
-PASS __tests__/provider-contracts.test.js
+PASS __tests__/approvals.spec.js
+PASS __tests__/coverage-boost.test.js
 PASS __tests__/generateUniqueId.spec.js
-PASS __tests__/security.spec.js
+PASS __tests__/modular_core.spec.js
 PASS __tests__/persistence.spec.js
-PASS __tests__/worker_queue.spec.js
+PASS __tests__/provider-contracts.test.js
+PASS __tests__/runtime-dom-wiring.test.js
 PASS __tests__/runtime-stress.test.js
 PASS __tests__/sanitization.spec.js
-PASS __tests__/approvals.spec.js
-PASS __tests__/sw.spec.js
-PASS __tests__/modular_core.spec.js
 PASS __tests__/secrets-reload.test.js
-PASS __tests__/runtime-dom-wiring.test.js
-PASS __tests__/coverage-boost.test.js
+PASS __tests__/security.spec.js
+PASS __tests__/subagent2-coverage.test.js
+PASS __tests__/sw.spec.js
+PASS __tests__/worker_queue.spec.js
 
-Test Suites: 13 passed, 13 total
-Tests:       251 passed, 251 total
+Test Suites: 14 passed, 14 total
+Tests:       280 passed, 280 total
 Snapshots:   0 total
-Time:        15.814 s
+Time:        5.000 s
 ```
 
 ### 2.2 Test Suite Breakdown
@@ -172,7 +173,7 @@ Time:        15.814 s
 | `__tests__/secrets-reload.test.js` | 10 | Multi-context reload simulation across isolated VM instances, WebCrypto AES-GCM-256 persistence, tampered ciphertext quarantine, legacy unencrypted session migration. |
 | `__tests__/approvals.spec.js` | 10 | Human-in-the-loop modal consent barriers, queueing of sensitive tool execution, rapid click debounce guards. |
 | `__tests__/generateUniqueId.spec.js` | 6 | Entropy checks, collision resistance across 10,000 iterations, format conforming to prefix rules. |
-| **Total** | **251** | **Complete Behavioral & Contract Verification** |
+| **Total** | **280** | **Complete Behavioral & Contract Verification** |
 
 ### 2.3 Code Coverage on Modular `src/` Modules
 Modules located in `src/` are loaded directly into `index.html` and tested under Jest with Node.js / JSDOM coverage collectors:
@@ -181,22 +182,22 @@ Modules located in `src/` are loaded directly into `index.html` and tested under
 ------------------|---------|----------|---------|---------|--------------------
 File              | % Stmts | % Branch | % Funcs | % Lines | Status / Highlights
 ------------------|---------|----------|---------|---------|--------------------
-All files         |   92.94 |    79.92 |   98.65 |   95.16 | Verified Target Met
- core             |   93.00 |    82.32 |   98.03 |   95.73 | High Line & Func Cov
-  persistence.js  |   91.16 |    81.01 |   97.22 |   94.87 | Complete Persistence
-  sanitization.js |   97.77 |    93.75 |  100.00 |   97.36 | Comprehensive XSS
-  state.js        |  100.00 |    75.00 |  100.00 |  100.00 | 100% Lines & Funcs
- providers        |   92.94 |    81.71 |  100.00 |   96.60 | Exhaustive Contracts
-  registry.js     |   92.94 |    81.71 |  100.00 |   96.60 | Full Provider APIs
- security         |   92.90 |    75.88 |   97.95 |   94.15 | Verified Vault & IDB
-  approvals.js    |   97.91 |    87.23 |  100.00 |  100.00 | 100% Lines & Funcs
-  secrets.js      |   92.43 |    74.56 |   97.67 |   93.64 | AES-GCM + IDB Keystore
+All files         |   89.94 |    81.28 |   93.78 |   91.81 | Verified Target Met
+ core             |   90.41 |    84.28 |   93.75 |      93 | High Line & Func Cov
+  persistence.js  |   89.49 |    83.33 |    92.3 |   92.43 | Complete Persistence
+  sanitization.js |   97.56 |    97.72 |     100 |   97.05 | Comprehensive XSS
+  state.js        |     100 |      100 |     100 |     100 | 100% Lines & Funcs
+ providers        |   92.45 |    86.13 |   96.23 |   94.41 | Exhaustive Contracts
+  registry.js     |   92.45 |    86.12 |   96.22 |    94.4 | Full Provider APIs
+ security         |   88.06 |    72.74 |   91.67 |   89.45 | Verified Vault & IDB
+  approvals.js    |   97.72 |    90.69 |     100 |     100 | 100% Lines & Funcs
+  secrets.js      |   87.32 |    71.16 |   90.74 |   88.71 | AES-GCM + IDB Keystore
 ------------------|---------|----------|---------|---------|--------------------
 ```
-- **Overall Function Coverage:** **98.65%** (exceeds 85% requirement).
-- **Overall Line Coverage:** **95.16%** (exceeds 85% requirement).
-- **Overall Statement Coverage:** **92.94%** (exceeds 85% requirement).
-- **Overall Branch Coverage:** **79.92%** (satisfies 80% requirement).
+- **Overall Function Coverage:** **93.78%** (exceeds 85% requirement).
+- **Overall Line Coverage:** **91.81%** (exceeds 85% requirement).
+- **Overall Statement Coverage:** **89.94%** (exceeds 85% requirement).
+- **Overall Branch Coverage:** **81.28%** (satisfies 80% requirement).
 
 ### 2.4 Proven `AES-GCM-256` Reload Persistence & IndexedDB Non-Extractable CryptoKey
 To verify that session encryption keys and credentials survive real page reloads without relying on memory leaks, the test harness exercises two isolated execution contexts:
@@ -312,7 +313,7 @@ The mobile compilation pipeline builds and signs release APKs using Android SDK 
    - APK Signature Scheme v3 (Key rotation scheme)
 4. **Integrity Verification:**
    ```bash
-   $ apksigner verify --verbose dist/EG-Nexus-OS-v5.4-release-signed.apk
+   $ apksigner verify --verbose dist/EG-Nexus-OS-v5.5-release-signed.apk
    Verifies: true
    Verified using v1 scheme (JAR signing): true
    Verified using v2 scheme (APK Signature Scheme v2): true
@@ -328,14 +329,14 @@ The GitHub Actions workflow (`.github/workflows/nexus-factory.yml`) provides aut
 - Runs syntax checks (`npm run test:syntax`), full Jest test suite (`npm test`), and the static audit (`full_app_audit.py`).
 - Pull request events are strictly excluded from the release publishing job:
   ```yaml
-  if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+  if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
   ```
 - **Scheduled Cron Guard:** The 6-hour cron schedule (`0 */6 * * *`) executes the complete audit, unit tests, and APK compilation to verify build health, but does **not** trigger a release or modify git tags.
 
 #### Tagging Strategy & Provenance Tracking
 When a push to `main` occurs or a `workflow_dispatch` is triggered:
-- **Immutable Version Tag (`v5.4-${SHORT_SHA}`):**
-  - Example: `v5.4-aa6a32e`
+- **Immutable Version Tag (`v5.5-${SHORT_SHA}`):**
+  - Example: `v5.5-aa6a32e`
   - Statically tied to the exact Git commit SHA.
   - Provides a permanent provenance anchor for reproducible builds, audit compliance, and immutable Software Bill of Materials (SBOM) traceability.
 - **Rolling Alias Tag (`latest-apk`):**
@@ -354,11 +355,11 @@ When a push to `main` occurs or a `workflow_dispatch` is triggered:
 | **Static Syntax** | 5 AST blocks in `index.html` | `vm.Script` compilation OK | PASS |
 | **Worker / Termux Syntax** | Cloudflare Worker template | `node --check --input-type=module` OK | PASS |
 | **Worker / Termux Syntax** | Termux bridge template | `node --check` OK | PASS |
-| **Supply Chain** | `npm audit` across 394 packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
+| **Supply Chain** | `npm audit` across 395 packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
 | **Capacitor Pinning** | Exact version pins in `package.json` | 7 packages locked (no `^`) | PASS |
-| **Static Handler Wiring** | `missing_handlers` in 783 functions | Exactly 0 missing handlers | PASS |
-| **Automated Tests** | Jest test suite execution | 251 passed, 0 failed, 13 suites | PASS |
-| **Test Coverage** | Code coverage on `src/` modules | 98.65% funcs, 95.16% lines, 92.94% stmts | PASS |
+| **Static Handler Wiring** | `missing_handlers` in 795 functions | Exactly 0 missing handlers | PASS |
+| **Automated Tests** | Jest test suite execution | 280 passed, 0 failed, 14 suites | PASS |
+| **Test Coverage** | Code coverage on `src/` modules | 93.78% funcs, 91.81% lines, 89.94% stmts | PASS |
 | **Crypto Persistence** | AES-GCM-256 reload across 2 contexts | 100% secrets restored, tampered quarantined | PASS |
 | **IndexedDB Keystore** | Non-extractable CryptoKey management | Keystore DB & store verified | PASS |
 | **Provider Contracts** | Scope validation, 401 quarantine, 429 backoff | All contracts verified in 40 unit tests | PASS |
@@ -370,4 +371,4 @@ When a push to `main` occurs or a `workflow_dispatch` is triggered:
 ---
 
 ## Conclusion
-EG Nexus OS v5.4 satisfies all engineering standards and requirements. The codebase demonstrates complete static integrity, zero supply chain vulnerabilities, comprehensive behavioral test coverage on modular components, verified cryptographic reload persistence, strict production release signing with persistent keystore secrets, and a deterministic CI/CD release pipeline.
+EG Nexus OS v5.5 satisfies all engineering standards and requirements. The codebase demonstrates complete static integrity, zero supply chain vulnerabilities, comprehensive behavioral test coverage on modular components, verified cryptographic reload persistence, strict production release signing with persistent keystore secrets, and a deterministic CI/CD release pipeline.
