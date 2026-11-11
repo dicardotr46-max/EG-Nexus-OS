@@ -92,7 +92,16 @@ def main():
         if name in found_flags:
             function_flags.append(found_flags[name])
     report = {'file': str(p), 'lines': src.count('\n') + 1, 'script_bytes': len(js), 'function_count': len(fn), 'interactive_element_count': len(buttons), 'target_hits': target_hits, 'missing_handlers': sum(len(x['missing_handlers']) for x in buttons), 'stub_markers': markers, 'toast_heavy_candidates': function_flags, 'elements': buttons}
-    Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    out_path = Path(args.out)
+    if out_path.exists():
+        try:
+            existing = json.loads(out_path.read_text())
+            for extra_k in ['test_summary', 'coverage_summary', 'npm_audit']:
+                if extra_k in existing and extra_k not in report:
+                    report[extra_k] = existing[extra_k]
+        except Exception:
+            pass
+    out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({k: report[k] for k in ['file', 'lines', 'function_count', 'interactive_element_count', 'missing_handlers', 'stub_markers', 'toast_heavy_candidates']}, ensure_ascii=False, indent=2))
 
 if __name__ == '__main__':
