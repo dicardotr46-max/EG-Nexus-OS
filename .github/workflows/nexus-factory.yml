@@ -1,4 +1,4 @@
-name: EG Nexus OS v5.6 - Auto Audit & Signed APK Factory
+name: EG Nexus OS v5.7 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -25,15 +25,16 @@ jobs:
 
     steps:
       - name: 1. Checkout Repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: 2. Setup Node.js 22
-        uses: actions/setup-node@v4.2.0
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
         with:
           node-version: '22'
+          cache: 'npm'
 
       - name: 3. Setup Python 3.11
-        uses: actions/setup-python@v5.4.0
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: '3.11'
 
@@ -47,7 +48,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v5.6..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v5.7..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -80,18 +81,20 @@ jobs:
 
     steps:
       - name: 1. Checkout Repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: 2. Setup Node.js 22
-        uses: actions/setup-node@v4.2.0
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
         with:
           node-version: '22'
+          cache: 'npm'
 
       - name: 3. Setup Java JDK 21 (Required for Android Gradle)
-        uses: actions/setup-java@v4.7.0
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
 
       - name: 4. Accept Android SDK Licenses Automatically
         run: |
@@ -144,12 +147,9 @@ jobs:
           KEYSTORE_FILE="release.keystore"
           echo "🔑 Decoding persistent repository release keystore from environment..."
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
-          KS_PASS="$ANDROID_KEYSTORE_PASSWORD"
-          KEY_ALIAS="$ANDROID_KEY_ALIAS"
-          KEY_PASS="$ANDROID_KEY_PASSWORD"
 
           mkdir -p dist
-          SIGNED_APK="dist/EG-Nexus-OS-v5.6-release-signed.apk"
+          SIGNED_APK="dist/EG-Nexus-OS-v5.7-release-signed.apk"
           ALIGNED_APK="dist/temp-aligned.apk"
 
           if $BUILD_TOOLS_DIR/zipalign -c -v 4 "$UNSIGNED_APK" >/dev/null 2>&1; then
@@ -163,9 +163,9 @@ jobs:
           echo "Signing APK with apksigner (v1, v2, v3 schemes)..."
           $BUILD_TOOLS_DIR/apksigner sign \
             --ks "$KEYSTORE_FILE" \
-            --ks-pass "pass:$KS_PASS" \
-            --ks-key-alias "$KEY_ALIAS" \
-            --key-pass "pass:$KEY_PASS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --key-pass env:ANDROID_KEY_PASSWORD \
             --out "$SIGNED_APK" \
             "$ALIGNED_APK"
 
@@ -177,10 +177,10 @@ jobs:
           echo "✅ Release APK signing and verification completed successfully."
 
       - name: 8. Upload Ready-to-Install Signed Android APK
-        uses: actions/upload-artifact@v4.6.1
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
-          name: EG-Nexus-OS-v5.6-Signed-APK
-          path: dist/EG-Nexus-OS-v5.6-release-signed.apk
+          name: EG-Nexus-OS-v5.7-Signed-APK
+          path: dist/EG-Nexus-OS-v5.7-release-signed.apk
           retention-days: 30
 
   publish-release:
@@ -192,46 +192,50 @@ jobs:
 
     steps:
       - name: 1. Checkout Repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: 2. Download Built Signed APK Artifact
-        uses: actions/download-artifact@v4.1.9
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
-          name: EG-Nexus-OS-v5.6-Signed-APK
+          name: EG-Nexus-OS-v5.7-Signed-APK
 
       - name: 3. Prepare APK and Checksum for Release
         run: |
-          cp EG-Nexus-OS-v5.6-release-signed.apk EG-Nexus-OS-v5.6.apk
-          sha256sum EG-Nexus-OS-v5.6.apk > EG-Nexus-OS-v5.6.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.6.apk.sha256)
+          cp EG-Nexus-OS-v5.7-release-signed.apk EG-Nexus-OS-v5.7.apk
+          sha256sum EG-Nexus-OS-v5.7.apk > EG-Nexus-OS-v5.7.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.7.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=v5.6-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v5.7-${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: 4. Update Git Tags for Release
         run: |
           # Rolling alias pointer: continuous delivery channel pointing to latest verified build on main
           git tag -f latest-apk "${GITHUB_SHA}"
-          # Immutable version tag: locked to exact commit SHA for audit provenance and reproducible builds
-          git tag "${RELEASE_TAG}" "${GITHUB_SHA}"
           git push origin latest-apk --force
-          git push origin "${RELEASE_TAG}"
+          # Immutable release tag: check if already exists on remote to ensure idempotent re-runs
+          if git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | grep -q "${RELEASE_TAG}"; then
+            echo "Immutable release tag ${RELEASE_TAG} already exists on remote for ${GITHUB_SHA}; skipping tag push."
+          else
+            git tag -f "${RELEASE_TAG}" "${GITHUB_SHA}"
+            git push origin "${RELEASE_TAG}"
+          fi
 
       - name: 5. Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2.2.1
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v5.6 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v5.7 (${{ env.SHORT_SHA }})"
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v5.6.0`
+            - **Release Version:** `v5.7.0`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**
@@ -245,5 +249,5 @@ jobs:
             - **Rolling Alias Pointer (`latest-apk`):**
               Serves as a dynamic distribution pointer continuously fast-forwarded to the latest verified production build on `main`. Enables seamless continuous deployment (CD), automated client updater polls, and permanent direct-download URLs.
           files: |
-            EG-Nexus-OS-v5.6.apk
-            EG-Nexus-OS-v5.6.apk.sha256
+            EG-Nexus-OS-v5.7.apk
+            EG-Nexus-OS-v5.7.apk.sha256

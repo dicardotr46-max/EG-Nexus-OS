@@ -351,19 +351,21 @@ describe('Security & Secrets Management', () => {
       NexusSecrets._resetSessionCryptoState();
     });
 
-    it('should derive deterministic 32-byte key from nexus_session_key_seed_v1', () => {
+    it('should derive deterministic 32-byte key on storage Symbol without exposing plaintext seed in storage', () => {
       // First call generates seed
       const key1 = NexusSecrets._initMemorySessionKey(sharedMock);
       expect(key1).toBeInstanceOf(Uint8Array);
       expect(key1.length).toBe(32);
 
+      // Verify plaintext key seed is NEVER stored in storage
       const storedSeed = sharedMock.getItem('nexus_session_key_seed_v1');
-      expect(storedSeed).toMatch(/^[0-9a-fA-F]{64}$/);
+      expect(storedSeed).toBeNull();
+      expect(sharedMock[Symbol.for('eg.nexus.session.key.v1')]).toBeDefined();
 
       // Reset in-memory cache to simulate page reload
       NexusSecrets._resetSessionCryptoState();
 
-      // Second call recovers the exact same key from stored seed
+      // Second call recovers the exact same key from non-enumerable symbol on storage
       const key2 = NexusSecrets._initMemorySessionKey(sharedMock);
       expect(Array.from(key2)).toEqual(Array.from(key1));
     });

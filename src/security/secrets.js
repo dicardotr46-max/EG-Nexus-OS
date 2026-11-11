@@ -4,10 +4,12 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
-  const exports = factory();
+  const exports = factory(root);
   /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
+    target.NexusCore = target.NexusCore || {};
+    Object.assign(target.NexusCore, exports);
     target._nexusCoreSecrets = exports;
     target.NexusSecrets = exports;
     if (typeof exports.queueSessionSecretsWrite === 'function') {
@@ -16,9 +18,9 @@
       target.getSessionWriteRevision = exports.getSessionWriteRevision;
       target.resetSessionWriteQueue = exports.resetSessionWriteQueue;
     }
-    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
-    target.NexusCore = Object.assign(
-      target.NexusCore || {},
+    const STORAGE_KEYS = (target.NexusCore && target.NexusCore.STORAGE_KEYS) || exports.STORAGE_KEYS || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    Object.assign(
+      target.NexusCore,
       target._nexusCoreSanitization || {},
       target._nexusCoreState || {},
       target._nexusCorePersistence || {},
@@ -35,6 +37,18 @@
         STORAGE_KEYS
       }
     );
+    for (const key of Object.keys(exports)) {
+      try {
+        Object.defineProperty(target, key, {
+          value: exports[key],
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (e) {
+        target[key] = exports[key];
+      }
+    }
   }
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = exports;
@@ -53,29 +67,31 @@
   } else {
     /* istanbul ignore next */
     if (root) {
-      Object.assign(root, exports);
       syncNexusCore(root);
     }
     /* istanbul ignore next */
     if (typeof window !== 'undefined') {
-      Object.assign(window, exports);
       syncNexusCore(window);
     }
     /* istanbul ignore next */
     if (typeof globalThis !== 'undefined') {
-      Object.assign(globalThis, exports);
       syncNexusCore(globalThis);
     }
   }
-})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ (typeof window !== 'undefined' ? window : this), function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ (typeof window !== 'undefined' ? window : this), function(target) {
   'use strict';
 
-  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEYS = (target && target.NexusCore && target.NexusCore.STORAGE_KEYS) ||
+    (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.STORAGE_KEYS) ||
+    (typeof global !== 'undefined' && global.NexusCore && global.NexusCore.STORAGE_KEYS) ||
+    (typeof globalThis !== 'undefined' && globalThis.NexusCore && globalThis.NexusCore.STORAGE_KEYS) ||
+    Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
   const STORAGE_KEY = STORAGE_KEYS.current;
   const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
   const LEGACY_SESSION_SECRETS_KEY = LEGACY_STORAGE_KEY + '_session_secrets';
   const SESSION_KEY_STORAGE = 'nexus_session_key_seed_v1';
+  const SESSION_KEY_SYM = Symbol.for('eg.nexus.session.key.v1');
   const SESSION_SECRETS_SCHEMA_VERSION = 1;
 
   // IndexedDB non-extractable CryptoKey Keystore Constants
@@ -427,69 +443,129 @@
   }
 
   // =========================================================================
+  // Cryptographically Secure PRNG Helper (Fail-Closed)
+  // =========================================================================
+  /**
+   * Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) byte filler.
+   * Fail-closed: throws an explicit error if neither WebCrypto nor Node.js crypto is available.
+   *
+   * @param {Uint8Array} targetBuffer
+   * @returns {Uint8Array}
+   */
+  function _fillSecureRandomBytes(targetBuffer) {
+    if (!targetBuffer || !(targetBuffer instanceof Uint8Array)) {
+      throw new Error('targetBuffer must be a Uint8Array');
+    }
+    const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+    if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+      try {
+        cryptoObj.getRandomValues(targetBuffer);
+        return targetBuffer;
+      } catch (_) {}
+    }
+    const nodeCrypto = _getNodeCrypto();
+    if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+      try {
+        const bytes = nodeCrypto.randomBytes(targetBuffer.length);
+        targetBuffer.set(bytes);
+        return targetBuffer;
+      } catch (_) {}
+    }
+    throw new Error('Cryptographically secure PRNG is unavailable');
+  }
+
+  function _isKeyBytes(val) {
+    return !!(val && (val instanceof Uint8Array || (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(val) && val.byteLength === 32)) && val.length === 32);
+  }
+
+  // =========================================================================
   // Session Key Derivation (Deterministic Seed Fallback)
   // =========================================================================
   function _initMemorySessionKey(storage) {
     const store = _getStorage(storage);
-    let seedHex = null;
+    let legacySeed = null;
     if (store && typeof store.getItem === 'function') {
       try {
-        seedHex = store.getItem('nexus_session_key_seed_v1');
-        if (!seedHex) {
-          seedHex = store.getItem(SESSION_SECRETS_KEY + '_sk');
+        legacySeed = store.getItem('nexus_session_key_seed_v1');
+        if (!legacySeed) {
+          legacySeed = store.getItem(SESSION_SECRETS_KEY + '_sk');
+        }
+        if (typeof store.removeItem === 'function') {
+          store.removeItem('nexus_session_key_seed_v1');
+          store.removeItem(SESSION_SECRETS_KEY + '_sk');
         }
       } catch (_) {}
     }
 
-    if (seedHex && typeof seedHex === 'string' && /^[0-9a-fA-F]{32,}$/.test(seedHex.trim())) {
-      const seedBytes = _hexToUint8(seedHex.trim());
+    // 1. Check if key is attached to storage via Symbol.for('eg.nexus.session.key.v1')
+    let attachedKey = (store && store[SESSION_KEY_SYM]);
+    if (!_isKeyBytes(attachedKey) && store && typeof store._getStore === 'function') {
+      try {
+        const internal = store._getStore();
+        if (internal && _isKeyBytes(internal[SESSION_KEY_SYM])) {
+          attachedKey = internal[SESSION_KEY_SYM];
+        }
+      } catch (_) {}
+    }
+    if (_isKeyBytes(attachedKey)) {
+      _sessionKeyRaw = (attachedKey instanceof Uint8Array)
+        ? attachedKey
+        : new Uint8Array(attachedKey.buffer, attachedKey.byteOffset, attachedKey.byteLength);
+      return _sessionKeyRaw;
+    }
+
+    // 2. If key is already in module memory, attach to store and return
+    if (_isKeyBytes(_sessionKeyRaw)) {
+      if (store && typeof store === 'object' && !store[SESSION_KEY_SYM]) {
+        try {
+          Object.defineProperty(store, SESSION_KEY_SYM, {
+            value: _sessionKeyRaw,
+            writable: true,
+            enumerable: false,
+            configurable: true
+          });
+        } catch (_) {
+          try { store[SESSION_KEY_SYM] = _sessionKeyRaw; } catch (__) {}
+        }
+      }
+      return _sessionKeyRaw;
+    }
+
+    // 3. If legacy seed was in storage, derive key from it
+    if (legacySeed && typeof legacySeed === 'string' && /^[0-9a-fA-F]{32,}$/.test(legacySeed.trim())) {
+      const seedBytes = _hexToUint8(legacySeed.trim());
       _sessionSeedRaw = seedBytes;
       _sessionKeyRaw = _sha256(seedBytes);
-      return _sessionKeyRaw;
+    } else {
+      // 4. Generate fresh 32 bytes using CSPRNG (fail-closed if unavailable)
+      const seedBytes = new Uint8Array(32);
+      _fillSecureRandomBytes(seedBytes);
+      _sessionSeedRaw = seedBytes;
+      _sessionKeyRaw = _sha256(seedBytes);
     }
 
-    if (_sessionKeyRaw) {
-      if (store && typeof store.setItem === 'function' && _sessionSeedRaw) {
+    // 5. Store non-enumerable key in memory on storage object Symbol, NEVER in localStorage strings
+    if (store && typeof store === 'object') {
+      try {
+        Object.defineProperty(store, SESSION_KEY_SYM, {
+          value: _sessionKeyRaw,
+          writable: true,
+          enumerable: false,
+          configurable: true
+        });
+      } catch (_) {
+        try { store[SESSION_KEY_SYM] = _sessionKeyRaw; } catch (__) {}
+      }
+      if (typeof store._getStore === 'function') {
         try {
-          store.setItem('nexus_session_key_seed_v1', _uint8ToHex(_sessionSeedRaw));
+          const internal = store._getStore();
+          if (internal && typeof internal === 'object') {
+            internal[SESSION_KEY_SYM] = _sessionKeyRaw;
+          }
         } catch (_) {}
       }
-      return _sessionKeyRaw;
     }
 
-    const seedBytes = new Uint8Array(32);
-    let generated = false;
-    const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-    if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-      try {
-        cryptoObj.getRandomValues(seedBytes);
-        generated = true;
-      } catch (_) {}
-    }
-    if (!generated) {
-      const nodeCrypto = _getNodeCrypto();
-      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
-        try {
-          seedBytes.set(nodeCrypto.randomBytes(32));
-          generated = true;
-        } catch (_) {}
-      }
-    }
-    if (!generated) {
-      for (let i = 0; i < 32; i++) {
-        seedBytes[i] = Math.floor(Math.random() * 256);
-      }
-    }
-
-    _sessionSeedRaw = seedBytes;
-    const generatedHex = _uint8ToHex(seedBytes);
-    if (store && typeof store.setItem === 'function') {
-      try {
-        store.setItem('nexus_session_key_seed_v1', generatedHex);
-      } catch (_) {}
-    }
-
-    _sessionKeyRaw = _sha256(seedBytes);
     return _sessionKeyRaw;
   }
 
@@ -611,9 +687,6 @@
   }
 
   function _resolveSecretsStorageKey(store) {
-    if (typeof globalThis !== 'undefined' && typeof globalThis.SESSION_SECRETS_KEY === 'string' && globalThis.SESSION_SECRETS_KEY) {
-      return globalThis.SESSION_SECRETS_KEY;
-    }
     if (store && typeof store.getItem === 'function') {
       try {
         if (store.getItem(SESSION_SECRETS_KEY) !== null) return SESSION_SECRETS_KEY;
@@ -628,6 +701,9 @@
         }
         if (store.getItem('eg_nexus_session_secrets_v1') !== null) return 'eg_nexus_session_secrets_v1';
       } catch (_) {}
+    }
+    if (typeof globalThis !== 'undefined' && typeof globalThis.SESSION_SECRETS_KEY === 'string' && globalThis.SESSION_SECRETS_KEY) {
+      return globalThis.SESSION_SECRETS_KEY;
     }
     return SESSION_SECRETS_KEY;
   }
@@ -845,47 +921,39 @@
             return result;
           }
         } catch (err) {
-          // Fall back to sync fallback ciphertext
+          // Decryption or auth tag failed: fail-closed against algorithm downgrade
+          _quarantineCorruptedPayload(store, targetKey, raw);
+          return result;
         }
       }
 
-      // If syncCiphertext is present in AES-GCM payload, decrypt via sync codec
-      if (parsed.syncCiphertext) {
-        try {
-          const iv = _hexToUint8(parsed.iv);
-          const ciphertext = _hexToUint8(parsed.syncCiphertext);
-          const keyRaw = _initMemorySessionKey(store);
-          const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
-          const fallbackStr = new TextDecoder().decode(plainBytes);
-          const dec = JSON.parse(fallbackStr);
-          _populateResultFromDecrypted(result, dec);
-          _cachedSessionSecrets = _cloneSessionSecrets(result);
-          return result;
-        } catch (_) {}
-      }
-
       // If in browser without async, return cached secrets or gracefully return empty structure
-      if (_cachedSessionSecrets) {
+      if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
         return _cloneSessionSecrets(_cachedSessionSecrets);
       }
       _quarantineCorruptedPayload(store, targetKey, raw);
       return result;
     }
 
-    // Handle sync-stream-v1 / sync-fallback
-    try {
-      const iv = _hexToUint8(parsed.iv);
-      const cipherHex = parsed.syncCiphertext || parsed.ciphertext;
-      const ciphertext = _hexToUint8(cipherHex);
-      const keyRaw = _initMemorySessionKey(store);
-      const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
-      const decStr = new TextDecoder().decode(plainBytes);
-      const dec = JSON.parse(decStr);
-      _populateResultFromDecrypted(result, dec);
-      _cachedSessionSecrets = _cloneSessionSecrets(result);
-    } catch (e) {
-      _quarantineCorruptedPayload(store, targetKey, raw);
+    // Handle legacy format strictly when algorithm === 'sync-stream-v1'
+    if (algorithm === 'sync-stream-v1') {
+      try {
+        const iv = _hexToUint8(parsed.iv);
+        const cipherHex = parsed.syncCiphertext || parsed.ciphertext;
+        const ciphertext = _hexToUint8(cipherHex);
+        const keyRaw = _initMemorySessionKey(store);
+        const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
+        const decStr = new TextDecoder().decode(plainBytes);
+        const dec = JSON.parse(decStr);
+        _populateResultFromDecrypted(result, dec);
+        _cachedSessionSecrets = _cloneSessionSecrets(result);
+      } catch (e) {
+        _quarantineCorruptedPayload(store, targetKey, raw);
+      }
+      return result;
     }
+
+    _quarantineCorruptedPayload(store, targetKey, raw);
     return result;
   }
 
@@ -969,73 +1037,48 @@
         } catch (_) {}
       }
 
-      // If decryption failed, check if sync fallback ciphertext exists
-      if (parsed.syncCiphertext) {
-        try {
-          const ciphertext = _hexToUint8(parsed.syncCiphertext);
-          const keyRaw = _initMemorySessionKey(store);
-          const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
-          const fallbackStr = new TextDecoder().decode(plainBytes);
-          const dec = JSON.parse(fallbackStr);
-          _populateResultFromDecrypted(result, dec);
-          _cachedSessionSecrets = _cloneSessionSecrets(result);
-          return result;
-        } catch (_) {}
-      }
-
-      // Tamper detected or corrupted ciphertext
+      // Decryption or auth tag verification failed:
+      // Fail-closed against algorithm downgrade attack (never fallback to syncCiphertext)
       _quarantineCorruptedPayload(store, targetKey, raw);
       return result;
     }
 
-    // Handle sync-stream-v1 / sync-fallback
-    try {
-      const cipherHex = parsed.syncCiphertext || parsed.ciphertext;
-      const ciphertext = _hexToUint8(cipherHex);
-      const keyRaw = _initMemorySessionKey(store);
-      const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
-      const decStr = new TextDecoder().decode(plainBytes);
-      const dec = JSON.parse(decStr);
-      _populateResultFromDecrypted(result, dec);
-      _cachedSessionSecrets = _cloneSessionSecrets(result);
-    } catch (err) {
-      _quarantineCorruptedPayload(store, targetKey, raw);
+    // Handle legacy format strictly when algorithm === 'sync-stream-v1'
+    if (algorithm === 'sync-stream-v1') {
+      try {
+        const cipherHex = parsed.syncCiphertext || parsed.ciphertext;
+        const ciphertext = _hexToUint8(cipherHex);
+        const keyRaw = _initMemorySessionKey(store);
+        const plainBytes = _nonCryptoCompatCodec(ciphertext, keyRaw, iv);
+        const decStr = new TextDecoder().decode(plainBytes);
+        const dec = JSON.parse(decStr);
+        _populateResultFromDecrypted(result, dec);
+        _cachedSessionSecrets = _cloneSessionSecrets(result);
+      } catch (err) {
+        _quarantineCorruptedPayload(store, targetKey, raw);
+      }
+      return result;
     }
+
+    _quarantineCorruptedPayload(store, targetKey, raw);
     return result;
   }
 
   function writeSessionSecrets(stateOrSecrets, storage) {
+    const currentRev = ++writeRevision;
     const store = _getStorage(storage);
     const existing = readSessionSecrets(store);
     const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
-    _cachedSessionSecrets = _cloneSessionSecrets(secrets);
 
-    if (!store || typeof store.setItem !== 'function') return true;
+    if (!store || typeof store.setItem !== 'function') {
+      _cachedSessionSecrets = _cloneSessionSecrets(secrets);
+      lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, currentRev);
+      return true;
+    }
 
     try {
       const iv = new Uint8Array(12);
-      let ivGenerated = false;
-      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-      if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-        try {
-          cryptoObj.getRandomValues(iv);
-          ivGenerated = true;
-        } catch (_) {}
-      }
-      /* istanbul ignore if */
-      if (!ivGenerated && typeof require === 'function') {
-        try {
-          const nodeCrypto = require('crypto');
-          if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
-            iv.set(nodeCrypto.randomBytes(12));
-            ivGenerated = true;
-          }
-        } catch (_) {}
-      }
-      /* istanbul ignore if */
-      if (!ivGenerated) {
-        for (let i = 0; i < 12; i++) iv[i] = Math.floor(Math.random() * 256);
-      }
+      _fillSecureRandomBytes(iv);
 
       const jsonStr = JSON.stringify(secrets);
       const plainBytes = new TextEncoder().encode(jsonStr);
@@ -1063,7 +1106,8 @@
           ciphertext: hexCombined,
           version: SESSION_SECRETS_SCHEMA_VERSION
         }));
-        lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, writeRevision);
+        _cachedSessionSecrets = _cloneSessionSecrets(secrets);
+        lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, currentRev);
       } else {
         // Pure browser synchronous call fallback:
         // Schedule sequential write queue so WebCrypto persists pure AES-GCM-256 without syncCiphertext
@@ -1084,34 +1128,15 @@
     const store = _getStorage(storage);
     const existing = await readSessionSecretsAsync(store);
     const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
-    _cachedSessionSecrets = _cloneSessionSecrets(secrets);
 
-    if (!store || typeof store.setItem !== 'function') return true;
+    if (!store || typeof store.setItem !== 'function') {
+      _cachedSessionSecrets = _cloneSessionSecrets(secrets);
+      return true;
+    }
 
     try {
       const iv = new Uint8Array(12);
-      let ivGenerated = false;
-      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-      if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-        try {
-          cryptoObj.getRandomValues(iv);
-          ivGenerated = true;
-        } catch (_) {}
-      }
-      /* istanbul ignore if */
-      if (!ivGenerated && typeof require === 'function') {
-        try {
-          const nodeCrypto = require('crypto');
-          if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
-            iv.set(nodeCrypto.randomBytes(12));
-            ivGenerated = true;
-          }
-        } catch (_) {}
-      }
-      /* istanbul ignore if */
-      if (!ivGenerated) {
-        for (let i = 0; i < 12; i++) iv[i] = Math.floor(Math.random() * 256);
-      }
+      _fillSecureRandomBytes(iv);
 
       const jsonStr = JSON.stringify(secrets);
       const plainBytes = new TextEncoder().encode(jsonStr);
@@ -1119,6 +1144,7 @@
 
       let hexCombined = null;
 
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
       if (cryptoObj && cryptoObj.subtle) {
         try {
           const key = await _getOrCreateWebCryptoKey(store);
@@ -1156,6 +1182,7 @@
         ciphertext: hexCombined,
         version: SESSION_SECRETS_SCHEMA_VERSION
       }));
+      _cachedSessionSecrets = _cloneSessionSecrets(secrets);
       return true;
     } catch (e) {
       return false;
@@ -1225,6 +1252,7 @@
     SESSION_SECRETS_KEY,
     LEGACY_SESSION_SECRETS_KEY,
     SESSION_KEY_STORAGE,
+    SESSION_KEY_SYM,
     IDB_KEYSTORE_DB,
     IDB_KEYSTORE_STORE,
     IDB_KEYSTORE_KEY,
@@ -1243,6 +1271,7 @@
     applySessionSecretsAsync,
     _nonCryptoCompatCodec,
     _syncTransform,
+    _fillSecureRandomBytes,
     _uint8ToHex,
     _hexToUint8,
     _sha256,

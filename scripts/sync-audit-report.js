@@ -26,7 +26,16 @@ console.log('🔄 Starting EG Nexus OS Audit Report Synchronization...');
 // --- 1. Clean Dependency Installation Audit (npm ci) ---
 console.log('📦 1/6: Executing clean dependency installation audit (npm ci)...');
 try {
-  execSync('npm ci', { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  try {
+    execSync('npm ci', { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (ciErr) {
+    // Android/Termux fallback for rimraf ENOTEMPTY race condition
+    if (ciErr.message && ciErr.message.includes('ENOTEMPTY')) {
+      execSync('rm -rf node_modules && npm ci', { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    } else {
+      throw ciErr;
+    }
+  }
   console.log('   ✅ npm ci passed cleanly with exit code 0.');
 } catch (err) {
   console.error('❌ Failed to execute npm ci cleanly:', err.message);
@@ -167,17 +176,17 @@ let reportContent = fs.readFileSync(REPORT_PATH, 'utf8');
 const indexHtmlSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT_DIR, 'index.html'))).digest('hex');
 const swJsSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT_DIR, 'sw.js'))).digest('hex');
 
-// Version upgrades: v5.4/v5.5 -> v5.6, 5.5.0 -> 5.6.0
-reportContent = reportContent.replace(/# EG Nexus OS v5\.[0-9]+ — Engineering Verification/g, '# EG Nexus OS v5.6 — Engineering Verification');
-reportContent = reportContent.replace(/\*\*Target Version:\*\*\s*`5\.[0-9]+\.0`/g, '**Target Version:** `5.6.0`');
-reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ is a personal multi-agent operating system/g, 'EG Nexus OS v5.6 is a personal multi-agent operating system');
-reportContent = reportContent.replace(/dist\/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'dist/EG-Nexus-OS-v5.6-release-signed.apk');
-reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'EG-Nexus-OS-v5.6-release-signed.apk');
-reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+\.apk/g, 'EG-Nexus-OS-v5.6.apk');
-reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ satisfies all engineering standards/g, 'EG Nexus OS v5.6 satisfies all engineering standards');
-reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v5\.[0-9]+-SHORT_SHA & latest-apk\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v5.6-SHORT_SHA & latest-apk)"]');
-reportContent = reportContent.replace(/Immutable Version Tag \(`v5\.[0-9]+-\$\{SHORT_SHA\}`\)/g, 'Immutable Version Tag (`v5.6-${SHORT_SHA}`)');
-reportContent = reportContent.replace(/Example:\s*`v5\.[0-9]+-[a-f0-9]+`/g, 'Example: `v5.6-aa6a32e`');
+// Version upgrades: v5.4/v5.5/v5.6 -> v5.7, 5.6.0 -> 5.7.0
+reportContent = reportContent.replace(/# EG Nexus OS v5\.[0-9]+ — Engineering Verification/g, '# EG Nexus OS v5.7 — Engineering Verification');
+reportContent = reportContent.replace(/\*\*Target Version:\*\*\s*`5\.[0-9]+\.0`/g, '**Target Version:** `5.7.0`');
+reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ is a personal multi-agent operating system/g, 'EG Nexus OS v5.7 is a personal multi-agent operating system');
+reportContent = reportContent.replace(/dist\/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'dist/EG-Nexus-OS-v5.7-release-signed.apk');
+reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'EG-Nexus-OS-v5.7-release-signed.apk');
+reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+\.apk/g, 'EG-Nexus-OS-v5.7.apk');
+reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ satisfies all engineering standards/g, 'EG Nexus OS v5.7 satisfies all engineering standards');
+reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v5\.[0-9]+-SHORT_SHA & latest-apk\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v5.7-SHORT_SHA & latest-apk)"]');
+reportContent = reportContent.replace(/Immutable Version Tag \(`v5\.[0-9]+-\$\{SHORT_SHA\}`\)/g, 'Immutable Version Tag (`v5.7-${SHORT_SHA}`)');
+reportContent = reportContent.replace(/Example:\s*`v5\.[0-9]+-[a-f0-9]+`/g, 'Example: `v5.7-aa6a32e`');
 
 // Today's audit date
 const today = new Date().toISOString().split('T')[0];

@@ -42,9 +42,16 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       localStore.setItem(k, v);
     }
 
-    const sessionStore = createStorageMock();
-    for (const [k, v] of Object.entries(initialSession)) {
-      sessionStore.setItem(k, v);
+    const sessionStore = (initialSession && typeof initialSession.getItem === 'function')
+      ? initialSession
+      : createStorageMock();
+    if (sessionStore !== initialSession) {
+      for (const [k, v] of Object.entries(initialSession)) {
+        sessionStore.setItem(k, v);
+      }
+      for (const s of Object.getOwnPropertySymbols(initialSession)) {
+        sessionStore[s] = initialSession[s];
+      }
     }
 
     const elements = new Map();
@@ -402,7 +409,7 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       expect(Object.keys(sessionSnapshot).length).toBeGreaterThan(0);
 
       // Step 2: Context Wipe & Reload (Simulate browser tab refresh)
-      const win2 = createDomRuntime({ initialSession: sessionSnapshot });
+      const win2 = createDomRuntime({ initialSession: win1.sessionStorage });
 
       // Step 3: Read back secrets in the fresh context
       const restored = win2.readSessionSecrets();
@@ -431,7 +438,7 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       const sessionSnapshot = win1.sessionStorage._getStore();
 
       // Reload
-      const win2 = createDomRuntime({ initialSession: sessionSnapshot });
+      const win2 = createDomRuntime({ initialSession: win1.sessionStorage });
       const restored = await win2.readSessionSecretsAsync();
 
       expect(restored.initialized).toBe(true);

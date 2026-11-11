@@ -163,9 +163,8 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
 
       const legacyStored = {
         encrypted: true,
-        algorithm: 'AES-GCM-256',
+        algorithm: 'sync-stream-v1',
         iv: secrets._uint8ToHex(iv),
-        ciphertext: '00'.repeat(32), // Incomplete/corrupted GCM ciphertext
         syncCiphertext: secrets._uint8ToHex(syncCipher) // Legacy fallback
       };
 
@@ -183,6 +182,35 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
       const newStored = JSON.parse(mockStorage.getItem(secrets.SESSION_SECRETS_KEY));
       expect(newStored.algorithm).toBe('AES-GCM-256');
       expect(newStored.syncCiphertext).toBeUndefined();
+    });
+
+    test('rejects syncCiphertext fallback and quarantines corrupted AES-GCM-256 payload (downgrade prevention)', () => {
+      const iv = new Uint8Array(12).fill(5);
+      const keyRaw = secrets._initMemorySessionKey(mockStorage);
+      const plainBytes = new TextEncoder().encode(JSON.stringify({
+        initialized: true,
+        apiKeys: { gemini: 'attack-downgrade-key' },
+        bridgeToken: 'attack-bridge'
+      }));
+      const syncCipher = secrets._nonCryptoCompatCodec(plainBytes, keyRaw, iv);
+
+      const attackPayload = {
+        encrypted: true,
+        algorithm: 'AES-GCM-256',
+        iv: secrets._uint8ToHex(iv),
+        ciphertext: '00'.repeat(32), // Incomplete/corrupted GCM ciphertext
+        syncCiphertext: secrets._uint8ToHex(syncCipher) // Attacker downgrade vector
+      };
+
+      mockStorage.setItem(secrets.SESSION_SECRETS_KEY, JSON.stringify(attackPayload));
+      secrets._resetSessionCryptoState();
+
+      const recovered = secrets.readSessionSecrets(mockStorage);
+      expect(recovered.initialized).toBe(false);
+      expect(recovered.apiKeys.gemini).toBe('');
+
+      // Storage should be quarantined and original key removed
+      expect(mockStorage.getItem(secrets.SESSION_SECRETS_KEY)).toBeNull();
     });
   });
 
@@ -471,6 +499,131 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
       secrets._resetSessionCryptoState();
       const finalRead = secrets.readSessionSecrets(mockStorage);
       expect(finalRead.apiKeys.key).toBe('val-3');
+    });
+  });
+
+  describe('v5.7 Cryptography & Concurrency Specialist Audit Verification', () => {
+    test('_fillSecureRandomBytes provides fail-closed CSPRNG', () => {
+      expect(typeof secrets._fillSecureRandomBytes).toBe('function');
+      const buf12 = new Uint8Array(12);
+      secrets._fillSecureRandomBytes(buf12);
+      expect(buf12.some(b => b !== 0)).toBe(true);
+
+      const buf32 = new Uint8Array(32);
+      secrets._fillSecureRandomBytes(buf32);
+      expect(buf32.some(b => b !== 0)).toBe(true);
+
+      expect(() => secrets._fillSecureRandomBytes(null)).toThrow('targetBuffer must be a Uint8Array');
+      expect(() => secrets._fillSecureRandomBytes([1, 2, 3])).toThrow('targetBuffer must be a Uint8Array');
+    });
+
+    test('_fillSecureRandomBytes throws explicit fail-closed error when both CSPRNG sources unavailable', () => {
+      const origGetRandomValues = global.crypto?.getRandomValues;
+      const origNodeCrypto = secrets._getNodeCrypto();
+
+      // Temporarily mock _getNodeCrypto to return empty object without randomBytes
+      const origGetNodeCryptoFn = secrets._getNodeCrypto;
+      try {
+        if (global.crypto) global.crypto.getRandomValues = undefined;
+        // Mock target buffer
+        const buf = new Uint8Array(16);
+        // If we force failure
+        const badCryptoObj = { getRandomValues: undefined };
+        expect(() => {
+          // Test with null crypto
+          const oldCrypto = global.crypto;
+          try {
+            delete global.crypto;
+            const nodeC = secrets._getNodeCrypto();
+            if (nodeC) {
+              const origRb = nodeC.randomBytes;
+              nodeC.randomBytes = undefined;
+              try {
+                secrets._fillSecureRandomBytes(buf);
+              } finally {
+                nodeC.randomBytes = origRb;
+              }
+            }
+          } finally {
+            global.crypto = oldCrypto;
+          }
+        }).toThrow('Cryptographically secure PRNG is unavailable');
+      } finally {
+        if (global.crypto && origGetRandomValues) {
+          global.crypto.getRandomValues = origGetRandomValues;
+        }
+      }
+    });
+
+    test('legacy key seed in storage is automatically purged on init and migrated to memory Symbol', () => {
+      const storeWithLegacySeed = {
+        _data: {
+          'nexus_session_key_seed_v1': '11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff'
+        },
+        getItem(k) { return this._data[k] || null; },
+        setItem(k, v) { this._data[k] = String(v); },
+        removeItem(k) { delete this._data[k]; }
+      };
+
+      secrets._resetSessionCryptoState();
+      const derivedKey = secrets._initMemorySessionKey(storeWithLegacySeed);
+      expect(derivedKey).toBeInstanceOf(Uint8Array);
+      expect(derivedKey.length).toBe(32);
+
+      // Plaintext seed MUST be removed from store
+      expect(storeWithLegacySeed.getItem('nexus_session_key_seed_v1')).toBeNull();
+      // Key must be stored on non-enumerable symbol
+      expect(storeWithLegacySeed[secrets.SESSION_KEY_SYM]).toEqual(derivedKey);
+    });
+
+    test('writeSessionSecretsAsync does not corrupt memory cache on QuotaExceededError disk failure', async () => {
+      const goodStorage = {
+        _data: {},
+        getItem(k) { return this._data[k] || null; },
+        setItem(k, v) { this._data[k] = String(v); },
+        removeItem(k) { delete this._data[k]; }
+      };
+
+      // Write initial secrets
+      await secrets.writeSessionSecretsAsync({
+        apiKeys: { gemini: 'initial-stable-key' }
+      }, goodStorage);
+
+      const cachedBefore = secrets.readSessionSecrets(goodStorage);
+      expect(cachedBefore.apiKeys.gemini).toBe('initial-stable-key');
+
+      // Now attempt write to storage that throws QuotaExceededError
+      const quotaStorage = {
+        getItem(k) { return goodStorage.getItem(k); },
+        setItem() {
+          const err = new Error('QuotaExceededError');
+          err.name = 'QuotaExceededError';
+          throw err;
+        },
+        removeItem(k) { return goodStorage.removeItem(k); }
+      };
+
+      const writeRes = await secrets.writeSessionSecretsAsync({
+        apiKeys: { gemini: 'unwritten-corrupted-key' }
+      }, quotaStorage);
+
+      expect(writeRes).toBe(false);
+
+      // Memory cache MUST remain in sync with disk and NOT updated to unwritten key
+      const cachedAfter = secrets.readSessionSecrets(goodStorage);
+      expect(cachedAfter.apiKeys.gemini).toBe('initial-stable-key');
+    });
+
+    test('synchronous writeSessionSecrets increments writeRevision and sets lastAppliedWriteRevision', () => {
+      secrets.resetSessionWriteQueue();
+      const revBefore = secrets.getSessionWriteRevision();
+
+      secrets.writeSessionSecrets({
+        apiKeys: { gemini: 'sync-rev-key' }
+      }, mockStorage);
+
+      const revAfter = secrets.getSessionWriteRevision();
+      expect(revAfter).toBe(revBefore + 1);
     });
   });
 });

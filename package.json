@@ -1,7 +1,7 @@
 {
   "name": "eg-nexus-os",
-  "version": "5.6.0",
-  "description": "EG Nexus OS v5.6 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
+  "version": "5.7.0",
+  "description": "EG Nexus OS v5.7 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
   "private": true,
   "scripts": {
     "test:syntax": "node -e \"const fs=require('fs'),vm=require('vm');const html=fs.readFileSync('index.html','utf8');const lines=html.split('\\n');let inS=false,start=-1,blocks=[];for(let i=0;i<lines.length;i++){const l=lines[i].trim();if(!inS&&(l==='<script>'||l.startsWith('<script id='))){inS=true;start=i;}else if(inS&&l==='</script>'){blocks.push(lines.slice(start+1,i).join('\\n'));inS=false;}}blocks.forEach((b,idx)=>new vm.Script(b,{filename:'block_'+(idx+1)+'.js'}));new vm.Script(blocks.join('\\n;\\n'),{filename:'combined.js'});console.log('AST Syntax Check Passed:',blocks.length,'blocks');\"",

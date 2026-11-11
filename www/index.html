@@ -1669,11 +1669,11 @@ body > header,
 
     function sanitizeSafeUrl(url, fallback = '#') {
       if (!url || typeof url !== 'string') return fallback;
-      const trimmed = url.trim();
-      if (/^(?:javascript|data|vbscript):/i.test(trimmed)) {
+      const cleaned = url.replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]+/g, '').trim();
+      if (!cleaned || /^(?:javascript|data|vbscript|file|blob):/i.test(cleaned)) {
         return fallback;
       }
-      return trimmed;
+      return cleaned;
     }
 
 
@@ -1686,6 +1686,8 @@ body > header,
       return escapeHtml(
         String(str ?? '')
           .replace(/\\/g, '\\\\')
+          .replace(/`/g, '\\`')
+          .replace(/\$/g, '\\$')
           .replace(/'/g, "\\'")
           .replace(/"/g, '\\"')
           .replace(/\r/g, '\\r')
@@ -14190,10 +14192,23 @@ body > header,
 
 
     function sanitizeUntrustedWebSnippet(rawSnippet) {
-      return String(rawSnippet || '')
+      let text = String(rawSnippet || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+      let prev;
+      do {
+        prev = text;
+        text = text.replace(/<\/?untrusted_web_data[^<>]*>/gi, '');
+      } while (text !== prev);
+
+      do {
+        prev = text;
+        text = text.replace(/<\/?untrusted_web_data[^>]*>/gi, '');
+      } while (text !== prev);
+
+      return text
         .replace(/\[\s*AUTO_(?:BRAIN|SKILL)\b/gi, '[BLOCKED_WEB_TAG')
         .replace(/\[\s*OPTIONS\s*:/gi, '[BLOCKED_WEB_OPTIONS:')
-        .replace(/<\/?untrusted_web_data[^>]*>/gi, '')
         .trim();
     }
 

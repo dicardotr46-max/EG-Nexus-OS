@@ -3,7 +3,7 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
-  const exports = factory();
+  const exports = factory(root);
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = exports;
@@ -11,12 +11,13 @@
   /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
-    Object.assign(target, exports);
+    target.NexusCore = target.NexusCore || {};
+    Object.assign(target.NexusCore, exports);
     target._nexusCoreState = exports;
     target.NexusState = exports;
     const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
-    target.NexusCore = Object.assign(
-      target.NexusCore || {},
+    Object.assign(
+      target.NexusCore,
       target._nexusCoreSanitization || {},
       target._nexusCoreState || {},
       target._nexusCorePersistence || {},
@@ -33,6 +34,18 @@
         STORAGE_KEYS
       }
     );
+    for (const key of Object.keys(exports)) {
+      try {
+        Object.defineProperty(target, key, {
+          value: exports[key],
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (e) {
+        target[key] = exports[key];
+      }
+    }
   }
   /* istanbul ignore next */
   if (root) {
@@ -175,8 +188,66 @@
     };
   }
 
-  const appState = createInitialAppState();
-  const uiState = createInitialUiState();
+  const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__']);
+  const _proxyCache = new WeakMap();
+
+  function createProtectedStateProxy(target) {
+    if (!target || typeof target !== 'object') {
+      return target;
+    }
+    if (_proxyCache.has(target)) {
+      return _proxyCache.get(target);
+    }
+
+    const handler = {
+      get(obj, prop, receiver) {
+        if (prop === '_isStateProxy') return true;
+        if (prop === '_rawTarget') return obj;
+        const val = Reflect.get(obj, prop, receiver);
+        if (val && typeof val === 'object') {
+          return createProtectedStateProxy(val);
+        }
+        return val;
+      },
+      set(obj, prop, value, receiver) {
+        if (typeof prop === 'string' && DANGEROUS_KEYS.has(prop)) {
+          return false;
+        }
+        if (value && typeof value === 'object') {
+          for (const k of DANGEROUS_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(value, k)) {
+              return false;
+            }
+          }
+        }
+        obj[prop] = value;
+        return true;
+      },
+      defineProperty(obj, prop, descriptor) {
+        if (typeof prop === 'string' && DANGEROUS_KEYS.has(prop)) {
+          return false;
+        }
+        return Reflect.defineProperty(obj, prop, descriptor);
+      },
+      deleteProperty(obj, prop) {
+        if (typeof prop === 'string' && DANGEROUS_KEYS.has(prop)) {
+          return false;
+        }
+        return Reflect.deleteProperty(obj, prop);
+      },
+      setPrototypeOf(obj, proto) {
+        return false;
+      }
+    };
+
+    const proxy = new Proxy(target, handler);
+    _proxyCache.set(target, proxy);
+    _proxyCache.set(proxy, proxy);
+    return proxy;
+  }
+
+  const appState = createProtectedStateProxy(createInitialAppState());
+  const uiState = createProtectedStateProxy(createInitialUiState());
 
   return {
     STORAGE_KEYS,
@@ -185,6 +256,7 @@
     DEFAULT_WORKOUT_STUDIO_TEMPLATE,
     createInitialAppState,
     createInitialUiState,
+    createProtectedStateProxy,
     appState,
     uiState
   };

@@ -127,9 +127,10 @@ describe('Secrets Real Reload Test Suite (Simulated Page Reload)', () => {
     expect(storedParsed.ciphertext).toBeDefined();
     expect(storedParsed.iv).toBeDefined();
 
-    // Verify session encryption key is persisted in shared sessionStorage for tab reload
+    // Verify session encryption key seed is NEVER stored in shared sessionStorage string store
     const storedKey = sharedSessionStorage.getItem(secretsC1.SESSION_KEY_STORAGE);
-    expect(storedKey).toMatch(/^[0-9a-fA-F]{64}$/);
+    expect(storedKey).toBeNull();
+    expect(sharedSessionStorage[Symbol.for('eg.nexus.session.key.v1')]).toBeDefined();
 
     // === Wipe RAM: delete module cache ===
     jest.resetModules();

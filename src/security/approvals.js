@@ -3,7 +3,7 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
-  const exports = factory();
+  const exports = factory(root);
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = exports;
@@ -11,12 +11,13 @@
   /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
-    Object.assign(target, exports);
+    target.NexusCore = target.NexusCore || {};
+    Object.assign(target.NexusCore, exports);
     target._nexusCoreApprovals = exports;
     target.NexusApprovals = exports;
-    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
-    target.NexusCore = Object.assign(
-      target.NexusCore || {},
+    const STORAGE_KEYS = (target.NexusCore && target.NexusCore.STORAGE_KEYS) || exports.STORAGE_KEYS || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    Object.assign(
+      target.NexusCore,
       target._nexusCoreSanitization || {},
       target._nexusCoreState || {},
       target._nexusCorePersistence || {},
@@ -33,6 +34,18 @@
         STORAGE_KEYS
       }
     );
+    for (const key of Object.keys(exports)) {
+      try {
+        Object.defineProperty(target, key, {
+          value: exports[key],
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (e) {
+        target[key] = exports[key];
+      }
+    }
   }
   /* istanbul ignore next */
   if (root) {
@@ -46,10 +59,14 @@
   if (typeof window !== 'undefined') {
     syncNexusCore(window);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function(target) {
   'use strict';
 
-  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEYS = (target && target.NexusCore && target.NexusCore.STORAGE_KEYS) ||
+    (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.STORAGE_KEYS) ||
+    (typeof global !== 'undefined' && global.NexusCore && global.NexusCore.STORAGE_KEYS) ||
+    (typeof globalThis !== 'undefined' && globalThis.NexusCore && globalThis.NexusCore.STORAGE_KEYS) ||
+    Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
   const STORAGE_KEY = STORAGE_KEYS.current;
 
   const _fallbackUiState = { pendingApprovalQueue: [], _isResolvingApproval: false };
@@ -60,10 +77,20 @@
     return _fallbackUiState;
   }
 
-  function triggerApprovalGate(reason, onApprove) {
+  function triggerApprovalGate(reason, onApprove, onReject) {
     const ui = getUiState();
     if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
-    ui.pendingApprovalQueue.push({ reason, onApprove });
+    let item;
+    if (typeof reason === 'object' && reason !== null && typeof reason.reason === 'string') {
+      item = {
+        reason: reason.reason,
+        onApprove: reason.onApprove,
+        onReject: reason.onReject
+      };
+    } else {
+      item = { reason, onApprove, onReject };
+    }
+    ui.pendingApprovalQueue.push(item);
     const current = ui.pendingApprovalQueue[0];
     if (typeof document !== 'undefined') {
       const txtEl = document.getElementById('approvalGateText');
@@ -72,31 +99,49 @@
     }
   }
 
-  function resolveApprovalGate(approved) {
+  async function resolveApprovalGate(approved) {
     const ui = getUiState();
     if (ui._isResolvingApproval) return;
     ui._isResolvingApproval = true;
-    setTimeout(() => { ui._isResolvingApproval = false; }, 320);
 
-    if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
-    const item = ui.pendingApprovalQueue.shift();
+    try {
+      if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
+      const item = ui.pendingApprovalQueue.shift();
 
-    if (typeof document !== 'undefined') {
-      if (ui.pendingApprovalQueue.length === 0) {
-        document.getElementById('approvalGateBanner')?.classList.add('hidden');
-      } else {
-        const next = ui.pendingApprovalQueue[0];
-        const txtEl = document.getElementById('approvalGateText');
-        if (txtEl && next) txtEl.innerText = next.reason;
+      if (typeof document !== 'undefined') {
+        if (ui.pendingApprovalQueue.length === 0) {
+          document.getElementById('approvalGateBanner')?.classList.add('hidden');
+        } else {
+          const next = ui.pendingApprovalQueue[0];
+          const txtEl = document.getElementById('approvalGateText');
+          if (txtEl && next) txtEl.innerText = next.reason;
+        }
       }
-    }
 
-    if (approved && item && typeof item.onApprove === 'function') {
-      item.onApprove();
-    } else if (!approved) {
-      if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
-        window.showToast('عملیات حساس توسط شما لغو شد 🛡️');
+      if (approved && item && typeof item.onApprove === 'function') {
+        const res = item.onApprove();
+        if (res && typeof res.then === 'function') {
+          await Promise.resolve(res);
+        }
+      } else if (!approved) {
+        if (item && typeof item.onReject === 'function') {
+          const res = item.onReject();
+          if (res && typeof res.then === 'function') {
+            await Promise.resolve(res);
+          }
+        }
+        if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+          window.showToast('عملیات حساس توسط شما لغو شد 🛡️');
+        }
       }
+    } catch (err) {
+      if (typeof console !== 'undefined' && typeof console.error === 'function') {
+        console.error('Error in resolveApprovalGate:', err);
+      }
+    } finally {
+      setTimeout(() => {
+        ui._isResolvingApproval = false;
+      }, 320);
     }
   }
 

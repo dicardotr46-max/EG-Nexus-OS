@@ -426,7 +426,7 @@ describe('Coverage Boost Suite', () => {
       expect(res2.initialized).toBe(false);
     });
 
-    test('readSessionSecretsAsync falls back to syncCiphertext when AES-GCM decryption fails', async () => {
+    test('readSessionSecretsAsync quarantines tampered AES-GCM payload and rejects syncCiphertext fallback (downgrade prevention)', async () => {
       secrets._resetSessionMemoryCache();
       const plainBytes = new TextEncoder().encode(JSON.stringify({
         initialized: true,
@@ -436,21 +436,50 @@ describe('Coverage Boost Suite', () => {
       const keyRaw = secrets._initMemorySessionKey();
       const syncCipher = secrets._syncTransform(plainBytes, keyRaw, iv);
 
+      let quarantined = false;
       const fallbackStorage = {
         getItem: () => JSON.stringify({
           encrypted: true,
           algorithm: 'AES-GCM-256',
           iv: secrets._uint8ToHex(iv),
           ciphertext: '00'.repeat(32), // bad AES ciphertext
-          syncCiphertext: secrets._uint8ToHex(syncCipher) // valid sync fallback
+          syncCiphertext: secrets._uint8ToHex(syncCipher) // malicious downgrade payload
+        }),
+        setItem: (k) => {
+          if (k.includes('_corrupted_')) quarantined = true;
+        },
+        removeItem: () => {}
+      };
+
+      const res = await secrets.readSessionSecretsAsync(fallbackStorage);
+      expect(res.initialized).toBe(false);
+      expect(quarantined).toBe(true);
+    });
+
+    test('readSessionSecretsAsync reads legacy syncCiphertext strictly when algorithm is sync-stream-v1', async () => {
+      secrets._resetSessionMemoryCache();
+      const plainBytes = new TextEncoder().encode(JSON.stringify({
+        initialized: true,
+        apiKeys: { gemini: 'gemini-legacy-token' }
+      }));
+      const iv = new Uint8Array(12).fill(1);
+      const keyRaw = secrets._initMemorySessionKey();
+      const syncCipher = secrets._syncTransform(plainBytes, keyRaw, iv);
+
+      const legacyStorage = {
+        getItem: () => JSON.stringify({
+          encrypted: true,
+          algorithm: 'sync-stream-v1',
+          iv: secrets._uint8ToHex(iv),
+          syncCiphertext: secrets._uint8ToHex(syncCipher)
         }),
         setItem: () => {},
         removeItem: () => {}
       };
 
-      const res = await secrets.readSessionSecretsAsync(fallbackStorage);
+      const res = await secrets.readSessionSecretsAsync(legacyStorage);
       expect(res.initialized).toBe(true);
-      expect(res.apiKeys.gemini).toBe('gemini-fallback-token');
+      expect(res.apiKeys.gemini).toBe('gemini-legacy-token');
     });
 
     test('readSessionSecretsAsync quarantines corrupted sync-stream payload', async () => {

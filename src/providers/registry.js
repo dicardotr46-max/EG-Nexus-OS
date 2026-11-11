@@ -4,7 +4,7 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
-  const exports = factory();
+  const exports = factory(root);
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = exports;
@@ -12,13 +12,14 @@
   /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
-    Object.assign(target, exports);
+    target.NexusCore = target.NexusCore || {};
+    Object.assign(target.NexusCore, exports);
     target.NexusProviders = exports;
     target._nexusCoreProviders = exports;
     target._nexusCoreRegistry = exports;
-    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
-    target.NexusCore = Object.assign(
-      target.NexusCore || {},
+    const STORAGE_KEYS = (target.NexusCore && target.NexusCore.STORAGE_KEYS) || exports.STORAGE_KEYS || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    Object.assign(
+      target.NexusCore,
       target._nexusCoreSanitization || {},
       target._nexusCoreState || {},
       target._nexusCorePersistence || {},
@@ -35,6 +36,18 @@
         STORAGE_KEYS
       }
     );
+    for (const key of Object.keys(exports)) {
+      try {
+        Object.defineProperty(target, key, {
+          value: exports[key],
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (e) {
+        target[key] = exports[key];
+      }
+    }
   }
   /* istanbul ignore next */
   if (root) {
@@ -48,10 +61,14 @@
   if (typeof window !== 'undefined') {
     syncNexusCore(window);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : /* istanbul ignore next */ this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : /* istanbul ignore next */ this, function(target) {
   'use strict';
 
-  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEYS = (target && target.NexusCore && target.NexusCore.STORAGE_KEYS) ||
+    (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.STORAGE_KEYS) ||
+    (typeof global !== 'undefined' && global.NexusCore && global.NexusCore.STORAGE_KEYS) ||
+    (typeof globalThis !== 'undefined' && globalThis.NexusCore && globalThis.NexusCore.STORAGE_KEYS) ||
+    Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
   const STORAGE_KEY = STORAGE_KEYS.current;
 
   // Provider Capability Tiers (4-Tier Architecture)

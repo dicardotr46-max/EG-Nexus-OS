@@ -3,7 +3,7 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
-  const exports = factory();
+  const exports = factory(root);
   /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = exports;
@@ -11,13 +11,13 @@
   /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
-    Object.assign(target, exports);
+    target.NexusCore = target.NexusCore || {};
+    Object.assign(target.NexusCore, exports);
     target._nexusCoreSanitization = exports;
-    target.NexusCore = target.NexusCore || exports;
     target.NexusSanitization = exports;
-    const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
-    target.NexusCore = Object.assign(
-      target.NexusCore || {},
+    const STORAGE_KEYS = (target.NexusCore && target.NexusCore.STORAGE_KEYS) || exports.STORAGE_KEYS || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+    Object.assign(
+      target.NexusCore,
       target._nexusCoreSanitization || {},
       target._nexusCoreState || {},
       target._nexusCorePersistence || {},
@@ -34,6 +34,18 @@
         STORAGE_KEYS
       }
     );
+    for (const key of Object.keys(exports)) {
+      try {
+        Object.defineProperty(target, key, {
+          value: exports[key],
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (e) {
+        target[key] = exports[key];
+      }
+    }
   }
   /* istanbul ignore next */
   if (root) {
@@ -47,10 +59,14 @@
   if (typeof window !== 'undefined') {
     syncNexusCore(window);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function(target) {
   'use strict';
 
-  const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
+  const STORAGE_KEYS = (target && target.NexusCore && target.NexusCore.STORAGE_KEYS) ||
+    (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.STORAGE_KEYS) ||
+    (typeof global !== 'undefined' && global.NexusCore && global.NexusCore.STORAGE_KEYS) ||
+    (typeof globalThis !== 'undefined' && globalThis.NexusCore && globalThis.NexusCore.STORAGE_KEYS) ||
+    Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
   const STORAGE_KEY = STORAGE_KEYS.current;
 
   function escapeHtml(str) {
@@ -64,17 +80,19 @@
 
   function sanitizeSafeUrl(url, fallback = '#') {
     if (!url || typeof url !== 'string') return fallback;
-    const trimmed = url.trim();
-    if (/^(?:javascript|data|vbscript):/i.test(trimmed)) {
+    const cleaned = url.replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]+/g, '').trim();
+    if (!cleaned || /^(?:javascript|data|vbscript|file|blob):/i.test(cleaned)) {
       return fallback;
     }
-    return trimmed;
+    return cleaned;
   }
 
   function escapeJsAttr(str) {
     return escapeHtml(
       String(str ?? '')
         .replace(/\\/g, '\\\\')
+        .replace(/`/g, '\\`')
+        .replace(/\$/g, '\\$')
         .replace(/'/g, "\\'")
         .replace(/"/g, '\\"')
         .replace(/\r/g, '\\r')
@@ -111,10 +129,23 @@
   }
 
   function sanitizeUntrustedWebSnippet(rawSnippet) {
-    return String(rawSnippet || '')
+    let text = String(rawSnippet || '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+    let prev;
+    do {
+      prev = text;
+      text = text.replace(/<\/?untrusted_web_data[^<>]*>/gi, '');
+    } while (text !== prev);
+
+    do {
+      prev = text;
+      text = text.replace(/<\/?untrusted_web_data[^>]*>/gi, '');
+    } while (text !== prev);
+
+    return text
       .replace(/\[\s*AUTO_(?:BRAIN|SKILL)\b/gi, '[BLOCKED_WEB_TAG')
       .replace(/\[\s*OPTIONS\s*:/gi, '[BLOCKED_WEB_OPTIONS:')
-      .replace(/<\/?untrusted_web_data[^>]*>/gi, '')
       .trim();
   }
 

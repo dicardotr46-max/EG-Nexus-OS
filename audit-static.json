@@ -1,7 +1,7 @@
 {
   "file": "index.html",
-  "lines": 31452,
-  "script_bytes": 1485817,
+  "lines": 31467,
+  "script_bytes": 1486257,
   "function_count": 803,
   "interactive_element_count": 58,
   "target_hits": {
@@ -129,611 +129,611 @@
       "text": "')\" class=\"text-slate-400\">✕</button>       </div>       <input id=\"newGroupTitleInput\" type=\"text\" placeholder=\"نام گروه (مثلاً: تیم توسعه اپ ورزشی یا استودیو کلش رویال)\" class=\"w-full bg-[#1e1e26] border border-white/10 rounded-2xl px-4 py-2.5 text-xs text-white\" />       <div "
     },
     {
-      "line": 1757,
+      "line": 1759,
       "text": "             <input id=\"nexusDlgField_${i}\" type=\"text\" value=\"${escapeHtml(f.defaultValue || '')}\" placeholder=\"${escapeHtml(f.placeholder || '')}\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();document.getElementById('nexusDlgConfirmBtn')?.click();}\" class=\"${f.ltr "
     },
     {
-      "line": 1757,
+      "line": 1759,
       "text": "sDlgField_${i}\" type=\"text\" value=\"${escapeHtml(f.defaultValue || '')}\" placeholder=\"${escapeHtml(f.placeholder || '')}\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();document.getElementById('nexusDlgConfirmBtn')?.click();}\" class=\"${f.ltr ? 'code-block-dir' : ''} w-f"
     },
     {
-      "line": 2457,
+      "line": 2459,
       "text": "hatMessages();       const inp = document.getElementById('chatInput');       if (inp) {         inp.placeholder = `Message ${chat.title}`;         inp.value = chat.draftText || '';       }     }     function renderChatHeader() {       const chat = getActiveChat();       if (!chat"
     },
     {
-      "line": 2644,
+      "line": 2646,
       "text": "اتی که این ایجنت همیشه در طول جلسات به یاد می‌آورد:</p>           <textarea id=\"editAgMem\" rows=\"5\" placeholder=\"مثلاً: همیشه کدهای حرکت اسکوات را با SVG برداری و بدون کتابخانه خارجی بنویس...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-white\">${e"
     },
     {
-      "line": 5277,
+      "line": 5279,
       "text": "\"mcpTokenInput\" type=\"password\" value=\"${escapeHtml(conn.token || '')}\" autocomplete=\"new-password\" placeholder=\"${escapeHtml(def.endpointDefault || 'https://api.example.com یا کلید API')}\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emeral"
     },
     {
-      "line": 5277,
+      "line": 5279,
       "text": "-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500\" />             </label>             <div class=\"text-[10px] text-slate-400 px-1\">${appId === 'coingecko' ? '💡 سرویس CoinGecko به صورت پیش‌فرض و رایگان ب"
     },
     {
-      "line": 5569,
+      "line": 5571,
       "text": "nter gap-2\" dir=\"ltr\">               <input id=\"crPlayerTagInput\" value=\"${escapeHtml(currentTag)}\" placeholder=\"#2PP9PUV8\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2.5 text-xs text-white uppercase font-mono code-block-dir\" />             </div>        "
     },
     {
-      "line": 5579,
+      "line": 5581,
       "text": "    </div>             <input id=\"crTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"اختیاری — برای دسترسی با محدودیت بیشتر...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2.5 text-xs text-emerald-300 font-mono code-block-dir\" /"
     },
     {
-      "line": 5584,
+      "line": 5586,
       "text": "I Base URL):</label>             <input id=\"crEndpointInput\" value=\"${escapeHtml(currentEndpoint)}\" placeholder=\"https://api.clashroyale.com/v1\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2.5 text-xs text-slate-300 font-mono code-block-dir\" />            "
     },
     {
-      "line": 5802,
+      "line": 5804,
       "text": "en):               <input id=\"igMetaTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"EAA...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />       "
     },
     {
-      "line": 5812,
+      "line": 5814,
       "text": "</span>:               <input id=\"igBusinessIdInput\" type=\"text\" value=\"${escapeHtml(currentIgId)}\" placeholder=\"178414...\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>           </div>"
     },
     {
-      "line": 6194,
+      "line": 6196,
       "text": "               <input id=\"todoistApiTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"0123456789abcdef...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-d"
     },
     {
-      "line": 6405,
+      "line": 6407,
       "text": "point Host):               <input id=\"neonHostInput\" type=\"text\" value=\"${escapeHtml(currentHost)}\" placeholder=\"ep-xyz-123456.us-east-2.aws.neon.tech\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />    "
     },
     {
-      "line": 6409,
+      "line": 6411,
       "text": "(Database Name):               <input id=\"neonDbInput\" type=\"text\" value=\"${escapeHtml(currentDb)}\" placeholder=\"neondb\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>             <label "
     },
     {
-      "line": 6413,
+      "line": 6415,
       "text": "n):               <input id=\"neonPasswordInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"پسورد اتصال به دیتابیس...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-b"
     },
     {
-      "line": 6580,
+      "line": 6582,
       "text": "ation Slug):               <input id=\"sentryOrgInput\" type=\"text\" value=\"${escapeHtml(currentOrg)}\" placeholder=\"my-organization\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>           "
     },
     {
-      "line": 6584,
+      "line": 6586,
       "text": "ect Slug):               <input id=\"sentryProjInput\" type=\"text\" value=\"${escapeHtml(currentProj)}\" placeholder=\"eg-nexus-os\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>             <l"
     },
     {
-      "line": 6588,
+      "line": 6590,
       "text": "en):               <input id=\"sentryTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"sntrys_...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />   "
     },
     {
-      "line": 6702,
+      "line": 6704,
       "text": "y):               <input id=\"linearApiKeyInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"lin_api_...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />  "
     },
     {
-      "line": 6845,
+      "line": 6847,
       "text": "n):               <input id=\"webflowTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"توکن API وب‌فلو...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-di"
     },
     {
-      "line": 6971,
+      "line": 6973,
       "text": " Domain):               <input id=\"shopifyShopInput\" type=\"text\" value=\"${escapeHtml(currentShop)}\" placeholder=\"your-store.myshopify.com\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>  "
     },
     {
-      "line": 6975,
+      "line": 6977,
       "text": "n):               <input id=\"shopifyTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"shpat_...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />    "
     },
     {
-      "line": 7094,
+      "line": 7096,
       "text": "d):               <input id=\"metaAdsTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"EAA...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />       "
     },
     {
-      "line": 7098,
+      "line": 7100,
       "text": "nt ID):               <input id=\"metaAdsActIdInput\" type=\"text\" value=\"${escapeHtml(currentActId)}\" placeholder=\"act_1234567890...\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />               <span class=\"te"
     },
     {
-      "line": 7248,
+      "line": 7250,
       "text": "Domain):               <input id=\"jiraDomainInput\" type=\"text\" value=\"${escapeHtml(currentDomain)}\" placeholder=\"your-org.atlassian.net\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-blue-300 font-mono code-block-dir\" />             </label> "
     },
     {
-      "line": 7252,
+      "line": 7254,
       "text": "tlassian:               <input id=\"jiraEmailInput\" type=\"email\" value=\"${escapeHtml(currentEmail)}\" placeholder=\"developer@example.com\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white code-block-dir\" />             </label>             <l"
     },
     {
-      "line": 7256,
+      "line": 7258,
       "text": "Token:               <input id=\"jiraTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"ATATT...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />     "
     },
     {
-      "line": 7437,
+      "line": 7439,
       "text": "PAT):               <input id=\"asanaTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"1/1234567890:...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\""
     },
     {
-      "line": 7607,
+      "line": 7609,
       "text": "en:               <input id=\"hubspotTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"pat-na1-...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />  "
     },
     {
-      "line": 7779,
+      "line": 7781,
       "text": "g (Host):               <input id=\"posthogHostInput\" type=\"text\" value=\"${escapeHtml(currentHost)}\" placeholder=\"https://us.i.posthog.com\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-yellow-300 font-mono code-block-dir\" />             </lab"
     },
     {
-      "line": 7783,
+      "line": 7785,
       "text": "):               <input id=\"posthogProjectIdInput\" type=\"text\" value=\"${escapeHtml(currentProjId)}\" placeholder=\"12345\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>             <label c"
     },
     {
-      "line": 7787,
+      "line": 7789,
       "text": "ey:               <input id=\"posthogTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"phx_...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />      "
     },
     {
-      "line": 7940,
+      "line": 7942,
       "text": " Token:               <input id=\"boxTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"Box Bearer Token...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-d"
     },
     {
-      "line": 8093,
+      "line": 8095,
       "text": "ken:               <input id=\"paypalTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"A21AA...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />     "
     },
     {
-      "line": 8239,
+      "line": 8241,
       "text": "en:               <input id=\"clickupTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"pk_...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />       "
     },
     {
-      "line": 8244,
+      "line": 8246,
       "text": "تیاری):               <input id=\"clickupTeamIdInput\" type=\"text\" value=\"${escapeHtml(currentTeam)}\" placeholder=\"خودکار شناسایی می‌شود\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>     "
     },
     {
-      "line": 8422,
+      "line": 8424,
       "text": "ken:               <input id=\"mondayTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"eyJhbGciOi...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />"
     },
     {
-      "line": 8427,
+      "line": 8429,
       "text": "یاری):               <input id=\"mondayBoardIdInput\" type=\"text\" value=\"${escapeHtml(currentBoard)}\" placeholder=\"خودکار لود می‌شود\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>         "
     },
     {
-      "line": 8589,
+      "line": 8591,
       "text": "n:               <input id=\"intercomTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"dG9r...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />      "
     },
     {
-      "line": 8715,
+      "line": 8717,
       "text": "               <input id=\"revenuecatTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"sk_...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />       "
     },
     {
-      "line": 8720,
+      "line": 8722,
       "text": "):               <input id=\"revenuecatUserIdInput\" type=\"text\" value=\"${escapeHtml(currentUserId)}\" placeholder=\"user_ali\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white font-mono code-block-dir\" />             </label>           </div> "
     },
     {
-      "line": 8848,
+      "line": 8850,
       "text": "               <input id=\"outlookCalTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"EwB...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />       "
     },
     {
-      "line": 9004,
+      "line": 9006,
       "text": "              <input id=\"outlookMailTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"EwB...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir\" />       "
     },
     {
-      "line": 9167,
+      "line": 9169,
       "text": "Key:               <input id=\"apolloTokenInput\" type=\"password\" value=\"${escapeHtml(currentToken)}\" placeholder=\"apollo_api_key...\" autocomplete=\"new-password\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir"
     },
     {
-      "line": 9307,
+      "line": 9309,
       "text": "0\">Account handle or email<input id=\"providerAccountEmail\" value=\"${escapeHtml(first.email || '')}\" placeholder=\"you@example.com\" autocomplete=\"username\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir\" /></label>         <la"
     },
     {
-      "line": 9308,
+      "line": 9310,
       "text": "text-slate-300\">Display name<input id=\"providerAccountName\" value=\"${escapeHtml(first.name || '')}\" placeholder=\"Your name\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white\" /></label>         <label class=\"block text-xs text-slate-300\">API "
     },
     {
-      "line": 9394,
+      "line": 9396,
       "text": ">               <input id=\"googleDirectEmailInput\" type=\"email\" value=\"${escapeHtml(prefillEmail)}\" placeholder=\"you@gmail.com\" autocomplete=\"email\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500 "
     },
     {
-      "line": 9394,
+      "line": 9396,
       "text": "s=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500\" />             </div>             <div class=\"grid grid-cols-2 gap-2\">               <div>                 <lab"
     },
     {
-      "line": 9399,
+      "line": 9401,
       "text": "l>                 <input id=\"googleDirectNameInput\" type=\"text\" value=\"${escapeHtml(prefillName)}\" placeholder=\"نام شما...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blu"
     },
     {
-      "line": 9399,
+      "line": 9401,
       "text": "ما...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500\" />               </div>               <div>                 <label class=\"block text-[11px] text-slate-300 mb-1"
     },
     {
-      "line": 9403,
+      "line": 9405,
       "text": "رنامه یا توکن (اختیاری):</label>                 <input id=\"googleDirectTokenInput\" type=\"password\" placeholder=\"App Password یا توکن...\" autocomplete=\"new-password\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-"
     },
     {
-      "line": 9403,
+      "line": 9405,
       "text": "0 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500\" />               </div>             </div>             <div id=\"googleDirectStatus\" class=\"hidden rounded-xl p-"
     },
     {
-      "line": 10006,
+      "line": 10008,
       "text": "t body = '';       if (appId === 'gmail') body = `<div class=\"space-y-2\"><input id=\"gmailComposeTo\" placeholder=\"To\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir\" /><input id=\"gmailComposeSubject\" placeholder=\"Subject\" cl"
     },
     {
-      "line": 10006,
+      "line": 10008,
       "text": "-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir\" /><input id=\"gmailComposeSubject\" placeholder=\"Subject\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white\" /><textarea id=\"gmailComposeBody\" rows=\"3\" placeholder=\"Write an ema"
     },
     {
-      "line": 10006,
+      "line": 10008,
       "text": "border-white/10 rounded-lg px-3 py-2 text-xs text-white\" /><textarea id=\"gmailComposeBody\" rows=\"3\" placeholder=\"Write an email…\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white\"></textarea><div class=\"grid grid-cols-2 gap-2\"><button oncli"
     },
     {
-      "line": 10007,
+      "line": 10009,
       "text": " body = `<div class=\"space-y-2.5\" dir=\"rtl\"><div class=\"space-y-1.5\"><input id=\"calendarEventTitle\" placeholder=\"عنوان رویداد یا جلسه...\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500\" /><div class=\"grid grid-c"
     },
     {
-      "line": 10007,
+      "line": 10009,
       "text": "ا جلسه...\" class=\"w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500\" /><div class=\"grid grid-cols-2 gap-2\" dir=\"ltr\"><label class=\"block text-[10px] text-slate-400\">Start:<input id=\"calendarEventDate\" type=\"datetime-local"
     },
     {
-      "line": 10008,
+      "line": 10010,
       "text": "ve API v3</span></div><div class=\"flex items-center gap-1.5\" dir=\"ltr\"><input id=\"driveSearchInput\" placeholder=\"جستجوی نام سند، شیت یا فایل در درایو...\" class=\"flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate"
     },
     {
-      "line": 10008,
+      "line": 10010,
       "text": "s=\"flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500\" onkeydown=\"if(event.key==='Enter') searchGoogleDriveFiles()\" /><button onclick=\"searchGoogleDriveFiles()\" class=\"min-h-0 px-3 py-2 rounded-xl bg-blue-60"
     },
     {
-      "line": 10027,
+      "line": 10029,
       "text": "weight\">⚖️ Weight (kg)</option>               </select>               <input id=\"healthMetricValue\" placeholder=\"مقدار عددی...\" class=\"min-w-0 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir\" />             </div>              <div class="
     },
     {
-      "line": 10227,
+      "line": 10229,
       "text": "d=\"igComposerMediaType\" type=\"hidden\" value=\"REELS\" />               <input id=\"igComposerMediaUrl\" placeholder=\"https://.../video.mp4 (آدرس مستقیم ویدیو یا تصویر)\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder"
     },
     {
-      "line": 10227,
+      "line": 10229,
       "text": "s=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500\" />               <textarea id=\"igComposerCaption\" rows=\"3\" placeholder=\"کپشن و هشتگ‌های ریلز...\" class=\"w-full bg-black/20 border border-white/10 rounde"
     },
     {
-      "line": 10228,
+      "line": 10230,
       "text": "de-block-dir placeholder:text-slate-500\" />               <textarea id=\"igComposerCaption\" rows=\"3\" placeholder=\"کپشن و هشتگ‌های ریلز...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\"></textarea>              "
     },
     {
-      "line": 10228,
+      "line": 10230,
       "text": "ی ریلز...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\"></textarea>                <div class=\"grid grid-cols-2 gap-2\">                 <button onclick=\"importClashReelsCopyIntoComposer()\" class=\"py-2 rounded"
     },
     {
-      "line": 10305,
+      "line": 10307,
       "text": "00 font-mono\">60FPS Shorts</span>               </div>               <input id=\"ytShortsTitleInput\" placeholder=\"عنوان شورتس (با هشتگ #Shorts)...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />              "
     },
     {
-      "line": 10305,
+      "line": 10307,
       "text": "horts)...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <textarea id=\"ytShortsDescInput\" rows=\"2.5\" placeholder=\"توضیحات و هشتگ‌های شورتس...\" class=\"w-full bg-black/20 border border-white/10 "
     },
     {
-      "line": 10306,
+      "line": 10308,
       "text": "text-white placeholder:text-slate-500\" />               <textarea id=\"ytShortsDescInput\" rows=\"2.5\" placeholder=\"توضیحات و هشتگ‌های شورتس...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\"></textarea>          "
     },
     {
-      "line": 10306,
+      "line": 10308,
       "text": " شورتس...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\"></textarea>                <div class=\"grid grid-cols-2 gap-2\">                 <button onclick=\"importClashShortsCopyIntoComposer()\" class=\"py-2 rounde"
     },
     {
-      "line": 10372,
+      "line": 10374,
       "text": "xt-xs font-bold text-white\">➕ ایجاد تسک جدید:</div>               <input id=\"todoistTaskTitleInput\" placeholder=\"عنوان وظیفه...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <div class=\"grid "
     },
     {
-      "line": 10372,
+      "line": 10374,
       "text": " وظیفه...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <div class=\"grid grid-cols-2 gap-2\" dir=\"ltr\">                 <input id=\"todoistTaskDueInput\" placeholder=\"Due (e.g. today, tomorrow)\""
     },
     {
-      "line": 10374,
+      "line": 10376,
       "text": "     <div class=\"grid grid-cols-2 gap-2\" dir=\"ltr\">                 <input id=\"todoistTaskDueInput\" placeholder=\"Due (e.g. today, tomorrow)\" class=\"bg-black/20 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white code-block-dir placeholder:text-slate-500\" />        "
     },
     {
-      "line": 10374,
+      "line": 10376,
       "text": "lass=\"bg-black/20 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white code-block-dir placeholder:text-slate-500\" />                 <select id=\"todoistTaskPriorityInput\" class=\"bg-black/20 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white\">        "
     },
     {
-      "line": 10420,
+      "line": 10422,
       "text": "rline\">لیست جداول</button>               </div>               <textarea id=\"neonSqlEditor\" rows=\"3\" placeholder=\"SELECT * FROM users LIMIT 5;\" class=\"w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir focus:outline-none\">S"
     },
     {
-      "line": 10527,
+      "line": 10529,
       "text": " font-bold text-white\">➕ ثبت ایشو / باگ جدید:</div>               <input id=\"linearIssueTitleInput\" placeholder=\"عنوان تسک یا باگ...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <input id=\"l"
     },
     {
-      "line": 10527,
+      "line": 10529,
       "text": "یا باگ...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <input id=\"linearIssueDescInput\" placeholder=\"توضیحات اختیاری...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-1"
     },
     {
-      "line": 10528,
+      "line": 10530,
       "text": "-2 text-xs text-white placeholder:text-slate-500\" />               <input id=\"linearIssueDescInput\" placeholder=\"توضیحات اختیاری...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder:text-slate-500\" />               <button onc"
     },
     {
-      "line": 10528,
+      "line": 10530,
       "text": "یاری...\" class=\"w-full bg-black/20 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder:text-slate-500\" />               <button onclick=\"createLinearIssueFromUi()\" class=\"w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold tr"
     },
     {
-      "line": 10730,
+      "line": 10732,
       "text": "font-bold text-white\">➕ ثبت سریع تیکت در Jira</div>               <input id=\"jiraIssueSummaryInput\" placeholder=\"عنوان تیکت / باگ...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <textarea id"
     },
     {
-      "line": 10730,
+      "line": 10732,
       "text": " / باگ...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <textarea id=\"jiraIssueDescInput\" rows=\"2\" placeholder=\"توضیحات و جزییات تیکت (اختیاری)...\" class=\"w-full bg-black/30 border border-whi"
     },
     {
-      "line": 10731,
+      "line": 10733,
       "text": " text-white placeholder:text-slate-500\" />               <textarea id=\"jiraIssueDescInput\" rows=\"2\" placeholder=\"توضیحات و جزییات تیکت (اختیاری)...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 resize-none\"></"
     },
     {
-      "line": 10731,
+      "line": 10733,
       "text": "تیاری)...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 resize-none\"></textarea>               <div class=\"grid grid-cols-2 gap-2\">                 <input id=\"jiraIssueProjectKeyInput\" placeholder=\"Project Key"
     },
     {
-      "line": 10733,
+      "line": 10735,
       "text": "          <div class=\"grid grid-cols-2 gap-2\">                 <input id=\"jiraIssueProjectKeyInput\" placeholder=\"Project Key (e.g. KAN)\" value=\"KAN\" class=\"bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono code-block-dir\" />                 "
     },
     {
-      "line": 10790,
+      "line": 10792,
       "text": "font-bold text-white\">➕ افزودن تسک جدید در Asana</div>               <input id=\"asanaTaskNameInput\" placeholder=\"عنوان وظیفه...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <div class=\"flex "
     },
     {
-      "line": 10790,
+      "line": 10792,
       "text": " وظیفه...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <div class=\"flex items-center gap-2\" dir=\"ltr\">                 <input id=\"asanaTaskDueInput\" type=\"date\" class=\"flex-1 bg-black/30 bor"
     },
     {
-      "line": 10857,
+      "line": 10859,
       "text": "      <div class=\"grid grid-cols-2 gap-2\">                 <input id=\"hubspotContactFirstNameInput\" placeholder=\"نام...\" class=\"bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white\" />                 <input id=\"hubspotContactLastNameInput\" placeholder=\""
     },
     {
-      "line": 10858,
+      "line": 10860,
       "text": "ded-xl px-2.5 py-1.5 text-xs text-white\" />                 <input id=\"hubspotContactLastNameInput\" placeholder=\"نام خانوادگی...\" class=\"bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white\" />               </div>               <input id=\"hubspotContact"
     },
     {
-      "line": 10860,
+      "line": 10862,
       "text": "text-white\" />               </div>               <input id=\"hubspotContactEmailInput\" type=\"email\" placeholder=\"ایمیل مخاطب...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir\" />               <button onclick=\"createHubSpo"
     },
     {
-      "line": 10957,
+      "line": 10959,
       "text": "       <div class=\"flex items-center gap-1.5\" dir=\"ltr\">                 <input id=\"boxSearchInput\" placeholder=\"جستجو در اسناد Box...\" class=\"flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white code-block-dir\" onkeydown=\"if(event.key==='Enter') se"
     },
     {
-      "line": 11072,
+      "line": 11074,
       "text": "bold text-white\">➕ ایجاد وظیفه جدید در ClickUp</div>               <input id=\"clickupTaskNameInput\" placeholder=\"عنوان وظیفه...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <button onclick=\""
     },
     {
-      "line": 11072,
+      "line": 11074,
       "text": " وظیفه...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <button onclick=\"createClickUpTaskLive()\" class=\"w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-extra"
     },
     {
-      "line": 11125,
+      "line": 11127,
       "text": "t-bold text-white\">➕ افزودن آیتم به بورد monday</div>               <input id=\"mondayItemNameInput\" placeholder=\"عنوان آیتم یا تسک...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <button onc"
     },
     {
-      "line": 11125,
+      "line": 11127,
       "text": "یا تسک...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <button onclick=\"createMondayItemLive()\" class=\"w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-extrabol"
     },
     {
-      "line": 11268,
+      "line": 11270,
       "text": "old text-white\">➕ ثبت رویداد در Outlook</div>               <input id=\"outlookCalEventSubjectInput\" placeholder=\"عنوان جلسه یا رویداد...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <div cla"
     },
     {
-      "line": 11268,
+      "line": 11270,
       "text": "رویداد...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500\" />               <div class=\"flex items-center gap-2\" dir=\"ltr\">                 <input id=\"outlookCalEventStartInput\" type=\"datetime-local\" class=\"flex"
     },
     {
-      "line": 11323,
+      "line": 11325,
       "text": "ext-white\">✉️ ارسال مستقیم ایمیل</div>               <input id=\"outlookComposeToInput\" type=\"email\" placeholder=\"ایمیل گیرنده...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white code-block-dir\" />               <input id=\"outlookComposeS"
     },
     {
-      "line": 11324,
+      "line": 11326,
       "text": "3 py-1.5 text-xs text-white code-block-dir\" />               <input id=\"outlookComposeSubjectInput\" placeholder=\"موضوع ایمیل...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white\" />               <textarea id=\"outlookComposeBodyInput\" row"
     },
     {
-      "line": 11325,
+      "line": 11327,
       "text": "xl px-3 py-1.5 text-xs text-white\" />               <textarea id=\"outlookComposeBodyInput\" rows=\"2\" placeholder=\"متن پیام...\" class=\"w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white\"></textarea>               <button onclick=\"sendOutlookMailLive()"
     },
     {
-      "line": 11371,
+      "line": 11373,
       "text": "    <div class=\"flex items-center gap-1.5\" dir=\"ltr\">                 <input id=\"apolloSearchInput\" placeholder=\"جستجوی عنوان شغلی یا سازمان (e.g. CEO, Founder)...\" class=\"flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white code-block-dir\" onkeydow"
     },
     {
-      "line": 11635,
+      "line": 11637,
       "text": " type=\"password\" value=\"${escapeHtml(currentToken)}\" autocomplete=\"new-password\" spellcheck=\"false\" placeholder=\"ghp_... یا github_pat_...\" class=\"mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slat"
     },
     {
-      "line": 11635,
+      "line": 11637,
       "text": "bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500\" />             </label>             <button id=\"githubDiscoverBtn\" type=\"button\" onclick=\"discoverGitHubRepositories()\" class=\"w-full py-3 rounded-xl bg"
     },
     {
-      "line": 11947,
+      "line": 11949,
       "text": "nput\" type=\"password\" autocomplete=\"off\" spellcheck=\"false\" value=\"${escapeHtml(conn.token || '')}\" placeholder=\"API Key / Access Token / Endpoint...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono\" />          "
     },
     {
-      "line": 12068,
+      "line": 12070,
       "text": "        title: '🧩 ساخت مهارت جدید (Skill)',         fields: [           { label: 'نام مهارت جدید:', placeholder: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText:"
     },
     {
-      "line": 12069,
+      "line": 12071,
       "text": "older: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText: 'ثبت در کتابخانه Skills',         onConfirm: ([title, desc]) => {           if (!title || !desc) {       "
     },
     {
-      "line": 12493,
+      "line": 12495,
       "text": "\"rtl\">             <input id=\"dreamNameInp\" type=\"text\" value=\"${escapeHtml(appState.profileName)}\" placeholder=\"نام شما\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white\" />             <textarea id=\"dreamBioInp\" rows=\"4\" class=\"w-full bg-cue-"
     },
     {
-      "line": 12507,
+      "line": 12509,
       "text": "               <input id=\"keyGemini\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.gemini)}\" placeholder=\"AIzaSy...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <la"
     },
     {
-      "line": 12511,
+      "line": 12513,
       "text": "           <input id=\"keyDeepseek\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.deepseek)}\" placeholder=\"sk-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <label"
     },
     {
-      "line": 12515,
+      "line": 12517,
       "text": "bel>               <input id=\"keyKimi\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.kimi)}\" placeholder=\"sk-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <label"
     },
     {
-      "line": 12519,
+      "line": 12521,
       "text": "bel>               <input id=\"keyGrok\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.grok)}\" placeholder=\"xai-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <labe"
     },
     {
-      "line": 12523,
+      "line": 12525,
       "text": "       <input id=\"keyOpenrouter\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.openrouter)}\" placeholder=\"sk-or-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <div>               <la"
     },
     {
-      "line": 12527,
+      "line": 12529,
       "text": "         <input id=\"keyTavily\" type=\"password\" value=\"${escapeHtml(appState.apiKeys.tavily || '')}\" placeholder=\"tvly-...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2 text-xs text-white\" />             </div>             <button onclick=\"saveAll"
     },
     {
-      "line": 13437,
+      "line": 13439,
       "text": "AIN_TEXT_LEN}\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();addBrainNodeFromModal();}\" placeholder=\"نکته یا قانون جدید برای حافظه پروژه...\" class=\"flex-1 bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs text-white\" />             <button onclick=\"addBr"
     },
     {
-      "line": 13441,
+      "line": 13443,
       "text": "\" type=\"text\" value=\"${escapeHtml(brainModalFilterState.query)}\" oninput=\"updateBrainModalFilter()\" placeholder=\"🔍 جستجو در قوانین حافظه...\" class=\"flex-1 bg-cue-bg/70 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white\" />             <select id=\"brainFilter"
     },
     {
-      "line": 13588,
+      "line": 13590,
       "text": "     { label: `قوانین را وارد کنید (حداکثر ${MAX_BULK_IMPORT_ITEMS} مورد در هر نوبت، جدا با «|»):`, placeholder: 'قانون اول | قانون دوم | قانون سوم' }         ],         confirmText: 'افزودن به حافظه',         onConfirm: ([catVal, rawList]) => {           const cleanCat = String("
     },
     {
-      "line": 14013,
+      "line": 14015,
       "text": "st queuedProposals = [];       const codeBlocks = [];       // Never interpret a literal user/model placeholder as an internal token.       let codeTokenPrefix = '__NEXUS_CODE_BLOCK_';       while (raw.includes(codeTokenPrefix)) codeTokenPrefix += '_';       const codeTokenRegex "
     },
     {
-      "line": 17726,
+      "line": 17741,
       "text": "=\"${escapeHtml(doc.title)}\" oninput=\"appState.officeDoc.title=this.value;schedulePhase3SaveState()\" placeholder=\"عنوان سند، گزارش یا فایل ارائه...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-b"
     },
     {
-      "line": 17727,
+      "line": 17742,
       "text": "=\"officeDocBodyInp\" rows=\"5\" oninput=\"appState.officeDoc.body=this.value;schedulePhase3SaveState()\" placeholder=\"متن گزارش، جدول مقایسه‌ای یا اسلایدها (هر پاراگراف با یک خط فاصله = یک اسلاید مجزا)...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-xs text-sl"
     },
     {
-      "line": 17991,
+      "line": 18006,
       "text": "',           fields: [             { label: 'نام آیتم (گوشی، حرکت ورزشی یا دک):', defaultValue: '', placeholder: 'مثلاً: OnePlus 15 Pro' },             { label: 'امتیاز یا درصد پایداری (۰ تا ۱۰۰ — فارسی یا انگلیسی، اعشاری مجاز):', defaultValue: '92.5', placeholder: '92.5', ltr: t"
     },
     {
-      "line": 17992,
+      "line": 18007,
       "text": " label: 'امتیاز یا درصد پایداری (۰ تا ۱۰۰ — فارسی یا انگلیسی، اعشاری مجاز):', defaultValue: '92.5', placeholder: '92.5', ltr: true },             { label: 'توضیح کوتاه فنی:', defaultValue: 'تست‌شده در شرایط واقعی', placeholder: 'توضیح کوتاه...' }           ],           confirmTex"
     },
     {
-      "line": 17993,
+      "line": 18008,
       "text": "2.5', ltr: true },             { label: 'توضیح کوتاه فنی:', defaultValue: 'تست‌شده در شرایط واقعی', placeholder: 'توضیح کوتاه...' }           ],           confirmText: 'افزودن به نمودار',           onConfirm: ([label, scoreStr, note]) => {             if (!label || !label.trim())"
     },
     {
-      "line": 18288,
+      "line": 18303,
       "text": "oninput=\"appState.fluxStudio.prompt=this.value;schedulePhase3SaveState();drawFluxThumbnailCanvas()\" placeholder=\"توصیف صحنه برای تامنیل کلش رویال یا گرافیک اپ ورزشی...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white focus:outli"
     },
     {
-      "line": 18290,
+      "line": 18305,
       "text": "ut=\"appState.fluxStudio.overlayText=this.value;schedulePhase3SaveState();drawFluxThumbnailCanvas()\" placeholder=\"متن روی تامنیل (Overlay)\" class=\"bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs font-extrabold text-amber-300 focus:outline-none focus:border-amber-50"
     },
     {
-      "line": 18749,
+      "line": 18764,
       "text": "cs.playerTag || '')}\" oninput=\"appState.clashStudio.playerTag=this.value;schedulePhase3SaveState()\" placeholder=\"#PlayerTag\" class=\"code-block-dir w-32 bg-cue-bg border border-cue-border rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-amb"
     },
     {
-      "line": 19128,
+      "line": 19143,
       "text": "lds: [             { label: 'بازه زمانی سکانس (MM:SS یا HH:MM:SS):', defaultValue: '00:32 - 00:45', placeholder: '00:32 - 00:45', ltr: true },             { label: 'عنوان لایه / سکانس:', defaultValue: '⚡ ضدحمله دابل اکسیر', placeholder: 'عنوان سکانس...' },             { label: 'ت"
     },
     {
-      "line": 19129,
+      "line": 19144,
       "text": ":45', ltr: true },             { label: 'عنوان لایه / سکانس:', defaultValue: '⚡ ضدحمله دابل اکسیر', placeholder: 'عنوان سکانس...' },             { label: 'توضیح افکت تصویری یا زوم:', defaultValue: 'زوم ۱.۳۵x روی تانک اصلی + افکت صوتی', placeholder: 'توضیح افکت...' },             "
     },
     {
-      "line": 19130,
+      "line": 19145,
       "text": "         { label: 'توضیح افکت تصویری یا زوم:', defaultValue: 'زوم ۱.۳۵x روی تانک اصلی + افکت صوتی', placeholder: 'توضیح افکت...' },             { label: 'فایل افکت صوتی (SFX):', defaultValue: 'impact_hit.mp3', placeholder: 'impact_hit.mp3', ltr: true }           ],           conf"
     },
     {
-      "line": 19131,
+      "line": 19146,
       "text": "r: 'توضیح افکت...' },             { label: 'فایل افکت صوتی (SFX):', defaultValue: 'impact_hit.mp3', placeholder: 'impact_hit.mp3', ltr: true }           ],           confirmText: 'افزودن سکانس',           onConfirm: ([time, layer, action, sfx]) => {             if (!time || !time"
     },
     {
-      "line": 19437,
+      "line": 19452,
       "text": "        title: '🧩 ساخت مهارت جدید (Skill)',         fields: [           { label: 'نام مهارت جدید:', placeholder: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText:"
     },
     {
-      "line": 19438,
+      "line": 19453,
       "text": "older: 'مثلاً: ممیزی ۶۰ فریم انیمیشن' },           { label: 'دستورالعمل و روش اجرا برای ایجنت‌ها:', placeholder: 'شرح دقیق گام‌های مهارت...' }         ],         confirmText: 'ثبت در کتابخانه Skills',         onConfirm: ([title, desc]) => {           if (!title || !desc) {       "
     },
     {
-      "line": 25589,
+      "line": 25604,
       "text": "{event.preventDefault();syncStateWithCloudWorker(true);}\" value=\"${escapeHtml(displayedWorkerUrl)}\" placeholder=\"https://eg-nexus-worker.yourname.workers.dev\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-cyan-300 font-mono\" /"
     },
     {
-      "line": 25590,
+      "line": 25605,
       "text": "loudWorkerSecretInp\" type=\"password\" value=\"${escapeHtml(appState.cloudConfig.workerSecret || '')}\" placeholder=\"کلید امنیتی اجباری Worker (X-Nexus-Secret - حداقل ۸ کاراکتر)\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-1.5 text-[11px] text"
     },
     {
-      "line": 25592,
+      "line": 25607,
       "text": "2 gap-2\">               <input id=\"cloudSbUrlInp\" type=\"text\" value=\"${escapeHtml(displayedSbUrl)}\" placeholder=\"Supabase HTTPS Project URL\" class=\"code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono\" />               <inp"
     },
     {
-      "line": 25593,
+      "line": 25608,
       "text": "  <input id=\"cloudSbKeyInp\" type=\"password\" value=\"${escapeHtml(appState.cloudConfig.supabaseKey)}\" placeholder=\"Supabase publishable / anon key (نه service_role)\" class=\"code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono"
     },
     {
-      "line": 25594,
+      "line": 25609,
       "text": "SbAuthTokenInp\" type=\"password\" value=\"${escapeHtml(appState.cloudConfig.supabaseAuthToken || '')}\" placeholder=\"JWT کاربر Supabase (authenticated)\" class=\"code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-emerald-200 font-mono col-span"
     },
     {
-      "line": 25626,
+      "line": 25641,
       "text": "Default();addNewRoutineFromModal();}\" value=\"${escapeHtml(phase4ModalDraftCache.newRtTitle || '')}\" placeholder=\"عنوان روتین جدید (مثلاً: بررسی صبحگاهی بتل‌لاگ کلش)\" class=\"w-full bg-black/50 border border-cue-border rounded-xl px-3 py-1.5 text-xs text-white\" />                 <"
     },
     {
-      "line": 25640,
+      "line": 25655,
       "text": "efault();addNewRoutineFromModal();}\" value=\"${escapeHtml(phase4ModalDraftCache.newRtPrompt || '')}\" placeholder=\"دستور اجرایی برای ایجنت...\" class=\"flex-1 bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-xs text-white\" />                 <button onclick=\"addNewR"
     },
     {
-      "line": 25694,
+      "line": 25709,
       "text": "  <input id=\"tgBotTokenInp\" type=\"password\" value=\"${escapeHtml(appState.telegramConfig.botToken)}\" placeholder=\"123456789:ABCdefGHIjklMNOpqrSTUvwxYZ\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-sky-300 font-mono\" />        "
     },
     {
-      "line": 25696,
+      "line": 25711,
       "text": "          <input id=\"tgChatIdInp\" type=\"text\" value=\"${escapeHtml(appState.telegramConfig.chatId)}\" placeholder=\"Chat ID مجاز (یا با /pair قفل کنید)\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono\" />   "
     },
     {
-      "line": 25697,
+      "line": 25712,
       "text": " id=\"tgOwnerUserIdInp\" type=\"text\" value=\"${escapeHtml(appState.telegramConfig.ownerUserId || '')}\" placeholder=\"Owner User ID (from.id)\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-emerald-300 font-mono\" />         "
     },
     {
-      "line": 25744,
+      "line": 25759,
       "text": "    <input id=\"agEmailAddrInp\" type=\"text\" value=\"${escapeHtml(appState.emailConfig.agentAddress)}\" placeholder=\"agent@yourdomain.com\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-emerald-300 font-mono\" />             <label "
     },
     {
-      "line": 25746,
+      "line": 25761,
       "text": "input id=\"agEmailFwdInp\" type=\"email\" value=\"${escapeHtml(appState.emailConfig.forwardToPersonal)}\" placeholder=\"you@gmail.com\" class=\"code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-white font-mono\" />             <label class=\"flex i"
     },
     {
-      "line": 27794,
+      "line": 27809,
       "text": "ر جای‌گذاری کنید:',           fields: [             { label: 'متن یا HTML صفحه:', defaultValue: '', placeholder: 'متن کپی‌شده از صفحه یا <html>...', ltr: false }           ],           confirmText: '✓ ثبت و تحلیل محتوا',           onConfirm: (vals) => applyPastedContent(vals?.[0]"
     },
     {
-      "line": 28239,
+      "line": 28254,
       "text": "جای‌گذاری کنید:',           fields: [             { label: 'ساختار JSON گام‌ها:', defaultValue: '', placeholder: '{\"taskTitle\":\"...\",\"steps\":[...]}', ltr: true }           ],           confirmText: '📥 اعتبارسنجی و بارگذاری',           onConfirm: (vals) => applyImportedJson(vals?."
     },
     {
-      "line": 30509,
+      "line": 30524,
       "text": "aveState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();runBrowserOperatorAction();}\" placeholder=\"https://...\" class=\"code-block-dir flex-1 bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs text-cyan-300 font-mono\" />                 <button onclick=\""
     },
     {
-      "line": 30513,
+      "line": 30528,
       "text": "aveState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();runBrowserOperatorAction();}\" placeholder=\"دستور به مرورگر (مثلاً: جدول وین‌ریت دک‌ها را استخراج کن یا فرم را بررسی کن)\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-2 text-xs text-white\""
     },
     {
-      "line": 30517,
+      "line": 30532,
       "text": "g.allowedDomains)}\" oninput=\"appState.browserConfig.allowedDomains=this.value;debouncedSaveState()\" placeholder=\"* یا *.royaleapi.com\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-lg px-2 py-1 text-[10px] text-emerald-300 font-mono\" />                 <"
     },
     {
-      "line": 30521,
+      "line": 30536,
       "text": "g.blockedDomains)}\" oninput=\"appState.browserConfig.blockedDomains=this.value;debouncedSaveState()\" placeholder=\"malware.example, ...\" class=\"code-block-dir w-full bg-cue-bg border border-cue-border rounded-lg px-2 py-1 text-[10px] text-rose-300 font-mono\" />                 </di"
     },
     {
-      "line": 30566,
+      "line": 30581,
       "text": "achRecorder.taskTitle)}\" oninput=\"appState.teachRecorder.taskTitle=this.value;debouncedSaveState()\" placeholder=\"عنوان مهارت آموزش‌داده‌شده...\" class=\"w-full bg-cue-bg border border-cue-border rounded-xl px-3 py-1.5 text-xs text-white\" />                 <div class=\"grid grid-col"
     },
     {
-      "line": 30577,
+      "line": 30592,
       "text": "tInputsToAppState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();recordTeachStep();}\" placeholder=\"آدرس / سلکتور CSS...\" class=\"code-block-dir bg-cue-bg border border-cue-border rounded-xl px-2 py-1.5 text-[11px] text-white font-mono\" />                 <div class=\""
     },
     {
-      "line": 30579,
+      "line": 30594,
       "text": "tInputsToAppState()\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();recordTeachStep();}\" placeholder=\"توضیح گام\" class=\"flex-1 bg-cue-bg border border-cue-border rounded-xl px-2 py-1.5 text-[11px] text-white\" />                   <button onclick=\"recordTeachStep()\" cla"
     },
     {
-      "line": 30627,
+      "line": 30642,
       "text": "l=sanitizeLocalBridgeUrl(this.value);this.value=appState.localComputerConfig.bridgeUrl;saveState()\" placeholder=\"http://127.0.0.1:8765\" class=\"code-block-dir bg-cue-bg border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-emerald-300 font-mono\" />               <inpu"
     },
     {
-      "line": 30628,
+      "line": 30643,
       "text": "wedFolders)}\" oninput=\"appState.localComputerConfig.allowedFolders=this.value;debouncedSaveState()\" placeholder=\"/sdcard/Download/NexusProjects\" class=\"code-block-dir bg-cue-bg border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-slate-300 font-mono\" />             "
     },
     {
-      "line": 30682,
+      "line": 30697,
       "text": " onkeydown=\"if(event.key==='Enter'){event.preventDefault();executeLocalTermuxCommand(null, true);}\" placeholder=\"ffmpeg -version || python3 --version\" class=\"code-block-dir flex-1 bg-cue-bg border border-cue-border rounded-xl px-3 py-1.5 text-xs text-emerald-300 font-mono\" />    "
     }
   ],
@@ -1392,18 +1392,18 @@
     }
   ],
   "test_summary": {
-    "passed_tests": 308,
-    "total_tests": 308,
-    "passed_suites": 15,
-    "total_suites": 15,
+    "passed_tests": 357,
+    "total_tests": 357,
+    "passed_suites": 17,
+    "total_suites": 17,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
   "coverage_summary": {
-    "lines_pct": 90.84,
-    "statements_pct": 89.02,
-    "functions_pct": 92.34,
-    "branches_pct": 80.46
+    "lines_pct": 90.61,
+    "statements_pct": 88.82,
+    "functions_pct": 92.16,
+    "branches_pct": 80.38
   },
   "npm_audit": {
     "vulnerabilities": 0,
