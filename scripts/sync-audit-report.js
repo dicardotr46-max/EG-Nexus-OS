@@ -23,8 +23,18 @@ const JEST_RESULTS_PATH = path.join(ROOT_DIR, 'coverage', 'jest-results.json');
 
 console.log('🔄 Starting EG Nexus OS Audit Report Synchronization...');
 
-// --- 1. Supply Chain Audit (npm audit --json) ---
-console.log('📦 1/5: Executing npm audit...');
+// --- 1. Clean Dependency Installation Audit (npm ci) ---
+console.log('📦 1/6: Executing clean dependency installation audit (npm ci)...');
+try {
+  execSync('npm ci', { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  console.log('   ✅ npm ci passed cleanly with exit code 0.');
+} catch (err) {
+  console.error('❌ Failed to execute npm ci cleanly:', err.message);
+  process.exit(1);
+}
+
+// --- 2. Supply Chain Audit (npm audit --json) ---
+console.log('🔒 2/6: Executing npm audit...');
 let npmAuditResult;
 try {
   const auditRaw = execSync('npm audit --json', { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -55,8 +65,8 @@ if (totalVulns > 0) {
   process.exit(1);
 }
 
-// --- 2. Static Code & Parity Audit (full_app_audit.py) ---
-console.log('🔍 2/5: Executing Python static inventory audit (full_app_audit.py)...');
+// --- 3. Static Code & Parity Audit (full_app_audit.py) ---
+console.log('🔍 3/6: Executing Python static inventory audit (full_app_audit.py)...');
 try {
   execSync('python3 full_app_audit.py', { cwd: ROOT_DIR, encoding: 'utf8' });
 } catch (err) {
@@ -71,14 +81,14 @@ if (!fs.existsSync(AUDIT_STATIC_PATH)) {
 const auditStatic = JSON.parse(fs.readFileSync(AUDIT_STATIC_PATH, 'utf8'));
 console.log(`   Static lines: ${auditStatic.lines}, Functions: ${auditStatic.function_count}, Handlers wired: ${auditStatic.missing_handlers === 0 ? '100%' : 'FAIL'}`);
 
-// --- 3. Run Jest Tests with Coverage & JSON Summary ---
-console.log('🧪 3/5: Executing Jest test suites with coverage...');
+// --- 4. Run Jest Tests with Coverage & JSON Summary (npm test -- --runInBand --coverage) ---
+console.log('🧪 4/6: Executing Jest test suites with coverage (npm test -- --runInBand --coverage)...');
 fs.mkdirSync(path.join(ROOT_DIR, 'coverage'), { recursive: true });
 
 let jestCliOutput = '';
 try {
   jestCliOutput = execSync(
-    'npx jest --coverage --coverageReporters="json-summary" --coverageReporters="text" --json --outputFile="coverage/jest-results.json"',
+    'npm test -- --runInBand --coverage --coverageReporters="json-summary" --coverageReporters="text" --json --outputFile="coverage/jest-results.json"',
     { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
   );
 } catch (err) {
@@ -122,7 +132,12 @@ console.log(`   Tests Passed: ${numPassedTests}/${numTotalTests} (${numPassedTes
 console.log(`   Coverage: Funcs=${totalCov.functions.pct}%, Lines=${totalCov.lines.pct}%, Stmts=${totalCov.statements.pct}%, Branches=${totalCov.branches.pct}%`);
 
 // --- 4. Enrich & Update audit-static.json ---
-console.log('📝 4/5: Syncing audit-static.json...');
+console.log('📝 5/6: Syncing audit-static.json...');
+auditStatic.npm_ci = {
+  status: 'PASS',
+  clean_install: true,
+  zero_drift: true
+};
 auditStatic.test_summary = {
   passed_tests: numPassedTests,
   total_tests: numTotalTests,
@@ -139,28 +154,30 @@ auditStatic.coverage_summary = {
 };
 auditStatic.npm_audit = {
   vulnerabilities: 0,
-  dependencies_total: totalDeps
+  dependencies_total: totalDeps,
+  status: 'PASS'
 };
 fs.writeFileSync(AUDIT_STATIC_PATH, JSON.stringify(auditStatic, null, 2) + '\n', 'utf8');
 
-// --- 5. Update AUDIT_REPORT.md ---
-console.log('📄 5/5: Syncing AUDIT_REPORT.md...');
+// --- 6. Update AUDIT_REPORT.md ---
+console.log('📄 6/6: Syncing AUDIT_REPORT.md...');
 let reportContent = fs.readFileSync(REPORT_PATH, 'utf8');
 
 // Cryptographic SHA-256 Checksums
 const indexHtmlSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT_DIR, 'index.html'))).digest('hex');
 const swJsSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT_DIR, 'sw.js'))).digest('hex');
 
-// Version upgrades: v5.4 -> v5.5, 5.4.0 -> 5.5.0
-reportContent = reportContent.replace(/# EG Nexus OS v5\.[0-9]+ — Engineering Verification/g, '# EG Nexus OS v5.5 — Engineering Verification');
-reportContent = reportContent.replace(/\*\*Target Version:\*\*\s*`5\.[0-9]+\.0`/g, '**Target Version:** `5.5.0`');
-reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ is a personal multi-agent operating system/g, 'EG Nexus OS v5.5 is a personal multi-agent operating system');
-reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'EG-Nexus-OS-v5.5-release-signed.apk');
-reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+\.apk/g, 'EG-Nexus-OS-v5.5.apk');
-reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ satisfies all engineering standards/g, 'EG Nexus OS v5.5 satisfies all engineering standards');
-reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v5\.[0-9]+-SHORT_SHA & latest-apk\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v5.5-SHORT_SHA & latest-apk)"]');
-reportContent = reportContent.replace(/Immutable Version Tag \(`v5\.[0-9]+-\$\{SHORT_SHA\}`\)/g, 'Immutable Version Tag (`v5.5-${SHORT_SHA}`)');
-reportContent = reportContent.replace(/Example:\s*`v5\.[0-9]+-[a-f0-9]+`/g, 'Example: `v5.5-aa6a32e`');
+// Version upgrades: v5.4/v5.5 -> v5.6, 5.5.0 -> 5.6.0
+reportContent = reportContent.replace(/# EG Nexus OS v5\.[0-9]+ — Engineering Verification/g, '# EG Nexus OS v5.6 — Engineering Verification');
+reportContent = reportContent.replace(/\*\*Target Version:\*\*\s*`5\.[0-9]+\.0`/g, '**Target Version:** `5.6.0`');
+reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ is a personal multi-agent operating system/g, 'EG Nexus OS v5.6 is a personal multi-agent operating system');
+reportContent = reportContent.replace(/dist\/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'dist/EG-Nexus-OS-v5.6-release-signed.apk');
+reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'EG-Nexus-OS-v5.6-release-signed.apk');
+reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+\.apk/g, 'EG-Nexus-OS-v5.6.apk');
+reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ satisfies all engineering standards/g, 'EG Nexus OS v5.6 satisfies all engineering standards');
+reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v5\.[0-9]+-SHORT_SHA & latest-apk\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v5.6-SHORT_SHA & latest-apk)"]');
+reportContent = reportContent.replace(/Immutable Version Tag \(`v5\.[0-9]+-\$\{SHORT_SHA\}`\)/g, 'Immutable Version Tag (`v5.6-${SHORT_SHA}`)');
+reportContent = reportContent.replace(/Example:\s*`v5\.[0-9]+-[a-f0-9]+`/g, 'Example: `v5.6-aa6a32e`');
 
 // Today's audit date
 const today = new Date().toISOString().split('T')[0];
@@ -249,7 +266,13 @@ const testSummaryBlockRegex = /```text\s*\nPASS [\s\S]*?Test Suites:\s*\d+ passe
 const updatedTestSummaryBlock = `\`\`\`text\n${suiteLines}\n\nTest Suites: ${numPassedTestSuites} passed, ${numTotalTestSuites} total\nTests:       ${numPassedTests} passed, ${numTotalTests} total\nSnapshots:   0 total\nTime:        ${testDurationStr}\n\`\`\``;
 reportContent = reportContent.replace(testSummaryBlockRegex, updatedTestSummaryBlock);
 
-// Section 2.2 Suite breakdown total row
+// Section 2.2 Suite breakdown per-suite counts and total row
+for (const tr of jestResults.testResults || []) {
+  const file = (tr.name || tr.testFilePath || '').split('/').pop();
+  const count = (tr.assertionResults || []).length;
+  const regex = new RegExp(`(\\| \`__tests__\\/${file}\` \\| )\\d+( \\|)`, 'g');
+  reportContent = reportContent.replace(regex, `$1${count}$2`);
+}
 reportContent = reportContent.replace(
   /\| \*\*Total\*\* \| \*\*\d+\*\* \| \*\*Complete Behavioral & Contract Verification\*\* \|/g,
   `| **Total** | **${numPassedTests}** | **Complete Behavioral & Contract Verification** |`

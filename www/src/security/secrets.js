@@ -10,6 +10,12 @@
     if (!target) return;
     target._nexusCoreSecrets = exports;
     target.NexusSecrets = exports;
+    if (typeof exports.queueSessionSecretsWrite === 'function') {
+      target.queueSessionSecretsWrite = exports.queueSessionSecretsWrite;
+      target.getSessionWriteState = exports.getSessionWriteState;
+      target.getSessionWriteRevision = exports.getSessionWriteRevision;
+      target.resetSessionWriteQueue = exports.resetSessionWriteQueue;
+    }
     const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
     target.NexusCore = Object.assign(
       target.NexusCore || {},
@@ -242,12 +248,74 @@
   let _sessionSeedRaw = null;
   let _cachedSessionSecrets = null;
 
+  // Sequential session secrets write queue & revision state
+  let sessionWriteQueue = Promise.resolve();
+  let writeRevision = 0;
+  let lastAppliedWriteRevision = 0;
+  let sessionWriteState = 'idle';
+  let activePendingCount = 0;
+
+  function getSessionWriteState() {
+    return sessionWriteState;
+  }
+
+  function getSessionWriteRevision() {
+    return writeRevision;
+  }
+
+  function resetSessionWriteQueue() {
+    sessionWriteQueue = Promise.resolve();
+    writeRevision = 0;
+    lastAppliedWriteRevision = 0;
+    sessionWriteState = 'idle';
+    activePendingCount = 0;
+  }
+
+  function queueSessionSecretsWrite(stateOrSecrets, storage) {
+    const targetRevision = ++writeRevision;
+    activePendingCount++;
+    sessionWriteState = 'pending';
+
+    const task = async () => {
+      sessionWriteState = 'pending';
+      try {
+        if (targetRevision < lastAppliedWriteRevision) {
+          activePendingCount = Math.max(0, activePendingCount - 1);
+          if (activePendingCount === 0 && sessionWriteState === 'pending') {
+            sessionWriteState = 'success';
+          }
+          return true;
+        }
+
+        const ok = await writeSessionSecretsAsync(stateOrSecrets, storage);
+        if (!ok) {
+          throw new Error('writeSessionSecretsAsync returned false');
+        }
+        lastAppliedWriteRevision = targetRevision;
+        activePendingCount = Math.max(0, activePendingCount - 1);
+        if (activePendingCount === 0) {
+          sessionWriteState = 'success';
+        }
+        return true;
+      } catch (err) {
+        activePendingCount = Math.max(0, activePendingCount - 1);
+        sessionWriteState = 'failed';
+        throw err;
+      }
+    };
+
+    const nextPromise = sessionWriteQueue.then(task, task);
+    sessionWriteQueue = nextPromise.catch(() => {});
+    return nextPromise;
+  }
+
   function _resetSessionCryptoState() {
     _sessionCryptoKey = null;
     _sessionCryptoKeyPromise = null;
     _sessionKeyRaw = null;
     _sessionSeedRaw = null;
     _cachedSessionSecrets = null;
+    resetSessionWriteQueue();
   }
 
   function _getStorage(storage) {
@@ -972,20 +1040,40 @@
       const jsonStr = JSON.stringify(secrets);
       const plainBytes = new TextEncoder().encode(jsonStr);
       const keyRaw = _initMemorySessionKey(store);
-      const syncCipherBytes = _nonCryptoCompatCodec(plainBytes, keyRaw, iv);
+
+      let hexCombined = null;
+      const nodeCrypto = _getNodeCrypto();
+      if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
+        try {
+          const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
+          const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
+          const tag = cipher.getAuthTag();
+          const combined = _concatUint8([enc, tag]);
+          hexCombined = _uint8ToHex(combined);
+        } catch (_) {}
+      }
 
       const targetKey = _resolveSecretsStorageKey(store);
-      store.setItem(targetKey, JSON.stringify({
-        encrypted: true,
-        algorithm: 'sync-stream-v1',
-        initialized: true,
-        iv: _uint8ToHex(iv),
-        ciphertext: _uint8ToHex(syncCipherBytes),
-        syncCiphertext: _uint8ToHex(syncCipherBytes),
-        version: SESSION_SECRETS_SCHEMA_VERSION
-      }));
+      if (hexCombined) {
+        store.setItem(targetKey, JSON.stringify({
+          encrypted: true,
+          algorithm: 'AES-GCM-256',
+          initialized: true,
+          iv: _uint8ToHex(iv),
+          ciphertext: hexCombined,
+          version: SESSION_SECRETS_SCHEMA_VERSION
+        }));
+        lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, writeRevision);
+      } else {
+        // Pure browser synchronous call fallback:
+        // Schedule sequential write queue so WebCrypto persists pure AES-GCM-256 without syncCiphertext
+        if (typeof queueSessionSecretsWrite === 'function') {
+          queueSessionSecretsWrite(secrets, store).catch(() => {});
+        } else if (typeof writeSessionSecretsAsync === 'function') {
+          writeSessionSecretsAsync(secrets, store).catch(() => {});
+        }
+      }
 
-      // NOTE: No background async overwrite to eliminate race conditions!
       return true;
     } catch (e) {
       return false;
@@ -1055,8 +1143,9 @@
         }
       }
 
-      const syncCipherBytes = _nonCryptoCompatCodec(plainBytes, keyRaw, iv);
-      const hexSync = _uint8ToHex(syncCipherBytes);
+      if (!hexCombined) {
+        return false;
+      }
 
       const targetKey = _resolveSecretsStorageKey(store);
       store.setItem(targetKey, JSON.stringify({
@@ -1064,8 +1153,7 @@
         algorithm: 'AES-GCM-256',
         initialized: true,
         iv: _uint8ToHex(iv),
-        ciphertext: hexCombined || hexSync,
-        syncCiphertext: hexSync,
+        ciphertext: hexCombined,
         version: SESSION_SECRETS_SCHEMA_VERSION
       }));
       return true;
@@ -1147,6 +1235,10 @@
     readSessionSecretsAsync,
     writeSessionSecrets,
     writeSessionSecretsAsync,
+    queueSessionSecretsWrite,
+    getSessionWriteState,
+    getSessionWriteRevision,
+    resetSessionWriteQueue,
     applySessionSecrets,
     applySessionSecretsAsync,
     _nonCryptoCompatCodec,

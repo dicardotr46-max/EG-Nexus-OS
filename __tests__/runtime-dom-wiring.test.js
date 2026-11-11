@@ -183,6 +183,10 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       expect(typeof win._nexusCoreSecrets.writeSessionSecrets).toBe('function');
       expect(typeof win._nexusCoreSecrets.readSessionSecretsAsync).toBe('function');
       expect(typeof win._nexusCoreSecrets.writeSessionSecretsAsync).toBe('function');
+      expect(typeof win._nexusCoreSecrets.queueSessionSecretsWrite).toBe('function');
+      expect(typeof win._nexusCoreSecrets.getSessionWriteState).toBe('function');
+      expect(typeof win._nexusCoreSecrets.getSessionWriteRevision).toBe('function');
+      expect(typeof win._nexusCoreSecrets.resetSessionWriteQueue).toBe('function');
       expect(typeof win._nexusCoreSecrets.applySessionSecrets).toBe('function');
       expect(typeof win._nexusCoreSecrets.isSafeConnectionId).toBe('function');
       expect(typeof win._nexusCoreSecrets._syncTransform).toBe('function');
@@ -198,6 +202,10 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       expect(typeof win._nexusCorePersistence.migrateLegacyStorage).toBe('function');
       expect(typeof win._nexusCorePersistence.buildPersistedState).toBe('function');
       expect(typeof win._nexusCorePersistence.sanitizeLoadedState).toBe('function');
+      expect(typeof win._nexusCorePersistence.queueSessionSecretsWrite).toBe('function');
+      expect(typeof win._nexusCorePersistence.getSessionWriteState).toBe('function');
+      expect(typeof win._nexusCorePersistence.getSessionWriteRevision).toBe('function');
+      expect(typeof win._nexusCorePersistence.resetSessionWriteQueue).toBe('function');
       expect(win._nexusCorePersistence.STORAGE_KEY).toBe('eg_nexus_os_v5_master_state');
       expect(win._nexusCorePersistence.LEGACY_STORAGE_KEY).toBe('eg_nexus_os_state_v5.1');
     });

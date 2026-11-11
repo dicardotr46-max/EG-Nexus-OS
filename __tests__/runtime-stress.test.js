@@ -543,4 +543,158 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
       expect(persisted.localComputerConfig.bridgeToken).toBe('');
     });
   });
+
+  // -------------------------------------------------------------
+  // Requirement 2e: v5.6 Sequential Write Queue Concurrency & Supply Chain Lockfile Integrity
+  // -------------------------------------------------------------
+  describe('Requirement 2e: v5.6 Sequential Write Queue Concurrency & Supply Chain Lockfile Integrity', () => {
+    let mockStorage;
+
+    beforeEach(() => {
+      mockStorage = createStorageMock();
+      if (typeof secretsModule._resetSessionCryptoState === 'function') {
+        secretsModule._resetSessionCryptoState();
+      }
+      if (typeof secretsModule.resetSessionWriteQueue === 'function') {
+        secretsModule.resetSessionWriteQueue();
+      }
+      if (typeof persistenceModule.resetSessionWriteQueue === 'function') {
+        persistenceModule.resetSessionWriteQueue();
+      }
+    });
+
+    afterEach(() => {
+      if (typeof secretsModule._resetSessionCryptoState === 'function') {
+        secretsModule._resetSessionCryptoState();
+      }
+      if (typeof secretsModule.resetSessionWriteQueue === 'function') {
+        secretsModule.resetSessionWriteQueue();
+      }
+      if (typeof persistenceModule.resetSessionWriteQueue === 'function') {
+        persistenceModule.resetSessionWriteQueue();
+      }
+    });
+
+    it('should synchronize rapid concurrent calls to queueSessionSecretsWrite(A, B, C) and preserve final stateC without race condition', async () => {
+      const stateA = {
+        apiKeys: { gemini: 'key_A_gemini' },
+        connectionTokens: { github: 'token_A_gh' },
+        bridgeToken: 'bridge_A'
+      };
+      const stateB = {
+        apiKeys: { gemini: 'key_B_gemini', openai: 'key_B_openai' },
+        connectionTokens: { github: 'token_B_gh', telegram: 'token_B_tg' },
+        bridgeToken: 'bridge_B'
+      };
+      const stateC = {
+        apiKeys: { gemini: 'key_C_gemini', openai: 'key_C_openai', anthropic: 'key_C_ant' },
+        connectionTokens: { github: 'token_C_gh', telegram: 'token_C_tg' },
+        bridgeToken: 'bridge_C_final'
+      };
+
+      // Concurrent invocation of queueSessionSecretsWrite without awaiting between them
+      const pA = secretsModule.queueSessionSecretsWrite(stateA, mockStorage);
+      const pB = secretsModule.queueSessionSecretsWrite(stateB, mockStorage);
+      const pC = secretsModule.queueSessionSecretsWrite(stateC, mockStorage);
+
+      expect(secretsModule.getSessionWriteState()).toBe('pending');
+
+      const results = await Promise.all([pA, pB, pC]);
+      expect(results).toEqual([true, true, true]);
+      expect(secretsModule.getSessionWriteState()).toBe('success');
+
+      // The final state stored in sessionStorage must strictly match stateC
+      secretsModule._resetSessionCryptoState();
+      const finalSecrets = await secretsModule.readSessionSecretsAsync(mockStorage);
+      expect(finalSecrets.initialized).toBe(true);
+      expect(finalSecrets.apiKeys.gemini).toBe('key_C_gemini');
+      expect(finalSecrets.apiKeys.openai).toBe('key_C_openai');
+      expect(finalSecrets.apiKeys.anthropic).toBe('key_C_ant');
+      expect(finalSecrets.connectionTokens.github).toBe('token_C_gh');
+      expect(finalSecrets.connectionTokens.telegram).toBe('token_C_tg');
+      expect(finalSecrets.bridgeToken).toBe('bridge_C_final');
+    });
+
+    it('should monotonically increment writeRevision counter across sequential and queued writes', async () => {
+      expect(secretsModule.getSessionWriteRevision()).toBe(0);
+
+      const p1 = secretsModule.queueSessionSecretsWrite({ apiKeys: { gemini: 'rev_1' } }, mockStorage);
+      expect(secretsModule.getSessionWriteRevision()).toBe(1);
+
+      const p2 = secretsModule.queueSessionSecretsWrite({ apiKeys: { gemini: 'rev_2' } }, mockStorage);
+      expect(secretsModule.getSessionWriteRevision()).toBe(2);
+
+      const p3 = secretsModule.queueSessionSecretsWrite({ apiKeys: { gemini: 'rev_3' } }, mockStorage);
+      expect(secretsModule.getSessionWriteRevision()).toBe(3);
+
+      await Promise.all([p1, p2, p3]);
+      expect(secretsModule.getSessionWriteRevision()).toBe(3);
+
+      const p4 = secretsModule.queueSessionSecretsWrite({ apiKeys: { gemini: 'rev_4' } }, mockStorage);
+      expect(secretsModule.getSessionWriteRevision()).toBe(4);
+      await p4;
+      expect(secretsModule.getSessionWriteRevision()).toBe(4);
+    });
+
+    it('should integrate queueSessionSecretsWrite via persistenceModule seamlessly', async () => {
+      expect(typeof persistenceModule.queueSessionSecretsWrite).toBe('function');
+      expect(typeof persistenceModule.getSessionWriteRevision).toBe('function');
+      expect(typeof persistenceModule.getSessionWriteState).toBe('function');
+
+      const state = { apiKeys: { grok: 'xai-persistence-queue-token' } };
+      const res = await persistenceModule.queueSessionSecretsWrite(state, mockStorage);
+      expect(res).toBe(true);
+
+      const restored = await secretsModule.readSessionSecretsAsync(mockStorage);
+      expect(restored.apiKeys.grok).toBe('xai-persistence-queue-token');
+    });
+
+    it('should validate 100% parity between package.json and package-lock.json and pass npm ci --dry-run cleanly', () => {
+      const packageJsonPath = path.join(__dirname, '..', 'package.json');
+      const packageLockPath = path.join(__dirname, '..', 'package-lock.json');
+
+      expect(fs.existsSync(packageJsonPath)).toBe(true);
+      expect(fs.existsSync(packageLockPath)).toBe(true);
+
+      const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      const lock = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
+
+      // Strict version parity
+      expect(pkg.version).toBe('5.6.0');
+      expect(lock.version).toBe('5.6.0');
+      expect(lock.packages[''].version).toBe('5.6.0');
+      expect(lock.lockfileVersion).toBe(3);
+
+      // Overrides verification (minimatch 11.0.8 resolution)
+      expect(pkg.overrides).toBeDefined();
+      expect(pkg.overrides.minimatch).toBe('11.0.8');
+      expect(lock.packages['node_modules/minimatch'].version).toBe('11.0.8');
+
+      // Execute npm ci --dry-run
+      const { execSync } = require('child_process');
+      const dryRunOutput = execSync('npm ci --dry-run', {
+        cwd: path.join(__dirname, '..'),
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      expect(dryRunOutput).toBeDefined();
+    });
+
+    it('should verify npm audit reports 0 vulnerabilities and lockfile is tamper-free', () => {
+      const { execSync } = require('child_process');
+      const auditRaw = execSync('npm audit --json', {
+        cwd: path.join(__dirname, '..'),
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      const auditData = JSON.parse(auditRaw);
+      const totalVulns = (auditData.metadata && auditData.metadata.vulnerabilities)
+        ? Object.values(auditData.metadata.vulnerabilities).reduce((a, b) => a + b, 0)
+        : 0;
+
+      expect(totalVulns).toBe(0);
+    });
+  });
 });

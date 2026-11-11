@@ -1022,6 +1022,26 @@ body > header,
     }
     window.writeSessionSecretsAsync = writeSessionSecretsAsync;
 
+    function queueSessionSecretsWrite(stateOrSecrets, storage) {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore || window._nexusCorePersistence || window.NexusPersistence)?.queueSessionSecretsWrite(stateOrSecrets, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
+    }
+    window.queueSessionSecretsWrite = queueSessionSecretsWrite;
+
+    function getSessionWriteState() {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore || window._nexusCorePersistence || window.NexusPersistence)?.getSessionWriteState();
+    }
+    window.getSessionWriteState = getSessionWriteState;
+
+    function getSessionWriteRevision() {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore || window._nexusCorePersistence || window.NexusPersistence)?.getSessionWriteRevision();
+    }
+    window.getSessionWriteRevision = getSessionWriteRevision;
+
+    function resetSessionWriteQueue() {
+      return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore || window._nexusCorePersistence || window.NexusPersistence)?.resetSessionWriteQueue();
+    }
+    window.resetSessionWriteQueue = resetSessionWriteQueue;
+
     function applySessionSecrets(state, storage) {
       return (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)?.applySessionSecrets(state, storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null));
     }
@@ -1529,11 +1549,15 @@ body > header,
           ? window.writeSessionSecrets
           : writeSessionSecrets;
         sessionSaveOk = writeFn(appState);
-        const writeAsyncFn = (typeof window !== 'undefined' && typeof window.writeSessionSecretsAsync === 'function')
-          ? window.writeSessionSecretsAsync
-          : writeSessionSecretsAsync;
-        if (typeof writeAsyncFn === 'function') {
-          writeAsyncFn(appState).catch(() => {});
+        const queueFn = (typeof window !== 'undefined' && typeof window.queueSessionSecretsWrite === 'function')
+          ? window.queueSessionSecretsWrite
+          : (typeof queueSessionSecretsWrite === 'function' ? queueSessionSecretsWrite : null);
+        if (typeof queueFn === 'function') {
+          queueFn(appState).catch((err) => {
+            const safeMsg = String(err && err.message ? err.message : err || 'Session secrets write error')
+              .replace(/AIza[0-9A-Za-z-_]{20,}|sk-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9]{20,}|bot[0-9]{6,}:[a-zA-Z0-9_-]{20,}/g, '[REDACTED]');
+            console.warn('[NexusSecrets] Sequential session secrets write failed:', safeMsg);
+          });
         }
       } catch (_) { sessionSaveOk = false; }
       if (!sessionSaveOk) {
@@ -5068,7 +5092,9 @@ body > header,
         if (!appState.addedAppIds.includes(appId)) {
           appState.addedAppIds.push(appId);
         }
-        const secrets = readSessionSecrets();
+        const secrets = (typeof readSessionSecretsAsync === 'function')
+          ? await readSessionSecretsAsync()
+          : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
         if (secrets) {
           if (!secrets.connectionTokens) secrets.connectionTokens = {};
           if (!secrets.accountTokens) secrets.accountTokens = {};
@@ -5076,7 +5102,13 @@ body > header,
           // Namespace session token per app and account ID so multi-account tokens are preserved (Fixes Reviewer #7)
           secrets.accountTokens[`${appId}_${account.id}`] = accessToken;
           secrets.accountTokens[account.id] = accessToken;
-          writeSessionSecrets(secrets);
+          if (typeof queueSessionSecretsWrite === 'function') {
+            await queueSessionSecretsWrite(secrets);
+          } else if (typeof writeSessionSecretsAsync === 'function') {
+            await writeSessionSecretsAsync(secrets);
+          } else if (typeof writeSessionSecrets === 'function') {
+            writeSessionSecrets(secrets);
+          }
         }
         syncAddedAppIds();
         saveState();
@@ -9478,14 +9510,22 @@ body > header,
         appState.addedAppIds.push(appId);
       }
 
-      const secrets = readSessionSecrets();
+      const secrets = (typeof readSessionSecretsAsync === 'function')
+        ? await readSessionSecretsAsync()
+        : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
       if (secrets) {
         if (!secrets.connectionTokens) secrets.connectionTokens = {};
         if (!secrets.accountTokens) secrets.accountTokens = {};
         secrets.connectionTokens[appId] = token;
         secrets.accountTokens[`${appId}_${account.id}`] = token;
         secrets.accountTokens[account.id] = token;
-        writeSessionSecrets(secrets);
+        if (typeof queueSessionSecretsWrite === 'function') {
+          await queueSessionSecretsWrite(secrets);
+        } else if (typeof writeSessionSecretsAsync === 'function') {
+          await writeSessionSecretsAsync(secrets);
+        } else if (typeof writeSessionSecrets === 'function') {
+          writeSessionSecrets(secrets);
+        }
       }
 
       saveState();
@@ -9521,7 +9561,7 @@ body > header,
         client.requestAccessToken({ prompt: 'select_account' });
       }
     }
-    function selectGoogleAccount(index) {
+    async function selectGoogleAccount(index) {
       const appId = pendingProviderConnection?.appId || 'gmail';
       const accounts = getConnectionAccounts(appId);
       const acc = accounts[index];
@@ -9530,14 +9570,22 @@ body > header,
         appState.appConnections[appId].selectedAccountId = acc.id;
         if (acc.token) {
           appState.appConnections[appId].token = acc.token;
-          const secrets = readSessionSecrets();
+          const secrets = (typeof readSessionSecretsAsync === 'function')
+            ? await readSessionSecretsAsync()
+            : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
           if (secrets) {
             if (!secrets.connectionTokens) secrets.connectionTokens = {};
             if (!secrets.accountTokens) secrets.accountTokens = {};
             secrets.connectionTokens[appId] = acc.token;
             secrets.accountTokens[`${appId}_${acc.id}`] = acc.token;
             secrets.accountTokens[acc.id] = acc.token;
-            writeSessionSecrets(secrets);
+            if (typeof queueSessionSecretsWrite === 'function') {
+              await queueSessionSecretsWrite(secrets);
+            } else if (typeof writeSessionSecretsAsync === 'function') {
+              await writeSessionSecretsAsync(secrets);
+            } else if (typeof writeSessionSecrets === 'function') {
+              writeSessionSecrets(secrets);
+            }
           }
         }
         saveState();
@@ -9552,7 +9600,7 @@ body > header,
     function setGoogleIdentityStatus(message, kind = 'info') { const el = document.getElementById('googleIdentityStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function continueGoogleManualAccount(appId) { const targetAppId = appId || pendingProviderConnection?.appId || 'gmail'; openGoogleAccountChooser(targetAppId); }
     function showGoogleConsentStep(account, token = '') { const appId = (pendingProviderConnection?.appId || window.pendingProviderConnection?.appId || 'gmail'); const permissions = appId === 'gcal' ? ['View and edit calendar events', 'Create events from Nexus'] : appId === 'gmail' ? ['Read inbox metadata', 'Compose and send email'] : ['Access Google Workspace context']; setPendingProviderConnection({ ...(pendingProviderConnection || window.pendingProviderConnection || {}), appId, account, token }); renderIntegrationModal('Google · Permissions', `<div class="space-y-3" dir="ltr"><div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">${escapeHtml(account.avatar || 'G')}</span><div><div class="text-sm font-bold text-white">${escapeHtml(account.name)}</div><div class="text-xs text-slate-400">${escapeHtml(account.email)}</div></div></div><div class="rounded-2xl bg-white/5 border border-white/10 p-3"><div class="text-xs font-bold text-white mb-2">EG Nexus OS is requesting:</div>${permissions.map(p => `<div class="text-xs text-slate-300 py-1">✓ ${escapeHtml(p)}</div>`).join('')}</div><div class="grid grid-cols-2 gap-2"><button onclick="openGoogleAccountChooser('${escapeJsAttr(appId)}')" class="min-h-0 py-2.5 rounded-xl bg-white/5 text-slate-200 text-xs">Cancel</button><button onclick="allowGoogleConnection()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold">Allow / Continue</button></div></div>`); }
-    function allowGoogleConnection() {
+    async function allowGoogleConnection() {
       const pending = (pendingProviderConnection || window.pendingProviderConnection);
       if (!pending?.account?.email) return;
       const appId = pending.appId;
@@ -9569,7 +9617,9 @@ body > header,
         token: targetToken
       };
       if (targetToken) {
-        const secrets = readSessionSecrets();
+        const secrets = (typeof readSessionSecretsAsync === 'function')
+          ? await readSessionSecretsAsync()
+          : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
         if (secrets) {
           if (!secrets.connectionTokens) secrets.connectionTokens = {};
           if (!secrets.accountTokens) secrets.accountTokens = {};
@@ -9578,7 +9628,13 @@ body > header,
             secrets.accountTokens[`${appId}_${pending.account.id}`] = targetToken;
             secrets.accountTokens[pending.account.id] = targetToken;
           }
-          writeSessionSecrets(secrets);
+          if (typeof queueSessionSecretsWrite === 'function') {
+            await queueSessionSecretsWrite(secrets);
+          } else if (typeof writeSessionSecretsAsync === 'function') {
+            await writeSessionSecretsAsync(secrets);
+          } else if (typeof writeSessionSecrets === 'function') {
+            writeSessionSecrets(secrets);
+          }
         }
       }
       setPendingProviderConnection(null);
@@ -11466,7 +11522,7 @@ body > header,
     }
     function connectAppAccountPrompt(appId) { openProviderConnectSheet(appId); }
     function removeAppAccount(appId, idx) {
-      openNexusDialog({ title: 'Disconnect account', message: 'Disconnect this account from the app?', confirmText: 'Disconnect', isDanger: true, onConfirm: () => {
+      openNexusDialog({ title: 'Disconnect account', message: 'Disconnect this account from the app?', confirmText: 'Disconnect', isDanger: true, onConfirm: async () => {
         const conn = appState.appConnections[appId] || {};
         const accounts = getConnectionAccounts(appId);
         const removedAccount = accounts[idx];
@@ -11477,10 +11533,18 @@ body > header,
         }
         if (!accounts.length) {
           conn.selectedAccountId = '';
-          const sec = readSessionSecrets();
+          const sec = (typeof readSessionSecretsAsync === 'function')
+            ? await readSessionSecretsAsync()
+            : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
           if (sec && sec.connectionTokens && sec.connectionTokens[appId]) {
             delete sec.connectionTokens[appId];
-            writeSessionSecrets(sec);
+            if (typeof queueSessionSecretsWrite === 'function') {
+              await queueSessionSecretsWrite(sec);
+            } else if (typeof writeSessionSecretsAsync === 'function') {
+              await writeSessionSecretsAsync(sec);
+            } else if (typeof writeSessionSecrets === 'function') {
+              writeSessionSecrets(sec);
+            }
           }
           if (conn.token) conn.token = '';
         }
@@ -11495,6 +11559,13 @@ body > header,
     function getGitHubToken() {
       return String(readSessionSecrets()?.connectionTokens?.github || getGitHubConnection().token || '').trim();
     }
+    async function getGitHubTokenAsync() {
+      const sec = (typeof readSessionSecretsAsync === 'function')
+        ? await readSessionSecretsAsync()
+        : readSessionSecrets();
+      return String(sec?.connectionTokens?.github || getGitHubConnection().token || '').trim();
+    }
+    window.getGitHubTokenAsync = getGitHubTokenAsync;
     function githubApiHeaders() {
       const token = getGitHubToken();
       return { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -11715,8 +11786,23 @@ body > header,
         connectedAt: new Date().toISOString()
       };
 
-      if (typeof secrets !== 'undefined' && secrets.connectionTokens) {
-        secrets.connectionTokens.github = token;
+      if (token) {
+        try {
+          const sec = (typeof readSessionSecretsAsync === 'function')
+            ? await readSessionSecretsAsync()
+            : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
+          if (sec) {
+            if (!sec.connectionTokens) sec.connectionTokens = {};
+            sec.connectionTokens.github = token;
+            if (typeof queueSessionSecretsWrite === 'function') {
+              await queueSessionSecretsWrite(sec);
+            } else if (typeof writeSessionSecretsAsync === 'function') {
+              await writeSessionSecretsAsync(sec);
+            } else if (typeof writeSessionSecrets === 'function') {
+              writeSessionSecrets(sec);
+            }
+          }
+        } catch (_) {}
       }
 
       syncAddedAppIds();
@@ -11764,8 +11850,23 @@ body > header,
         }
 
         appState.appConnections.github = { ...getGitHubConnection(), owner, repo, token: token || '', accounts, mcpEnabled: false, connectedAt: new Date().toISOString() };
-        if (token && typeof secrets !== 'undefined' && secrets.connectionTokens) {
-          secrets.connectionTokens.github = token;
+        if (token) {
+          try {
+            const sec = (typeof readSessionSecretsAsync === 'function')
+              ? await readSessionSecretsAsync()
+              : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
+            if (sec) {
+              if (!sec.connectionTokens) sec.connectionTokens = {};
+              sec.connectionTokens.github = token;
+              if (typeof queueSessionSecretsWrite === 'function') {
+                await queueSessionSecretsWrite(sec);
+              } else if (typeof writeSessionSecretsAsync === 'function') {
+                await writeSessionSecretsAsync(sec);
+              } else if (typeof writeSessionSecrets === 'function') {
+                writeSessionSecrets(sec);
+              }
+            }
+          } catch (_) {}
         }
         syncAddedAppIds();
         if (!saveState()) throw new Error('مخزن تأیید شد اما در ذخیره محلی مشکلی پیش آمد.');
@@ -11858,7 +11959,7 @@ body > header,
       `;
       modal.classList.remove('hidden');
     }
-    function saveAppConnection(appId) {
+    async function saveAppConnection(appId) {
       const token = document.getElementById('appTokenInput')?.value.trim() || '';
       const mcpToggle = document.getElementById('appMcpToggle')?.checked || false;
       if (!token && !mcpToggle) {
@@ -11871,14 +11972,61 @@ body > header,
         mcpEnabled: mcpToggle,
         connectedAt: new Date().toISOString()
       };
+      if (token) {
+        try {
+          const sec = (typeof readSessionSecretsAsync === 'function')
+            ? await readSessionSecretsAsync()
+            : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
+          if (sec) {
+            if (!sec.connectionTokens) sec.connectionTokens = {};
+            sec.connectionTokens[appId] = token;
+            if (typeof queueSessionSecretsWrite === 'function') {
+              await queueSessionSecretsWrite(sec);
+            } else if (typeof writeSessionSecretsAsync === 'function') {
+              await writeSessionSecretsAsync(sec);
+            } else if (typeof writeSessionSecrets === 'function') {
+              writeSessionSecrets(sec);
+            }
+          }
+        } catch (_) {}
+      }
       syncAddedAppIds();
       if (!saveState()) return false;
       closeSettingsPanel();
       openAppDetailView(appId);
       showToast('اطلاعات اتصال برای نشست فعلی ذخیره شد؛ احراز هویت سرویس هنوز تأیید نشده');
     }
-    function disconnectApp(appId) {
+    async function disconnectApp(appId) {
       delete appState.appConnections[appId];
+      try {
+        const sec = (typeof readSessionSecretsAsync === 'function')
+          ? await readSessionSecretsAsync()
+          : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
+        if (sec) {
+          let modified = false;
+          if (sec.connectionTokens && sec.connectionTokens[appId]) {
+            delete sec.connectionTokens[appId];
+            modified = true;
+          }
+          if (sec.accountTokens) {
+            Object.keys(sec.accountTokens).forEach(k => {
+              if (k.startsWith(`${appId}_`)) {
+                delete sec.accountTokens[k];
+                modified = true;
+              }
+            });
+          }
+          if (modified) {
+            if (typeof queueSessionSecretsWrite === 'function') {
+              await queueSessionSecretsWrite(sec);
+            } else if (typeof writeSessionSecretsAsync === 'function') {
+              await writeSessionSecretsAsync(sec);
+            } else if (typeof writeSessionSecrets === 'function') {
+              writeSessionSecrets(sec);
+            }
+          }
+        }
+      } catch (_) {}
       syncAddedAppIds();
       if (!saveState()) return false;
       closeSettingsPanel();
@@ -12442,13 +12590,18 @@ body > header,
       document.getElementById('settingsSubTitle').innerText = panel.toUpperCase();
       content.innerHTML = `<div class="text-xs text-slate-300 leading-relaxed" dir="rtl">این پنل در هسته فاز ۱ آماده شده است و با قرار دادن کدهای فازهای بعدی در انتهای اسکریپت، امکانات کامل ابری و تلگرام آن نیز فعال می‌شود.</div>`;
     }
-    function saveAllApiKeys() {
+    async function saveAllApiKeys() {
       appState.apiKeys.gemini = document.getElementById('keyGemini')?.value.trim() || '';
       appState.apiKeys.deepseek = document.getElementById('keyDeepseek')?.value.trim() || '';
       appState.apiKeys.kimi = document.getElementById('keyKimi')?.value.trim() || '';
       appState.apiKeys.grok = document.getElementById('keyGrok')?.value.trim() || '';
       appState.apiKeys.openrouter = document.getElementById('keyOpenrouter')?.value.trim() || '';
       appState.apiKeys.tavily = document.getElementById('keyTavily')?.value.trim() || '';
+      if (typeof queueSessionSecretsWrite === 'function') {
+        await queueSessionSecretsWrite(appState).catch(() => {});
+      } else if (typeof writeSessionSecretsAsync === 'function') {
+        await writeSessionSecretsAsync(appState).catch(() => {});
+      }
       if (!saveState()) return false;
       closeSettingsPanel();
       showToast('کلیدهای API فقط برای نشست فعلی ذخیره شدند ✓');
@@ -20443,6 +20596,20 @@ function installPhase4SecretPersistenceBoundary() {
     if (!writePhase4SessionSecrets(state)) return false;
     return priorSessionWrite.call(this, state, ...args);
   };
+  const priorWriteAsync = window.writeSessionSecretsAsync;
+  if (typeof priorWriteAsync === 'function') {
+    window.writeSessionSecretsAsync = async function phase4WriteSessionSecretsAsync(state, ...args) {
+      if (!writePhase4SessionSecrets(state)) return false;
+      return priorWriteAsync.call(this, state, ...args);
+    };
+  }
+  const priorQueueWrite = window.queueSessionSecretsWrite;
+  if (typeof priorQueueWrite === 'function') {
+    window.queueSessionSecretsWrite = async function phase4QueueSessionSecretsWrite(state, ...args) {
+      writePhase4SessionSecrets(state);
+      return priorQueueWrite.call(this, state, ...args);
+    };
+  }
   // Empty saved values intentionally override old disk credentials too.
   applyPhase4SessionSecrets();
 }
@@ -21553,6 +21720,24 @@ function startTelegramPollingBridge() {
   pollTelegramUpdatesOnce();
   telegramPollInterval = setInterval(pollTelegramUpdatesOnce, 6000);
 }
+
+async function saveTelegramConfigAndStart() {
+  const tInp = document.getElementById('tgBotTokenInp');
+  const cInp = document.getElementById('tgChatIdInp');
+  const uInp = document.getElementById('tgOwnerUserIdInp');
+  if (tInp) appState.telegramConfig.botToken = sanitizeTelegramBotToken(tInp.value);
+  if (cInp) appState.telegramConfig.chatId = normalizePhase4Digits(cInp.value).trim();
+  if (uInp) appState.telegramConfig.ownerUserId = normalizePhase4Digits(uInp.value).trim();
+  if (typeof queueSessionSecretsWrite === 'function') {
+    await queueSessionSecretsWrite(appState).catch(() => {});
+  } else if (typeof writeSessionSecretsAsync === 'function') {
+    await writeSessionSecretsAsync(appState).catch(() => {});
+  }
+  startTelegramPollingBridge();
+  openSettingsPanel('phone');
+  showToast('پل دوطرفه امن تلگرام فعال شد ✈️');
+}
+window.saveTelegramConfigAndStart = saveTelegramConfigAndStart;
 
 
 
@@ -23106,6 +23291,11 @@ async function restoreStateFromSupabase() {
 
     ensurePhase4State();
     appState.cloudConfig.lastSyncAt = `${formatTehranTimeLabel()} (بازیابی Supabase)`;
+    if (typeof queueSessionSecretsWrite === 'function') {
+      await queueSessionSecretsWrite(appState).catch(() => {});
+    } else if (typeof writeSessionSecretsAsync === 'function') {
+      await writeSessionSecretsAsync(appState).catch(() => {});
+    }
     const saveOk = saveState();
     if (saveOk !== true) {
       showToast('⚠️ داده‌ها بازیابی شدند ولی در حافظه محلی ذخیره نشدند (محدودیت فضای مرورگر)');
@@ -23149,6 +23339,11 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
 
 
   const { workerUrl, workerSecret, supabaseUrl, supabaseKey } = appState.cloudConfig;
+  if (typeof queueSessionSecretsWrite === 'function') {
+    await queueSessionSecretsWrite(appState).catch(() => {});
+  } else if (typeof writeSessionSecretsAsync === 'function') {
+    await writeSessionSecretsAsync(appState).catch(() => {});
+  }
   saveState();
   renderPhase4SettingsRowBadges();
 
@@ -25506,7 +25701,7 @@ function ensurePhase4SettingsPanelHookAlive() {
               <input type="checkbox" ${appState.telegramConfig.autoForwardAgentReplies ? 'checked' : ''} onchange="appState.telegramConfig.autoForwardAgentReplies=this.checked;saveState()" class="accent-sky-500 w-4 h-4" />
             </label>
             <div class="flex gap-2 pt-1">
-              <button onclick="appState.telegramConfig.botToken=sanitizeTelegramBotToken(document.getElementById('tgBotTokenInp').value);appState.telegramConfig.chatId=normalizePhase4Digits(document.getElementById('tgChatIdInp').value).trim();appState.telegramConfig.ownerUserId=normalizePhase4Digits(document.getElementById('tgOwnerUserIdInp').value).trim();startTelegramPollingBridge();openSettingsPanel('phone');showToast('پل دوطرفه امن تلگرام فعال شد ✈️')" class="flex-1 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold">🚀 ذخیره و شروع دریافت از تلگرام</button>
+              <button onclick="saveTelegramConfigAndStart()" class="flex-1 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold">🚀 ذخیره و شروع دریافت از تلگرام</button>
               ${stopTgBtnHtml}
             </div>
           </div>

@@ -391,4 +391,121 @@ describe('Secrets Real Reload Test Suite (Simulated Page Reload)', () => {
     const decryptedBytes = secretsC2._syncTransform(encryptedBytes, key2, iv);
     expect(new TextDecoder().decode(decryptedBytes)).toBe('Test Reload NonCrypto Data 123');
   });
+
+  describe('v5.6 Strict AES-GCM-256 Storage Verification without syncCiphertext', () => {
+    test('writeSessionSecrets and writeSessionSecretsAsync store algorithm: AES-GCM-256 and syncCiphertext is strictly undefined', async () => {
+      const secrets = require('../src/security/secrets.js');
+
+      // 1. Synchronous writeSessionSecrets test
+      const syncData = {
+        apiKeys: { gemini: 'AIzaSy-StrictAesGcmSync-111' },
+        connectionTokens: { github: 'ghp_StrictSyncToken' },
+        bridgeToken: 'bridge-sync-pure'
+      };
+      const syncOk = secrets.writeSessionSecrets(syncData, sharedSessionStorage);
+      expect(syncOk).toBe(true);
+
+      const syncRaw = sharedSessionStorage.getItem(secrets.SESSION_SECRETS_KEY);
+      expect(syncRaw).toBeTruthy();
+      const syncPayload = JSON.parse(syncRaw);
+
+      expect(syncPayload.encrypted).toBe(true);
+      expect(syncPayload.algorithm).toBe('AES-GCM-256');
+      expect(syncPayload.iv).toBeDefined();
+      expect(syncPayload.ciphertext).toBeDefined();
+      expect(syncPayload.syncCiphertext).toBeUndefined();
+      expect('syncCiphertext' in syncPayload).toBe(false);
+
+      // 2. Asynchronous writeSessionSecretsAsync test
+      const asyncData = {
+        apiKeys: { openai: 'sk-proj-StrictAesGcmAsync-222' },
+        connectionTokens: { telegram: 'bot123456:StrictAsyncToken' },
+        bridgeToken: 'bridge-async-pure'
+      };
+      const asyncOk = await secrets.writeSessionSecretsAsync(asyncData, sharedSessionStorage);
+      expect(asyncOk).toBe(true);
+
+      const asyncRaw = sharedSessionStorage.getItem(secrets.SESSION_SECRETS_KEY);
+      expect(asyncRaw).toBeTruthy();
+      const asyncPayload = JSON.parse(asyncRaw);
+
+      expect(asyncPayload.encrypted).toBe(true);
+      expect(asyncPayload.algorithm).toBe('AES-GCM-256');
+      expect(asyncPayload.iv).toBeDefined();
+      expect(asyncPayload.ciphertext).toBeDefined();
+      expect(asyncPayload.syncCiphertext).toBeUndefined();
+      expect('syncCiphertext' in asyncPayload).toBe(false);
+    });
+
+    test('RAM wipe recovery of pure AES-GCM-256 payload across isolated contexts via both read methods', async () => {
+      const secretsC1 = require('../src/security/secrets.js');
+      const testSecrets = {
+        apiKeys: {
+          gemini: 'AIzaSyPureNoSyncCiphertext-Gemini',
+          anthropic: 'sk-ant-pure-no-sync'
+        },
+        connectionTokens: {
+          github: 'ghp_PureNoSyncPat'
+        },
+        accountTokens: {
+          gmail_primary: 'ya29.pure_no_sync_oauth'
+        },
+        bridgeToken: 'pure-bridge-no-sync-token'
+      };
+
+      await secretsC1.writeSessionSecretsAsync(testSecrets, sharedSessionStorage);
+      const raw = sharedSessionStorage.getItem(secretsC1.SESSION_SECRETS_KEY);
+      const parsed = JSON.parse(raw);
+      expect(parsed.algorithm).toBe('AES-GCM-256');
+      expect(parsed.syncCiphertext).toBeUndefined();
+
+      // Wipe RAM
+      jest.resetModules();
+
+      // Context 2: Synchronous read
+      const secretsC2 = require('../src/security/secrets.js');
+      const recoveredSync = secretsC2.readSessionSecrets(sharedSessionStorage);
+      expect(recoveredSync.initialized).toBe(true);
+      expect(recoveredSync.apiKeys.gemini).toBe(testSecrets.apiKeys.gemini);
+      expect(recoveredSync.connectionTokens.github).toBe(testSecrets.connectionTokens.github);
+      expect(recoveredSync.accountTokens.gmail_primary).toBe(testSecrets.accountTokens.gmail_primary);
+      expect(recoveredSync.bridgeToken).toBe(testSecrets.bridgeToken);
+
+      // Wipe RAM
+      jest.resetModules();
+
+      // Context 3: Asynchronous read
+      const secretsC3 = require('../src/security/secrets.js');
+      const recoveredAsync = await secretsC3.readSessionSecretsAsync(sharedSessionStorage);
+      expect(recoveredAsync.initialized).toBe(true);
+      expect(recoveredAsync.apiKeys.gemini).toBe(testSecrets.apiKeys.gemini);
+      expect(recoveredAsync.connectionTokens.github).toBe(testSecrets.connectionTokens.github);
+      expect(recoveredAsync.accountTokens.gmail_primary).toBe(testSecrets.accountTokens.gmail_primary);
+      expect(recoveredAsync.bridgeToken).toBe(testSecrets.bridgeToken);
+    });
+
+    test('applySessionSecretsAsync correctly rehydrates fresh state from pure AES-GCM-256 storage', async () => {
+      const secretsC1 = require('../src/security/secrets.js');
+      await secretsC1.writeSessionSecretsAsync({
+        apiKeys: { tavily: 'tvly-pure-session-token' },
+        connectionTokens: { telegram: 'bot987654:pure-telegram-token' },
+        bridgeToken: 'pure-bridge-hydrate'
+      }, sharedSessionStorage);
+
+      // Wipe RAM
+      jest.resetModules();
+
+      const secretsC2 = require('../src/security/secrets.js');
+      const emptyState = {
+        apiKeys: secretsC2.emptyApiKeys(),
+        appConnections: { telegram: { accounts: [], mcpEnabled: false } },
+        localComputerConfig: {}
+      };
+
+      const hydrated = await secretsC2.applySessionSecretsAsync(emptyState, sharedSessionStorage);
+      expect(hydrated.apiKeys.tavily).toBe('tvly-pure-session-token');
+      expect(hydrated.appConnections.telegram.token).toBe('bot987654:pure-telegram-token');
+      expect(hydrated.localComputerConfig.bridgeToken).toBe('pure-bridge-hydrate');
+    });
+  });
 });

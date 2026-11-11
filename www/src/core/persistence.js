@@ -14,6 +14,12 @@
     Object.assign(target, exports);
     target._nexusCorePersistence = exports;
     target.NexusPersistence = exports;
+    if (typeof exports.queueSessionSecretsWrite === 'function') {
+      target.queueSessionSecretsWrite = target.queueSessionSecretsWrite || exports.queueSessionSecretsWrite;
+      target.getSessionWriteState = target.getSessionWriteState || exports.getSessionWriteState;
+      target.getSessionWriteRevision = target.getSessionWriteRevision || exports.getSessionWriteRevision;
+      target.resetSessionWriteQueue = target.resetSessionWriteQueue || exports.resetSessionWriteQueue;
+    }
     const STORAGE_KEYS = exports.STORAGE_KEYS || (target.NexusCore && target.NexusCore.STORAGE_KEYS) || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
     target.NexusCore = Object.assign(
       target.NexusCore || {},
@@ -856,6 +862,67 @@
     };
   }
 
+  function _getSecretsModule() {
+    if (typeof globalThis !== 'undefined' && globalThis._nexusCoreSecrets) return globalThis._nexusCoreSecrets;
+    if (typeof window !== 'undefined' && window._nexusCoreSecrets) return window._nexusCoreSecrets;
+    if (typeof globalThis !== 'undefined' && globalThis.NexusSecrets) return globalThis.NexusSecrets;
+    if (typeof window !== 'undefined' && window.NexusSecrets) return window.NexusSecrets;
+    if (typeof require === 'function') {
+      try {
+        return require('../security/secrets.js');
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  let _localWriteQueue = Promise.resolve();
+  let _localWriteRevision = 0;
+  let _localWriteState = 'idle';
+
+  function queueSessionSecretsWrite(state, storage) {
+    const sec = _getSecretsModule();
+    if (sec && typeof sec.queueSessionSecretsWrite === 'function') {
+      return sec.queueSessionSecretsWrite(state, storage);
+    }
+    _localWriteRevision++;
+    _localWriteState = 'pending';
+    const p = _localWriteQueue.then(() => {
+      _localWriteState = 'success';
+      return true;
+    }).catch(err => {
+      _localWriteState = 'failed';
+      throw err;
+    });
+    _localWriteQueue = p.catch(() => {});
+    return p;
+  }
+
+  function getSessionWriteState() {
+    const sec = _getSecretsModule();
+    if (sec && typeof sec.getSessionWriteState === 'function') {
+      return sec.getSessionWriteState();
+    }
+    return _localWriteState;
+  }
+
+  function getSessionWriteRevision() {
+    const sec = _getSecretsModule();
+    if (sec && typeof sec.getSessionWriteRevision === 'function') {
+      return sec.getSessionWriteRevision();
+    }
+    return _localWriteRevision;
+  }
+
+  function resetSessionWriteQueue() {
+    const sec = _getSecretsModule();
+    if (sec && typeof sec.resetSessionWriteQueue === 'function') {
+      return sec.resetSessionWriteQueue();
+    }
+    _localWriteQueue = Promise.resolve();
+    _localWriteRevision = 0;
+    _localWriteState = 'idle';
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -881,6 +948,10 @@
     recordConflictEvent,
     getConflictHistory,
     clearConflictHistory,
-    onConflict
+    onConflict,
+    queueSessionSecretsWrite,
+    getSessionWriteState,
+    getSessionWriteRevision,
+    resetSessionWriteQueue
   };
 });

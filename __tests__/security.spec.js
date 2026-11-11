@@ -389,7 +389,8 @@ describe('Security & Secrets Management', () => {
       const raw = sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY);
       const parsed = JSON.parse(raw);
       expect(parsed.encrypted).toBe(true);
-      expect(parsed.algorithm).toBe('sync-stream-v1');
+      expect(parsed.algorithm).toBe('AES-GCM-256');
+      expect(parsed.syncCiphertext).toBeUndefined();
 
       // Simulate complete page reload: wipe memory state
       NexusSecrets._resetSessionCryptoState();
@@ -415,7 +416,8 @@ describe('Security & Secrets Management', () => {
 
       const raw = sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY);
       const parsed = JSON.parse(raw);
-      expect(parsed.algorithm).toBe('sync-stream-v1');
+      expect(parsed.algorithm).toBe('AES-GCM-256');
+      expect(parsed.syncCiphertext).toBeUndefined();
     });
 
     it('should write AES-GCM-256 via writeSessionSecretsAsync and read back synchronously in Node via decipheriv', async () => {
