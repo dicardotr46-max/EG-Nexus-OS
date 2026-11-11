@@ -81,7 +81,13 @@ beforeEach(() => {
       expect(mockCache.addAll).toHaveBeenCalledWith([
         './',
         './index.html',
-        './manifest.json'
+        './manifest.json',
+        './src/core/sanitization.js',
+        './src/security/secrets.js',
+        './src/security/approvals.js',
+        './src/core/state.js',
+        './src/core/persistence.js',
+        './src/providers/registry.js'
       ]);
       expect(mockSelf.skipWaiting).toHaveBeenCalled();
     });

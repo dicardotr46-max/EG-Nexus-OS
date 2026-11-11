@@ -41,7 +41,7 @@ describe('Security & Secrets Management', () => {
       _cachedSessionSecrets: null
     });
 
-    ['_initMemorySessionKey', '_uint8ToHex', '_hexToUint8', '_syncTransform', '_getOrCreateWebCryptoKey'].forEach(fnName => {
+    ['_sha256Pure', '_sha256', '_getStorage', '_resolveSecretsStorageKey', '_normalizeSecretsPayload', '_quarantineCorruptedPayload', '_initMemorySessionKey', '_uint8ToHex', '_hexToUint8', '_syncTransform', '_getOrCreateWebCryptoKey'].forEach(fnName => {
       const fnCode = extractFunction(fnName);
       if (fnCode) vm.runInContext(fnCode, context);
     });
@@ -331,6 +331,186 @@ describe('Security & Secrets Management', () => {
       const personal = accounts.find(a => a.id === 'user_personal');
       expect(personal.token).toBe('token_personal_gmail_scope');
       expect(personal.email).toBe('personal@gmail.com');
+    });
+  });
+
+  describe('Deterministic Session Key Recovery & Symmetric AES-GCM-256 (src/security/secrets.js)', () => {
+    const NexusSecrets = require('../src/security/secrets.js');
+    let sharedMock;
+
+    beforeEach(() => {
+      sharedMock = createStorageMock();
+      NexusSecrets._resetSessionCryptoState();
+    });
+
+    it('should derive deterministic 32-byte key from nexus_session_key_seed_v1', () => {
+      // First call generates seed
+      const key1 = NexusSecrets._initMemorySessionKey(sharedMock);
+      expect(key1).toBeInstanceOf(Uint8Array);
+      expect(key1.length).toBe(32);
+
+      const storedSeed = sharedMock.getItem('nexus_session_key_seed_v1');
+      expect(storedSeed).toMatch(/^[0-9a-fA-F]{64}$/);
+
+      // Reset in-memory cache to simulate page reload
+      NexusSecrets._resetSessionCryptoState();
+
+      // Second call recovers the exact same key from stored seed
+      const key2 = NexusSecrets._initMemorySessionKey(sharedMock);
+      expect(Array.from(key2)).toEqual(Array.from(key1));
+    });
+
+    it('should restore 100% of sync-encrypted secrets across simulated reload/RAM wipe', () => {
+      const payload = {
+        apiKeys: {
+          gemini: 'AIzaSy-ReloadPersisted-GeminiKey',
+          deepseek: 'sk-dsk-ReloadPersisted-Deepseek'
+        },
+        connectionTokens: {
+          github: 'ghp_ReloadPersistedGithubToken'
+        },
+        accountTokens: {
+          gmail_work: 'ya29.ReloadPersistedWorkToken'
+        },
+        bridgeToken: 'nexus-bridge-reload-token'
+      };
+
+      const ok = NexusSecrets.writeSessionSecrets(payload, sharedMock);
+      expect(ok).toBe(true);
+
+      const raw = sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY);
+      const parsed = JSON.parse(raw);
+      expect(parsed.encrypted).toBe(true);
+      expect(parsed.algorithm).toBe('sync-stream-v1');
+
+      // Simulate complete page reload: wipe memory state
+      NexusSecrets._resetSessionCryptoState();
+
+      const recovered = NexusSecrets.readSessionSecrets(sharedMock);
+      expect(recovered.initialized).toBe(true);
+      expect(recovered.apiKeys.gemini).toBe('AIzaSy-ReloadPersisted-GeminiKey');
+      expect(recovered.apiKeys.deepseek).toBe('sk-dsk-ReloadPersisted-Deepseek');
+      expect(recovered.connectionTokens.github).toBe('ghp_ReloadPersistedGithubToken');
+      expect(recovered.accountTokens.gmail_work).toBe('ya29.ReloadPersistedWorkToken');
+      expect(recovered.bridgeToken).toBe('nexus-bridge-reload-token');
+    });
+
+    it('should NOT overwrite sync-written secrets in background with async format (race condition elimination)', async () => {
+      const payload = {
+        apiKeys: { gemini: 'AIzaSy-SyncWriteNoRaceCondition' }
+      };
+
+      NexusSecrets.writeSessionSecrets(payload, sharedMock);
+
+      // Wait 50ms to ensure no async background promise triggers
+      await new Promise(r => setTimeout(r, 50));
+
+      const raw = sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY);
+      const parsed = JSON.parse(raw);
+      expect(parsed.algorithm).toBe('sync-stream-v1');
+    });
+
+    it('should write AES-GCM-256 via writeSessionSecretsAsync and read back synchronously in Node via decipheriv', async () => {
+      const payload = {
+        apiKeys: {
+          gemini: 'AIzaSy-AesGcmSecretKey-999',
+          openrouter: 'sk-or-v1-AesGcmKey-888'
+        },
+        connectionTokens: {
+          telegram: 'bot777:AesGcmTelegramToken'
+        },
+        bridgeToken: 'bridge-aes-gcm-secret'
+      };
+
+      const ok = await NexusSecrets.writeSessionSecretsAsync(payload, sharedMock);
+      expect(ok).toBe(true);
+
+      const raw = sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY);
+      const parsed = JSON.parse(raw);
+      expect(parsed.encrypted).toBe(true);
+      expect(parsed.algorithm).toBe('AES-GCM-256');
+      expect(parsed.iv).toMatch(/^[0-9a-fA-F]{24}$/);
+      expect(parsed.ciphertext).toBeDefined();
+
+      // Wipe RAM cache to ensure reader doesn't just return in-memory cache
+      NexusSecrets._resetSessionCryptoState();
+
+      // Read back synchronously in Node environment using decipheriv
+      const recovered = NexusSecrets.readSessionSecrets(sharedMock);
+      expect(recovered.initialized).toBe(true);
+      expect(recovered.apiKeys.gemini).toBe('AIzaSy-AesGcmSecretKey-999');
+      expect(recovered.apiKeys.openrouter).toBe('sk-or-v1-AesGcmKey-888');
+      expect(recovered.connectionTokens.telegram).toBe('bot777:AesGcmTelegramToken');
+      expect(recovered.bridgeToken).toBe('bridge-aes-gcm-secret');
+    });
+
+    it('should read AES-GCM-256 via readSessionSecretsAsync across simulated reload', async () => {
+      const payload = {
+        apiKeys: {
+          deepseek: 'sk-deepseek-async-roundtrip',
+          kimi: 'kimi-async-roundtrip'
+        },
+        connectionTokens: {
+          github: 'ghp_async_roundtrip_pat'
+        },
+        bridgeToken: 'bridge-async-roundtrip'
+      };
+
+      await NexusSecrets.writeSessionSecretsAsync(payload, sharedMock);
+
+      // Wipe RAM cache
+      NexusSecrets._resetSessionCryptoState();
+
+      const recovered = await NexusSecrets.readSessionSecretsAsync(sharedMock);
+      expect(recovered.initialized).toBe(true);
+      expect(recovered.apiKeys.deepseek).toBe('sk-deepseek-async-roundtrip');
+      expect(recovered.apiKeys.kimi).toBe('kimi-async-roundtrip');
+      expect(recovered.connectionTokens.github).toBe('ghp_async_roundtrip_pat');
+      expect(recovered.bridgeToken).toBe('bridge-async-roundtrip');
+    });
+
+    it('should migrate legacy plaintext payload to encrypted storage transparently in readSessionSecretsAsync', async () => {
+      const legacyPayload = {
+        initialized: true,
+        apiKeys: { gemini: 'legacy-key-to-migrate' },
+        connectionTokens: { telegram: 'bot-legacy-token' },
+        bridgeToken: 'legacy-bridge'
+      };
+
+      sharedMock.setItem(NexusSecrets.SESSION_SECRETS_KEY, JSON.stringify(legacyPayload));
+
+      const recovered = await NexusSecrets.readSessionSecretsAsync(sharedMock);
+      expect(recovered.initialized).toBe(true);
+      expect(recovered.apiKeys.gemini).toBe('legacy-key-to-migrate');
+      expect(recovered.connectionTokens.telegram).toBe('bot-legacy-token');
+      expect(recovered.bridgeToken).toBe('legacy-bridge');
+
+      // Stored payload should now be encrypted
+      const newStored = JSON.parse(sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY));
+      expect(newStored.encrypted).toBe(true);
+    });
+
+    it('should quarantine tampered AES-GCM-256 payload without crashing', async () => {
+      await NexusSecrets.writeSessionSecretsAsync({
+        apiKeys: { gemini: 'valid-gemini-key' },
+        bridgeToken: 'valid-bridge'
+      }, sharedMock);
+
+      // Corrupt ciphertext
+      const stored = JSON.parse(sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY));
+      stored.ciphertext = 'deadbeef' + stored.ciphertext.slice(8);
+      delete stored.syncCiphertext; // ensure fallback won't succeed
+      sharedMock.setItem(NexusSecrets.SESSION_SECRETS_KEY, JSON.stringify(stored));
+
+      NexusSecrets._resetSessionCryptoState();
+
+      const res = await NexusSecrets.readSessionSecretsAsync(sharedMock);
+      expect(res.initialized).toBe(false);
+
+      const allKeys = Object.keys(sharedMock._getStore());
+      const quarantineKey = allKeys.find(k => k.startsWith(NexusSecrets.SESSION_SECRETS_KEY + '_corrupted_'));
+      expect(quarantineKey).toBeDefined();
+      expect(sharedMock.getItem(NexusSecrets.SESSION_SECRETS_KEY)).toBeNull();
     });
   });
 });

@@ -658,7 +658,13 @@ body > header,
 
 
 </script>
-<script>
+<script src="src/core/sanitization.js"></script>
+<script src="src/security/secrets.js"></script>
+<script src="src/security/approvals.js"></script>
+<script src="src/core/state.js"></script>
+<script src="src/core/persistence.js"></script>
+<script src="src/providers/registry.js"></script>
+<script id="nexus-main-script">
     var STORAGE_KEY = 'eg_nexus_os_v5_master_state';
     window.STORAGE_KEY = STORAGE_KEY;
     const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
@@ -922,11 +928,17 @@ body > header,
 
 
     function isSafeConnectionId(id) {
+      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.isSafeConnectionId) {
+        return window._nexusCoreSecrets.isSafeConnectionId(id);
+      }
       return typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id) && !['__proto__', 'constructor', 'prototype'].includes(id);
     }
 
 
     function emptyApiKeys() {
+      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.emptyApiKeys) {
+        return window._nexusCoreSecrets.emptyApiKeys();
+      }
       return API_KEY_NAMES.reduce((out, name) => { out[name] = ''; return out; }, {});
     }
 
@@ -1008,6 +1020,9 @@ body > header,
     }
 
     function readSessionSecrets() {
+      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.readSessionSecrets) {
+        return window._nexusCoreSecrets.readSessionSecrets();
+      }
       const result = { version: SESSION_SECRETS_SCHEMA_VERSION, initialized: false, apiKeys: emptyApiKeys(), connectionTokens: {}, accountTokens: {}, bridgeToken: '' };
       if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
         return JSON.parse(JSON.stringify(_cachedSessionSecrets));
@@ -1102,6 +1117,9 @@ body > header,
 
 
     function writeSessionSecrets(stateOrSecrets) {
+      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.writeSessionSecrets) {
+        return window._nexusCoreSecrets.writeSessionSecrets(stateOrSecrets);
+      }
       const existing = readSessionSecrets();
       const secrets = {
         version: SESSION_SECRETS_SCHEMA_VERSION,
@@ -1213,6 +1231,9 @@ body > header,
 
 
     function applySessionSecrets(state) {
+      if (typeof window !== 'undefined' && window._nexusCoreSecrets?.applySessionSecrets) {
+        return window._nexusCoreSecrets.applySessionSecrets(state);
+      }
       const secrets = readSessionSecrets();
       if (secrets.initialized) {
         API_KEY_NAMES.forEach(name => {
@@ -1248,6 +1269,9 @@ body > header,
 
 
     function buildPersistedState(state) {
+      if (typeof window !== 'undefined' && window._nexusCorePersistence?.buildPersistedState) {
+        return window._nexusCorePersistence.buildPersistedState(state);
+      }
       const persisted = JSON.parse(JSON.stringify(state));
       persisted.apiKeys = emptyApiKeys();
       if (persisted.appConnections && typeof persisted.appConnections === 'object' && !Array.isArray(persisted.appConnections)) {
@@ -1290,6 +1314,20 @@ body > header,
     window.writeSessionSecrets = writeSessionSecrets;
     window.buildPersistedState = buildPersistedState;
 
+    function getStorageSizeEstimate(key = STORAGE_KEY) {
+      if (typeof window !== 'undefined' && window._nexusCorePersistence?.getStorageSizeEstimate) {
+        return window._nexusCorePersistence.getStorageSizeEstimate(key);
+      }
+      try {
+        const raw = nexusStorageGet(key) || '';
+        if (typeof Blob !== 'undefined') return new Blob([raw]).size;
+        return raw.length;
+      } catch (e) {
+        return 0;
+      }
+    }
+    window.getStorageSizeEstimate = getStorageSizeEstimate;
+
 
     function assertUniqueIds(items, label) {
       if (!Array.isArray(items)) return false;
@@ -1308,6 +1346,9 @@ body > header,
 
 
     function sanitizeLoadedState(s, fallbackState = appState) {
+      if (typeof window !== 'undefined' && window._nexusCorePersistence?.sanitizeLoadedState) {
+        return window._nexusCorePersistence.sanitizeLoadedState(s, fallbackState);
+      }
       const base = (fallbackState && typeof fallbackState === 'object') ? fallbackState : {};
       const src = (s && typeof s === 'object' && !Array.isArray(s)) ? { ...base, ...s } : { ...base };
       const validObjs = (arr, def = []) => Array.isArray(arr) ? arr.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : def;
@@ -1966,6 +2007,9 @@ body > header,
 
 
     function escapeHtml(str) {
+      if (typeof window !== 'undefined' && window._nexusCoreSanitization?.escapeHtml) {
+        return window._nexusCoreSanitization.escapeHtml(str);
+      }
       return String(str ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -1987,6 +2031,9 @@ body > header,
     // Safe escaping for string literals inside inline onclick="fn('...')" attributes
     // Escapes backslashes, quotes, and newlines BEFORE HTML attribute encoding so HTML entity decoding never unescapes quotes inside JS literals
     function escapeJsAttr(str) {
+      if (typeof window !== 'undefined' && window._nexusCoreSanitization?.escapeJsAttr) {
+        return window._nexusCoreSanitization.escapeJsAttr(str);
+      }
       return escapeHtml(
         String(str ?? '')
           .replace(/\\/g, '\\\\')
@@ -12546,7 +12593,7 @@ body > header,
       const cacheLbl = document.getElementById('cacheSizeLabel');
       if (cacheLbl) {
         try {
-          let rawBytes = 0; try { rawBytes = new Blob([nexusStorageGet(STORAGE_KEY) || '']).size; } catch (e) { rawBytes = 0; }
+          let rawBytes = 0; try { rawBytes = getStorageSizeEstimate(STORAGE_KEY); } catch (e) { rawBytes = 0; }
           cacheLbl.innerText = (rawBytes / 1024).toFixed(1) + ' KB ›';
         } catch (e) {}
       }
@@ -12708,7 +12755,7 @@ body > header,
       }
       if (panel === 'diagnostics') {
         document.getElementById('settingsSubTitle').innerText = '🛡️ عیب‌یابی خودکار ۶ مرحله‌ای (Gold Master v1.7)';
-        let storageBytes = 0; try { storageBytes = new Blob([nexusStorageGet(STORAGE_KEY) || '']).size; } catch (e) { storageBytes = 0; }
+        let storageBytes = 0; try { storageBytes = getStorageSizeEstimate(STORAGE_KEY); } catch (e) { storageBytes = 0; }
         const sandboxAttr = document.getElementById('studioPreviewFrame')?.getAttribute('sandbox') || '';
         const sandboxSafe = sandboxAttr === 'allow-scripts' && !sandboxAttr.includes('allow-same-origin');
         const configuredKeysCount = Object.values(appState.apiKeys || {}).filter(v => String(v || '').trim().length > 5).length;
@@ -19596,138 +19643,7 @@ body > header,
 
 
     // BEGIN PHASE 3 FINAL REVIEW OVERRIDES
-    // These declarations replace legacy globals before DOMContentLoaded/loadState.
-    // Retaining the approved Phase 1/2 script verbatim is an explicit release invariant.
-    function sanitizeLoadedState(s, fallbackState = appState) {
-      const base = (fallbackState && typeof fallbackState === 'object') ? fallbackState : {};
-      const src = (s && typeof s === 'object' && !Array.isArray(s)) ? { ...base, ...s } : { ...base };
-      const validObjs = (arr, def = []) => Array.isArray(arr) ? arr.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : def;
-
-
-      src.profileName = (typeof src.profileName === 'string' && src.profileName.trim()) ? src.profileName.trim() : 'Ali';
-      src.dreamMemory = typeof src.dreamMemory === 'string' ? src.dreamMemory : (base.dreamMemory || '');
-      src.effortMode = ['light', 'standard', 'high', 'ultra'].includes(src.effortMode) ? src.effortMode : 'standard';
-      src.diffOnlyMode = typeof src.diffOnlyMode === 'boolean' ? src.diffOnlyMode : true;
-
-
-      const turnsNum = Number(src.maxGroupTurns);
-      src.maxGroupTurns = Number.isFinite(turnsNum) ? Math.min(6, Math.max(1, Math.round(turnsNum))) : 3;
-
-
-      const tokNum = Number(src.totalTokensUsed);
-      src.totalTokensUsed = (Number.isFinite(tokNum) && tokNum >= 0) ? Math.round(tokNum) : 0;
-
-
-      const costNum = Number(src.totalEstimatedCostUSD);
-      src.totalEstimatedCostUSD = (Number.isFinite(costNum) && costNum >= 0) ? costNum : 0;
-
-
-      const rawKeys = (src.apiKeys && typeof src.apiKeys === 'object' && !Array.isArray(src.apiKeys)) ? src.apiKeys : {};
-      src.apiKeys = {
-        gemini: typeof rawKeys.gemini === 'string' ? rawKeys.gemini.trim() : '',
-        deepseek: typeof rawKeys.deepseek === 'string' ? rawKeys.deepseek.trim() : '',
-        kimi: typeof rawKeys.kimi === 'string' ? rawKeys.kimi.trim() : '',
-        grok: typeof rawKeys.grok === 'string' ? rawKeys.grok.trim() : '',
-        openrouter: typeof rawKeys.openrouter === 'string' ? rawKeys.openrouter.trim() : '',
-        tavily: typeof rawKeys.tavily === 'string' ? rawKeys.tavily.trim() : ''
-      };
-
-
-      const rawConns = (src.appConnections && typeof src.appConnections === 'object' && !Array.isArray(src.appConnections)) ? src.appConnections : {};
-      const cleanConns = {};
-      Object.keys(rawConns).forEach(k => {
-        if (!isSafeConnectionId(k)) return;
-        const c = rawConns[k];
-        if (c && typeof c === 'object' && !Array.isArray(c)) {
-          Object.defineProperty(cleanConns, k, { value: {
-            ...c,
-            accounts: Array.isArray(c.accounts) ? c.accounts.map((a, accountIdx) => {
-              if (typeof a === 'string' && a.trim()) return a.trim();
-              if (a && typeof a === 'object' && !Array.isArray(a)) {
-                const email = typeof a.email === 'string' ? a.email.trim().slice(0, 320) : '';
-                const name = typeof (a.name || a.displayName) === 'string' ? String(a.name || a.displayName).trim().slice(0, 160) : '';
-                if (!email && !name) return null;
-                return { id: typeof a.id === 'string' ? a.id.slice(0, 160) : `account_${accountIdx}`, email, name: name || email.split('@')[0] || 'Connected account', avatar: typeof a.avatar === 'string' ? a.avatar.slice(0, 2) : (name[0] || email[0] || 'U'), connectedAt: typeof a.connectedAt === 'string' ? a.connectedAt : '' };
-              }
-              return null;
-            }).filter(Boolean) : [],
-            token: typeof c.token === 'string' ? c.token.trim() : '',
-            mcpEnabled: Boolean(c.mcpEnabled),
-            connectedAt: typeof c.connectedAt === 'string' ? c.connectedAt : ''
-          }, enumerable: true, writable: true, configurable: true });
-        }
-      });
-      src.appConnections = cleanConns;
-      src.addedAppIds = Array.isArray(src.addedAppIds) ? src.addedAppIds.filter(x => typeof x === 'string' && x.trim()) : [];
-
-
-      src.agentsCatalog = validObjs(src.agentsCatalog, []).map((ag, idx) => ({
-        ...ag,
-        id: (typeof ag.id === 'string' && ag.id.trim()) ? ag.id.trim() : generateUniqueId('ag_' + idx),
-        name: (typeof ag.name === 'string' && ag.name.trim()) ? ag.name.trim() : 'Agent ' + (idx + 1),
-        model: (typeof ag.model === 'string' && ag.model.trim()) ? ag.model.trim() : 'gemini-3.8-flash',
-        systemPrompt: typeof ag.systemPrompt === 'string' ? ag.systemPrompt : '',
-        memory: typeof ag.memory === 'string' ? ag.memory : '',
-        presetKey: typeof ag.presetKey === 'string' ? ag.presetKey : '',
-        isPreset: Boolean(ag.isPreset || ag.presetKey),
-        files: Array.isArray(ag.files) ? ag.files.filter(f => (typeof f === 'string' && f.trim()) || (f && typeof f === 'object' && typeof f.name === 'string')) : [],
-        avatar: sanitizeAvatarSpec(ag.avatar)
-      }));
-
-
-      src.chats = validObjs(src.chats, []).map((c, idx) => ({
-        ...c,
-        id: (typeof c.id === 'string' && c.id.trim()) ? c.id.trim() : generateUniqueId('chat_' + idx),
-        title: (typeof c.title === 'string' && c.title.trim()) ? c.title.trim() : 'گفتگو',
-        isGroup: Boolean(c.isGroup),
-        memberIds: Array.isArray(c.memberIds) ? c.memberIds.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()) : [],
-        updatedAt: (typeof c.updatedAt === 'string' && c.updatedAt.trim()) ? c.updatedAt : 'الان',
-        updatedAtTs: Number.isFinite(Number(c.updatedAtTs)) ? Number(c.updatedAtTs) : 0,
-        draftText: typeof c.draftText === 'string' ? c.draftText.slice(0, 50000) : '',
-        messages: validObjs(c.messages, []).slice(-300).map((m, mIdx) => ({
-          ...m,
-          id: (typeof m.id === 'string' && m.id.trim()) ? m.id.trim() : generateUniqueId('m_' + mIdx),
-          senderType: ['user', 'agent', 'system'].includes(m.senderType) ? m.senderType : 'agent',
-          senderId: typeof m.senderId === 'string' ? m.senderId.trim() : '',
-          senderName: typeof m.senderName === 'string' ? m.senderName : '',
-          text: String(m.text ?? ''),
-          options: Array.isArray(m.options) ? m.options.filter(o => typeof o === 'string' && o.trim()) : [],
-          attachmentName: typeof m.attachmentName === 'string' ? m.attachmentName : '',
-          attachmentImage: typeof m.attachmentImage === 'string' ? m.attachmentImage : '',
-          attachmentMime: typeof m.attachmentMime === 'string' ? m.attachmentMime : '',
-          attachmentTextSnippet: typeof m.attachmentTextSnippet === 'string' ? m.attachmentTextSnippet : '',
-          reaction: typeof m.reaction === 'string' ? m.reaction : 'eyes',
-          selfReviewed: Boolean(m.selfReviewed),
-          isSimulated: Boolean(m.isSimulated),
-          chattedWith: typeof m.chattedWith === 'string' ? m.chattedWith : '',
-          chattedWithId: typeof m.chattedWithId === 'string' ? m.chattedWithId.trim() : '',
-          timestamp: typeof m.timestamp === 'string' ? m.timestamp : 'الان'
-        }))
-      }));
-
-
-      src.skills = validObjs(src.skills, base.skills || []).map((sk, idx) => ({
-        ...sk,
-        id: (typeof sk.id === 'string' && sk.id.trim()) ? sk.id.trim() : generateUniqueId('sk_' + idx),
-        title: (typeof sk.title === 'string' && sk.title.trim()) ? sk.title.trim() : 'Skill ' + (idx + 1),
-        source: (typeof sk.source === 'string' && sk.source.trim()) ? sk.source.trim() : 'Custom Skill',
-        desc: String(sk.desc ?? '')
-      }));
-      const agentsRepaired = assertUniqueIds(src.agentsCatalog, 'agent');
-      const chatsRepaired = assertUniqueIds(src.chats, 'chat');
-      src._idsRepaired = Boolean(agentsRepaired || chatsRepaired);
-      src.skillsCatalog = src.skills;
-
-
-      if (typeof src.studioCode !== 'string') {
-        src.studioCode = DEFAULT_WORKOUT_STUDIO_TEMPLATE;
-      }
-      src.activeChatId = (typeof src.activeChatId === 'string' && src.activeChatId.trim()) ? src.activeChatId.trim() : null;
-      src.activeAgentProfileId = (typeof src.activeAgentProfileId === 'string' && src.activeAgentProfileId.trim()) ? src.activeAgentProfileId.trim() : null;
-      if (!src.chats.some(c => c.id === src.activeChatId)) src.activeChatId = null;
-      if (!src.agentsCatalog.some(a => a.id === src.activeAgentProfileId)) src.activeAgentProfileId = null;
-      return src;
-    }
+    // Replaced redundant duplicate sanitizeLoadedState with core persistence module passthrough
 
 
     function createSkillThroughChatPrompt() {

@@ -3,21 +3,24 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
   } else {
+    /* istanbul ignore next */
     const exports = factory();
-    Object.assign(root, exports);
+    /* istanbul ignore next */
+    if (root) Object.assign(root, exports);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
+
+  const _fallbackUiState = { pendingApprovalQueue: [], _isResolvingApproval: false };
 
   function getUiState() {
     if (typeof window !== 'undefined' && window.uiState) return window.uiState;
     if (typeof globalThis !== 'undefined' && globalThis.uiState) return globalThis.uiState;
-    return { pendingApprovalQueue: [], _isResolvingApproval: false };
+    return _fallbackUiState;
   }
 
   function triggerApprovalGate(reason, onApprove) {
@@ -61,6 +64,7 @@
   }
 
   return {
+    getUiState,
     triggerApprovalGate,
     resolveApprovalGate
   };

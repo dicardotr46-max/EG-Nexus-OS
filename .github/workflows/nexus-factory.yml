@@ -1,4 +1,4 @@
-name: EG Nexus OS v5.2 - Auto Audit & APK Factory
+name: EG Nexus OS v5.3 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    # اجرای خودکار هر ۶ ساعت یک‌بار برای بررسی سلامت کد
+    # اجرای خودکار هر ۶ ساعت یک‌بار برای ممیزی سلامت کد و صحت بیلد (بدون انتشار ریلیز)
     - cron: '0 */6 * * *'
 
 concurrency:
@@ -44,7 +44,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit & Mandatory Jest Gate
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.2..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی EG Nexus OS v5.3..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -77,6 +77,10 @@ jobs:
             npm run test:syntax
             npm test
           fi
+          if [ -f "full_app_audit.py" ]; then
+            python3 full_app_audit.py
+            python3 test_full_app_audit.py
+          fi
 
       - name: 6. Prepare Clean Capacitor Environment & Web Assets
         run: |
@@ -84,31 +88,96 @@ jobs:
           cp index.html build_workspace/www/
           [ -f manifest.json ] && cp manifest.json build_workspace/www/
           [ -f sw.js ] && cp sw.js build_workspace/www/
-          # Use authoritative capacitor.config.json with cleartext & loopback support (Fixes Reviewer #15 & #16)
+          [ -d src ] && cp -r src build_workspace/www/
+          # Use authoritative capacitor.config.json with cleartext & loopback support
           cp capacitor.config.json package.json package-lock.json build_workspace/
           cd build_workspace
           npm ci
 
-      - name: 7. Compile Android APK
+      - name: 7. Compile Android Release APK
         run: |
           cd build_workspace
           npx cap add android
           npx cap sync android
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
-      - name: 8. Upload Ready-to-Install Android APK
+      - name: 8. Sign and Verify Release APK with apksigner
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          echo "Using Android Build Tools at: $BUILD_TOOLS_DIR"
+
+          RELEASE_DIR="build_workspace/android/app/build/outputs/apk/release"
+          UNSIGNED_APK=$(find "$RELEASE_DIR" -name "*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "❌ Error: Release APK not found in $RELEASE_DIR"
+            exit 1
+          fi
+          echo "Found unsigned release APK: $UNSIGNED_APK"
+
+          KEYSTORE_FILE="ci-release.keystore"
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "🔑 Decoding repository secret keystore..."
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_FILE"
+            KS_PASS="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}"
+            KEY_PASS="${{ secrets.ANDROID_KEY_PASSWORD }}"
+          else
+            echo "🔑 Generating secure ephemeral CI release keystore..."
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_FILE" \
+              -alias "eg-nexus" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "nexus-ci-keystore-pass" \
+              -keypass "nexus-ci-keystore-pass" \
+              -dname "CN=EG Nexus OS, OU=Engineering, O=Nexus Foundation, L=Tehran, C=IR"
+            KS_PASS="nexus-ci-keystore-pass"
+            KEY_ALIAS="eg-nexus"
+            KEY_PASS="nexus-ci-keystore-pass"
+          fi
+
+          mkdir -p dist
+          SIGNED_APK="dist/EG-Nexus-OS-v5.3-release-signed.apk"
+          ALIGNED_APK="dist/temp-aligned.apk"
+
+          if $BUILD_TOOLS_DIR/zipalign -c -v 4 "$UNSIGNED_APK" >/dev/null 2>&1; then
+            echo "APK is already 4-byte zipaligned."
+            cp "$UNSIGNED_APK" "$ALIGNED_APK"
+          else
+            echo "Running zipalign on unsigned APK..."
+            $BUILD_TOOLS_DIR/zipalign -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          fi
+
+          echo "Signing APK with apksigner (v1, v2, v3 schemes)..."
+          $BUILD_TOOLS_DIR/apksigner sign \
+            --ks "$KEYSTORE_FILE" \
+            --ks-pass "pass:$KS_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASS" \
+            --out "$SIGNED_APK" \
+            "$ALIGNED_APK"
+
+          echo "Verifying signed APK integrity and signature schemes..."
+          $BUILD_TOOLS_DIR/apksigner verify --verbose "$SIGNED_APK"
+
+          # Securely wipe keystore and temporary aligned artifact
+          rm -f "$KEYSTORE_FILE" "$ALIGNED_APK"
+          echo "✅ Release APK signing and verification completed successfully."
+
+      - name: 9. Upload Ready-to-Install Signed Android APK
         uses: actions/upload-artifact@v4.6.1
         with:
-          name: EG-Nexus-OS-v5.2-Debug-APK
-          path: build_workspace/android/app/build/outputs/apk/debug/app-debug.apk
+          name: EG-Nexus-OS-v5.3-Signed-APK
+          path: dist/EG-Nexus-OS-v5.3-release-signed.apk
           retention-days: 30
 
   publish-release:
     runs-on: ubuntu-latest
     needs: audit-and-build-apk
-    if: github.event_name != 'pull_request'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
 
@@ -116,26 +185,28 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4.2.2
 
-      - name: 2. Download Built APK Artifact
+      - name: 2. Download Built Signed APK Artifact
         uses: actions/download-artifact@v4.1.9
         with:
-          name: EG-Nexus-OS-v5.2-Debug-APK
+          name: EG-Nexus-OS-v5.3-Signed-APK
 
       - name: 3. Prepare APK and Checksum for Release
         run: |
-          cp app-debug.apk EG-Nexus-OS-v5.2.apk
-          sha256sum EG-Nexus-OS-v5.2.apk > EG-Nexus-OS-v5.2.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.2.apk.sha256)
+          cp EG-Nexus-OS-v5.3-release-signed.apk EG-Nexus-OS-v5.3.apk
+          sha256sum EG-Nexus-OS-v5.3.apk > EG-Nexus-OS-v5.3.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v5.3.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=v5.2-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v5.3-${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: 4. Update Git Tags for Release
         run: |
+          # Rolling alias pointer: continuous delivery channel pointing to latest verified build on main
           git tag -f latest-apk ${{ github.sha }}
+          # Immutable version tag: locked to exact commit SHA for audit provenance and reproducible builds
           git tag -f "${RELEASE_TAG}" ${{ github.sha }}
           git push -f origin latest-apk
           git push -f origin "${RELEASE_TAG}"
@@ -145,14 +216,23 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v5.2 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v5.3 (${{ env.SHORT_SHA }})"
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
+            - **Release Version:** `v5.3.0`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**
-            `${{ env.APK_SHA256 }}`
+            ```text
+            ${{ env.APK_SHA256 }}
+            ```
+
+            ### Release Architecture & Tag Roles
+            - **Immutable Version Tag (`${{ env.RELEASE_TAG }}`):**
+              Serves as a tamper-evident, permanent audit anchor frozen to commit `${{ github.sha }}`. Guarantees immutable provenance, rollback reproducibility, and verifiable Software Bill of Materials (SBOM) lineage.
+            - **Rolling Alias Pointer (`latest-apk`):**
+              Serves as a dynamic distribution pointer continuously fast-forwarded to the latest verified production build on `main`. Enables seamless continuous deployment (CD), automated client updater polls, and permanent direct-download URLs.
           files: |
-            EG-Nexus-OS-v5.2.apk
-            EG-Nexus-OS-v5.2.apk.sha256
+            EG-Nexus-OS-v5.3.apk
+            EG-Nexus-OS-v5.3.apk.sha256

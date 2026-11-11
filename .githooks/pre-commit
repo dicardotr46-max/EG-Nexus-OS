@@ -4,7 +4,8 @@ set -e
 echo "🔍 [Pre-Commit] Synchronizing root files to www/ directory..."
 cp index.html www/index.html
 cp sw.js www/sw.js
-git add www/index.html www/sw.js
+cp -r src www/
+git add www/index.html www/sw.js www/src
 
 echo "🧪 [Pre-Commit] Running AST syntax checks..."
 npm run test:syntax

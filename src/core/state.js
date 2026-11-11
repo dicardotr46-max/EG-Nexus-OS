@@ -3,15 +3,14 @@
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
   } else {
-    const exports = factory();
-    Object.assign(root, exports);
+    /* istanbul ignore next */
+    Object.assign(root || {}, factory());
   }
-})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
 
   const DEFAULT_WORKOUT_STUDIO_TEMPLATE = `<!DOCTYPE html>

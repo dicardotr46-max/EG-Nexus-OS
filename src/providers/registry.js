@@ -1,17 +1,19 @@
 /**
  * EG-Nexus-OS — Providers & App Catalog Registry Module
+ * Production-grade provider contracts, scope checking, HTTP error handling, retry resilience, and MCP validation
  * UMD / ESM compatible (Node.js, Jest, and Browser)
  */
 (function(root, factory) {
+  /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
   } else {
+    /* istanbul ignore next */
     const exports = factory();
-    Object.assign(root, exports);
+    /* istanbul ignore next */
+    if (root) Object.assign(root, exports);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function() {
+})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function() {
   'use strict';
 
   const GOOGLE_OAUTH_SCOPES = {
@@ -26,6 +28,71 @@
     google_contacts: 'https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
   };
 
+  const PROVIDER_ACTION_SCOPES = {
+    gmail: {
+      read: 'https://www.googleapis.com/auth/gmail.readonly',
+      list: 'https://www.googleapis.com/auth/gmail.readonly',
+      search: 'https://www.googleapis.com/auth/gmail.readonly',
+      get: 'https://www.googleapis.com/auth/gmail.readonly',
+      send: 'https://www.googleapis.com/auth/gmail.send',
+      draft: 'https://www.googleapis.com/auth/gmail.send',
+      delete: 'https://www.googleapis.com/auth/gmail.send'
+    },
+    gcal: {
+      list: 'https://www.googleapis.com/auth/calendar',
+      view: 'https://www.googleapis.com/auth/calendar',
+      create: 'https://www.googleapis.com/auth/calendar',
+      update: 'https://www.googleapis.com/auth/calendar',
+      delete: 'https://www.googleapis.com/auth/calendar'
+    },
+    youtube: {
+      read: 'https://www.googleapis.com/auth/youtube.readonly',
+      view: 'https://www.googleapis.com/auth/youtube.readonly',
+      channel_stats: 'https://www.googleapis.com/auth/youtube.readonly',
+      upload: 'https://www.googleapis.com/auth/youtube.upload',
+      shorts_publish: 'https://www.googleapis.com/auth/youtube.upload',
+      delete: 'https://www.googleapis.com/auth/youtube.upload'
+    },
+    github: {
+      read: 'repo',
+      commits: 'repo',
+      branches: 'repo',
+      issues: 'repo',
+      pull_requests: 'repo',
+      write: 'repo',
+      push: 'repo',
+      create_issue: 'repo',
+      delete_repo: 'delete_repo'
+    },
+    telegram: {
+      getUpdates: 'bot',
+      sendMessage: 'bot',
+      sendPhoto: 'bot',
+      setWebhook: 'bot',
+      deleteWebhook: 'bot'
+    },
+    supabase: {
+      select: 'anon',
+      rpc: 'anon',
+      insert: 'authenticated',
+      update: 'authenticated',
+      delete: 'service_role',
+      sync: 'authenticated'
+    },
+    cloudflare: {
+      kv_read: 'workers:read',
+      kv_write: 'workers:write',
+      kv_delete: 'workers:write'
+    },
+    termux: {
+      status: 'terminal:read',
+      read_file: 'terminal:read',
+      exec: 'terminal:exec',
+      write_file: 'terminal:exec',
+      delete_file: 'terminal:exec'
+    }
+  };
+
   function getGoogleScopes(appId) {
     return GOOGLE_OAUTH_SCOPES[appId] || 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
   }
@@ -34,6 +101,439 @@
     if (typeof scope !== 'string' || !scope.trim()) return false;
     const tokens = scope.trim().split(/\s+/);
     return tokens.every(token => /^https:\/\/(?:www\.)?googleapis\.com\/auth\/[a-zA-Z0-9._-]+$/i.test(token));
+  }
+
+  function getRequiredScope(providerId, action) {
+    const p = PROVIDER_ACTION_SCOPES[providerId];
+    if (p && p[action]) return p[action];
+    return null;
+  }
+
+  function validateProviderScope(providerId, action, grantedScopes = null) {
+    if (!providerId || typeof providerId !== 'string') return false;
+    if (!action || typeof action !== 'string') return false;
+
+    const pScopes = PROVIDER_ACTION_SCOPES[providerId];
+    const requiredScope = pScopes ? pScopes[action] : null;
+
+    if (grantedScopes === null || grantedScopes === undefined) {
+      if (pScopes) {
+        return Boolean(pScopes[action]);
+      }
+      return true;
+    }
+
+    if (!requiredScope) {
+      return true;
+    }
+
+    let scopeList = [];
+    if (Array.isArray(grantedScopes)) {
+      scopeList = grantedScopes;
+    } else if (typeof grantedScopes === 'string') {
+      scopeList = grantedScopes.trim().split(/[\s,]+/);
+    } else {
+      return false;
+    }
+
+    if (scopeList.includes('*') || scopeList.includes('all') || scopeList.includes('admin')) {
+      return true;
+    }
+
+    return scopeList.some(scope => {
+      if (scope === requiredScope) return true;
+      const shortRequired = requiredScope.replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
+      const shortScope = scope.replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
+      return shortScope === shortRequired || scope.includes(shortRequired);
+    });
+  }
+
+  function isMutatingOrSensitiveAction(providerId, action) {
+    if (!action || typeof action !== 'string') return false;
+    const a = action.toLowerCase();
+    if (/send|upload|publish|delete|exec|write|push|drop|truncate|setwebhook|deletewebhook|broadcast/i.test(a)) {
+      return true;
+    }
+    if (providerId === 'termux' && (a === 'exec' || a === 'write_file' || a === 'delete_file')) return true;
+    if (providerId === 'gmail' && (a === 'send' || a === 'delete')) return true;
+    if (providerId === 'youtube' && (a === 'upload' || a === 'shorts_publish' || a === 'delete')) return true;
+    if (providerId === 'github' && (a === 'push' || a === 'delete_repo')) return true;
+    return false;
+  }
+
+  function formatProviderError(error, providerId, context = {}) {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status) || 500;
+    const rawMsg = error?.message || (typeof error === 'string' ? error : 'Provider operation failed');
+
+    if (status === 401) {
+      if (context && typeof context.quarantineToken === 'function') {
+        try { context.quarantineToken(providerId); } catch (_) {}
+      }
+      return {
+        status: 401,
+        error: 'Unauthorized',
+        message: `Token unauthorized or expired for provider ${providerId}`,
+        quarantined: true,
+        providerId
+      };
+    }
+
+    if (status === 403) {
+      return {
+        status: 403,
+        error: 'Forbidden',
+        message: `Access forbidden or insufficient permissions for provider ${providerId}`,
+        providerId
+      };
+    }
+
+    if (status === 429) {
+      const retryAfter = Number(error?.retryAfter || error?.response?.headers?.['retry-after']) || 60;
+      return {
+        status: 429,
+        error: 'RateLimitExceeded',
+        message: `Rate limit exceeded for provider ${providerId}`,
+        retryAfter,
+        providerId
+      };
+    }
+
+    if (status >= 500 && status <= 504) {
+      return {
+        status,
+        error: 'ProviderServerError',
+        message: rawMsg || `Remote server error for provider ${providerId}`,
+        retryable: true,
+        providerId
+      };
+    }
+
+    return {
+      status,
+      error: error?.name || 'ProviderError',
+      message: rawMsg,
+      providerId
+    };
+  }
+
+  async function executeWithRetry(fn, options = {}) {
+    const maxRetries = options.maxRetries !== undefined ? Math.max(0, Number(options.maxRetries)) : 3;
+    const baseDelayMs = options.baseDelayMs !== undefined ? Math.max(0, Number(options.baseDelayMs)) : 100;
+    const backoffFactor = options.backoffFactor !== undefined ? Number(options.backoffFactor) : 2;
+    const onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
+
+    let attempt = 0;
+    while (true) {
+      try {
+        return await fn();
+      } catch (error) {
+        attempt++;
+        const status = Number(error?.status || error?.statusCode || error?.response?.status) || 0;
+        const msg = String(error?.message || '');
+        const isRetryable = status === 429 || (status >= 500 && status <= 504) ||
+          /rate limit|429|timeout|network|ECONNRESET/i.test(msg);
+
+        if (attempt > maxRetries || !isRetryable) {
+          throw error;
+        }
+
+        const delayMs = baseDelayMs * Math.pow(backoffFactor, attempt - 1);
+        if (onRetry) {
+          try {
+            onRetry({ attempt, error, delayMs });
+          } catch (_) {}
+        }
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  async function executeProviderRequest(request) {
+    if (!request || typeof request !== 'object') {
+      return { status: 400, error: 'BAD_REQUEST', message: 'Invalid provider request payload' };
+    }
+
+    const {
+      providerId,
+      action,
+      token,
+      grantedScopes,
+      executeFn,
+      requireApproval = null,
+      approved = false,
+      retryOptions = { maxRetries: 3, baseDelayMs: 100 },
+      appConnections = null,
+      approvalGateHandler = null
+    } = request;
+
+    if (!providerId) {
+      return { status: 400, error: 'BAD_REQUEST', message: 'providerId is required' };
+    }
+
+    // Step 1: Check MCP disabled status
+    const catalogItem = APPS_CATALOG.find(app => app.id === providerId);
+    if (catalogItem && catalogItem.type === 'MCP') {
+      const conn = appConnections?.[providerId];
+      if (conn && conn.mcpEnabled === false) {
+        return {
+          status: 403,
+          error: 'MCP_DISABLED',
+          message: `MCP server for ${providerId} is disabled.`
+        };
+      }
+    }
+
+    // Step 2: Validate provider action scope
+    if (grantedScopes !== undefined && grantedScopes !== null) {
+      const hasScope = validateProviderScope(providerId, action, grantedScopes);
+      if (!hasScope) {
+        return {
+          status: 403,
+          error: 'SCOPE_INSUFFICIENT',
+          message: `Insufficient scope for action ${action} on provider ${providerId}`
+        };
+      }
+    }
+
+    // Step 3: Check Approval Queue requirement for mutating or sensitive actions
+    const needsApproval = requireApproval === true || (requireApproval !== false && isMutatingOrSensitiveAction(providerId, action));
+    if (needsApproval && !approved) {
+      const reason = `Sensitive operation: ${action} on ${providerId} requires user confirmation.`;
+      if (typeof approvalGateHandler === 'function') {
+        try {
+          approvalGateHandler({ reason, providerId, action });
+        } catch (_) {}
+      }
+      return {
+        status: 403,
+        error: 'APPROVAL_REQUIRED',
+        pendingApproval: true,
+        reason
+      };
+    }
+
+    // Step 4: Token presence validation for non-anonymous providers
+    if (providerId !== 'clash_royale' && providerId !== 'coingecko' && (!token || !String(token).trim())) {
+      return formatProviderError({ status: 401, message: 'Authentication token is required' }, providerId);
+    }
+
+    // Step 5: Execute with retry and handle standard HTTP errors
+    if (typeof executeFn !== 'function') {
+      return { status: 200, success: true, message: 'Request validated successfully' };
+    }
+
+    try {
+      const result = await executeWithRetry(executeFn, retryOptions);
+      return { status: 200, success: true, data: result };
+    } catch (err) {
+      return formatProviderError(err, providerId, request);
+    }
+  }
+
+  // --- Provider Specific Contracts & Helpers ---
+
+  // GitHub Contract
+  function validateGithubPAT(pat) {
+    if (typeof pat !== 'string') return false;
+    const trimmed = pat.trim();
+    if (trimmed.startsWith('ghp_') && trimmed.length >= 36) return true;
+    if (trimmed.startsWith('github_pat_') && trimmed.length >= 40) return true;
+    if (trimmed.startsWith('gho_') || trimmed.startsWith('ghu_') || trimmed.startsWith('ghs_')) return true;
+    return false;
+  }
+
+  function validateGithubRepo(owner, repo) {
+    if (typeof owner !== 'string' || typeof repo !== 'string') return false;
+    const valid = /^[a-zA-Z0-9_.-]+$/;
+    return valid.test(owner.trim()) && valid.test(repo.trim());
+  }
+
+  function parseGithubCommits(commits) {
+    if (!Array.isArray(commits)) return [];
+    return commits.map(c => ({
+      sha: c?.sha || '',
+      shortSha: (c?.sha || '').slice(0, 7),
+      message: c?.commit?.message || c?.message || '',
+      author: c?.commit?.author?.name || c?.author?.login || 'Unknown',
+      date: c?.commit?.author?.date || c?.date || '',
+      url: c?.html_url || ''
+    }));
+  }
+
+  function parseGithubBranches(branches) {
+    if (!Array.isArray(branches)) return [];
+    return branches.map(b => ({
+      name: b?.name || '',
+      commitSha: b?.commit?.sha || '',
+      isProtected: Boolean(b?.protected)
+    }));
+  }
+
+  // Google OAuth / Multi-Account Isolation Contract
+  function getAccountScopedKey(providerId, accountId) {
+    return `${providerId}_${accountId}`;
+  }
+
+  function validateGoogleTokenFreshness(expiresAtTimestamp) {
+    const now = Date.now();
+    const expiry = Number(expiresAtTimestamp) || 0;
+    const expiresInSec = Math.round((expiry - now) / 1000);
+    const needsRefresh = expiresInSec <= 60;
+    const fresh = expiresInSec > 60;
+    return { fresh, expiresInSec, needsRefresh };
+  }
+
+  function formatGoogleRefreshTokenRequest({ clientId, clientSecret, refreshToken }) {
+    if (!refreshToken) return null;
+    return {
+      grant_type: 'refresh_token',
+      refresh_token: String(refreshToken).trim(),
+      client_id: String(clientId || '').trim(),
+      client_secret: String(clientSecret || '').trim()
+    };
+  }
+
+  function isolateMultiAccountSession(appConnections, providerId, targetAccountId) {
+    if (!appConnections || typeof appConnections !== 'object') return null;
+    const conn = appConnections[providerId];
+    if (!conn) return null;
+    if (Array.isArray(conn.accounts)) {
+      const match = conn.accounts.find(a => a?.id === targetAccountId);
+      if (match) {
+        return {
+          accountId: match.id,
+          email: match.email || '',
+          token: match.token || '',
+          providerId
+        };
+      }
+    }
+    return null;
+  }
+
+  // Telegram Bot API Contract
+  function validateTelegramToken(token) {
+    if (typeof token !== 'string') return false;
+    return /^\d{6,12}:[a-zA-Z0-9_-]{35,}$/.test(token.trim());
+  }
+
+  function validateTelegramWebhookLease(url, secretToken) {
+    if (typeof url !== 'string' || !url.startsWith('https://') || url.length > 256) return false;
+    if (secretToken && (typeof secretToken !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(secretToken))) {
+      return false;
+    }
+    return true;
+  }
+
+  function isTelegramRateLimited(timestamps, maxPerSecond = 30, windowMs = 1000) {
+    if (!Array.isArray(timestamps)) return false;
+    const now = Date.now();
+    const recent = timestamps.filter(t => now - t < windowMs);
+    return recent.length >= maxPerSecond;
+  }
+
+  // Supabase / Cloudflare Worker Contract
+  function deduplicateKVEntries(localEntries, remoteEntries, idKey = 'id', timeKey = 'updated_at') {
+    const map = new Map();
+    const all = [...(Array.isArray(localEntries) ? localEntries : []), ...(Array.isArray(remoteEntries) ? remoteEntries : [])];
+    all.forEach(entry => {
+      if (!entry || !entry[idKey]) return;
+      const id = entry[idKey];
+      if (!map.has(id)) {
+        map.set(id, entry);
+      } else {
+        const existing = map.get(id);
+        const existingTime = new Date(existing[timeKey] || 0).getTime();
+        const entryTime = new Date(entry[timeKey] || 0).getTime();
+        if (entryTime >= existingTime) {
+          map.set(id, entry);
+        }
+      }
+    });
+    return Array.from(map.values());
+  }
+
+  function resolveRoutineConflicts(localRoutine, remoteRoutine) {
+    if (!localRoutine) return { resolved: remoteRoutine, winner: 'remote' };
+    if (!remoteRoutine) return { resolved: localRoutine, winner: 'local' };
+
+    const localVer = Number(localRoutine.version) || 0;
+    const remoteVer = Number(remoteRoutine.version) || 0;
+
+    if (localVer > remoteVer) return { resolved: localRoutine, winner: 'local' };
+    if (remoteVer > localVer) return { resolved: remoteRoutine, winner: 'remote' };
+
+    const localTime = new Date(localRoutine.updated_at || localRoutine.lastRunAt || 0).getTime();
+    const remoteTime = new Date(remoteRoutine.updated_at || remoteRoutine.lastRunAt || 0).getTime();
+
+    if (remoteTime > localTime) {
+      return { resolved: remoteRoutine, winner: 'remote' };
+    }
+    return { resolved: localRoutine, winner: 'local' };
+  }
+
+  // MCP Server Contract
+  function isMcpServerEnabled(providerId, appConnections) {
+    if (!appConnections || typeof appConnections !== 'object') return false;
+    const conn = appConnections[providerId];
+    return Boolean(conn && conn.mcpEnabled === true);
+  }
+
+  function formatMcpToolCall(serverName, toolName, args = {}) {
+    return {
+      jsonrpc: '2.0',
+      id: `mcp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args || {},
+        server: serverName
+      }
+    };
+  }
+
+  function validateMcpToolApproval(serverName, toolName) {
+    if (!toolName || typeof toolName !== 'string') return false;
+    const lower = toolName.toLowerCase();
+    return /execute|write|delete|create|drop|update|push|send|deploy/i.test(lower);
+  }
+
+  // Memory Cleanup & Concurrency Lock
+  function createSyncLock() {
+    let _locked = false;
+    const _waiters = [];
+
+    return {
+      async acquire() {
+        if (!_locked) {
+          _locked = true;
+          return;
+        }
+        await new Promise(resolve => _waiters.push(resolve));
+        _locked = true;
+      },
+      release() {
+        if (_waiters.length > 0) {
+          const next = _waiters.shift();
+          next();
+        } else {
+          _locked = false;
+        }
+      },
+      isLocked: () => _locked
+    };
+  }
+
+  function cleanMemoryState(state, pruneThreshold = 100) {
+    if (!state || typeof state !== 'object') return state;
+    if (Array.isArray(state.chats)) {
+      state.chats.forEach(chat => {
+        if (chat && Array.isArray(chat.messages) && chat.messages.length > pruneThreshold) {
+          chat.messages = chat.messages.slice(-pruneThreshold);
+        }
+      });
+    }
+    return state;
   }
 
   function resolveProviderModelId(uiModel, isOpenRouter = false) {
@@ -160,8 +660,33 @@
   return {
     APPS_CATALOG,
     GOOGLE_OAUTH_SCOPES,
+    PROVIDER_ACTION_SCOPES,
     getGoogleScopes,
     validateRequestedGoogleScope,
+    getRequiredScope,
+    validateProviderScope,
+    isMutatingOrSensitiveAction,
+    formatProviderError,
+    executeWithRetry,
+    executeProviderRequest,
+    validateGithubPAT,
+    validateGithubRepo,
+    parseGithubCommits,
+    parseGithubBranches,
+    getAccountScopedKey,
+    validateGoogleTokenFreshness,
+    formatGoogleRefreshTokenRequest,
+    isolateMultiAccountSession,
+    validateTelegramToken,
+    validateTelegramWebhookLease,
+    isTelegramRateLimited,
+    deduplicateKVEntries,
+    resolveRoutineConflicts,
+    isMcpServerEnabled,
+    formatMcpToolCall,
+    validateMcpToolApproval,
+    createSyncLock,
+    cleanMemoryState,
     resolveProviderModelId,
     recordModelTokenAndCostUsage,
     isAppGenuinelyConnected
