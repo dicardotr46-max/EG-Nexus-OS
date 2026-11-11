@@ -96,9 +96,9 @@ def main():
     if out_path.exists():
         try:
             existing = json.loads(out_path.read_text())
-            for extra_k in ['test_summary', 'coverage_summary', 'npm_audit']:
-                if extra_k in existing and extra_k not in report:
-                    report[extra_k] = existing[extra_k]
+            for extra_k, extra_v in existing.items():
+                if extra_k not in report:
+                    report[extra_k] = extra_v
         except Exception:
             pass
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
