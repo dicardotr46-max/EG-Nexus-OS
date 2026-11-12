@@ -1,50 +1,43 @@
-# 🚀 EG Nexus OS v5.8 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v5.9 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/amirrezas/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/amirrezas/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-22.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-415%20passing-success.svg)](https://github.com/amirrezas/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-455%20passing-success.svg)](https://github.com/amirrezas/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/amirrezas/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**EG Nexus OS v5.8.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با حل کامل ترتیب کش گریدل در CI، جلوگیری قطعی از قرنطینه‌سازی کلیدهای AES-GCM در هنگام بوت سینک مرورگر، یکپارچه‌سازی پروکسی وضعیت و سینگلتون‌های تایید، تقویت سازوکار ادغام نسخه‌ها (Revision Merge) و فهرست مجاز سخت‌گیرانه URL، ایزوله‌سازی پیشرفته کلیدهای سشن در حافظه بر پایه Symbol و IndexedDB بدون نشت بذر کلید در دیسک، حذف قطعی Math.random و جایگزینی با CSPRNG صلب شکست‌بسته (Fail-Closed)، ایمن‌سازی لایه پاک‌سازی ورودی‌ها علیه دور زدن کاراکترهای کنترلی و مسدودسازی SSRF متادیتای ابری، پین‌کردن ۴۰ کاراکتری تمام اکشن‌های خط لوله CI/CD با کش‌گذاری بهینه، حذف افشای پسورد و بیش از **۴۱۵ تست خودکار Jest در ۱۹ سوئیت** با آستانه پوشش بالا منتشر شده است.
+**EG Nexus OS v5.9.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با رفع قطعی حلقه بازگشتی بی‌نهایت در فاز ۴، مهاجرت کاملاً همگام وضعیت در `loadState`، حذف سایه‌زنی متغیرها و اتصال به ۱۴ کلید سراسری `API_KEY_NAMES`، پشتیبانی از پاک‌سازی کلیدهای تکی با رشته خالی `""` ضمن حفظ به‌روزرسانی‌های جزئی (Partial Updates)، ماندگاری توکن‌های نوسازی OAuth (`refreshToken`) پس از ریلود صفحه، اعتبارسنجی شکست‌بسته (Fail-Closed) حوزه‌های دسترسی در `executeProviderRequest`، پاک‌سازی و سرکوب قطعی روتین‌های زامبی در `mergeStateWithRevision`، مقاوم‌سازی چندلایه در برابر SSRF (مسدودسازی `/\evil.com`، `http:evil.com`، رنج‌های RFC 1918، CGNAT و متادیتای ابری IPv4/IPv6)، خنثی‌سازی چندمرحله‌ای تزریق پرامپت تودرتو و براکت‌های تمام‌عرض، ارزیابی کامل هر ۵ بلوک `<script>` داخل تست‌های DOM و بیش از **۴۵۵ تست خودکار Jest در ۲۱ سوئیت** با آستانه پوشش بالا منتشر شده است.
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v5.8.0
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v5.9.0
 
-### ۱. تک‌منبعی شدن کلیدهای ذخیره‌سازی، یکپارچگی پروکسی وضعیت و حاکمیت تاییدات
-- **تک‌منبعی سازی `STORAGE_KEYS`:** تمامی کلیدهای سراسری ذخیره‌سازی منحصراً در `src/core/state.js` به عنوان Single Source of Truth متمرکز شده و سایر ماژول‌ها (`persistence.js`، `sanitization.js`، `approvals.js`، `secrets.js`) آن را به صورت امن از شیء هسته یا فضای سراسری استعلام می‌کنند.
-- **خنثی‌سازی بدون خطای آلودگی پیش‌نمونه (Neutralize without TypeError):** تله‌های `set` و `defineProperty` در پروکسی وضعیت، کلیدهای خطرناک نظیر `__proto__` و `constructor` را بدون پرتاب استثنا در حالت `'use strict'` خنثی کرده و مقدار `true` بازمی‌گردانند.
-- **گارد تایم‌اوت در گیت تایید کاربر (`resolveApprovalGate`):** مجهز به گارد محدودیت زمانی ۳۰ ثانیه‌ای با `Promise.race` و بازنشانی تضمینی نشانگر قفل `_isResolvingApproval` در بلاک `finally`.
+### ۱. رفع قطعی سرریز پشته فاز ۴ و مهاجرت همگام وضعیت
+- **حذف حلقه بازگشتی بی‌نهایت (`RangeError: Maximum call stack size exceeded`):** بازطراحی کامل `writePhase4SessionSecrets` و `installPhase4SecretPersistenceBoundary` بدون وصله‌زدن بازگشتی متدهای سراسری ذخیره‌سازی سکرت‌ها.
+- **مهاجرت ۱۰۰٪ همگام در `loadState()`:** خواندن مستقیم وضعیت با `readSessionSecrets()` همگام و حذف وابستگی به مهاجرت‌های کلید نامعتبر `eg_nexus_phase4_session_secrets_v1`.
+- **حذف سایه‌زنی سراسری (Shadowing):** اتصال مستقیم به شیء هسته `window.NexusCore.API_KEY_NAMES` با پشتیبانی کامل از هر ۱۴ کلید رسمی هوش مصنوعی و اتصال بی‌واسطه به `window._nexusCoreSanitization`.
 
-### ۲. حفاظت کریپتوگرافی صلب و کلیدهای درون‌حافظه‌ای مبتنی بر Symbol
-- **رفع باگ قرنطینه در بوت مرورگر:** خواننده همگام `readSessionSecrets` در محیط مرورگر هرگز پی‌لودهای معتبر AES-GCM-256 را قرنطینه نکرده و با بازگرداندن `pendingAsyncHydration: true` زمینه هیدراتاسیون ناهمگام را فراهم می‌سازد.
-- **رمزنگاری ۴ توکن حیاتی باقی‌مانده:** توکن‌های `workerSecret`, `supabaseKey`, `supabaseAuthToken`, `botToken` به اسکلت رمزنگاری‌شده پیوسته و از ذخیره در LocalStorage حذف شدند.
-- **صفرسازی حافظه (`_zeroizeBuffer`):** صفرسازی ایمن بایت‌های کلید و داده‌های میانی در حافظه رم پس از اتمام عملیات کریپتوگرافی جهت مقابله با حملات Cold-boot.
+### ۲. پشتیبانی از پاک‌سازی کلیدهای تکی و ماندگاری OAuth `refreshToken`
+- **پاک‌سازی دقیق کلیدهای تکی در `_normalizeSecretsPayload`:** در صورت ارسال صریح رشته خالی `""`، کلید مورد نظر بدون اثر گذاشتن بر سایر کلیدهای `undefined` پاک می‌شود.
+- **ماندگاری کامل `accountRefreshTokens` در چرخه ریلود:** افزودن شِما و سازوکار ذخیره‌سازی سکرت اختصاصی برای توکن‌های بازنشانی حساب‌های متصل (`refreshToken`) و هیدراتاسیون خودکار آن‌ها روی `appConnections[id].accounts[i].refreshToken`.
+- **به‌روزرسانی همگام کش مرورگر در `writeSessionSecrets`:** ذخیره فوری اسنپ‌شات در `_cachedSessionSecrets` در محیط مرورگر بدون افزایش تکراری `writeRevision`.
 
-### ۳. صف هم‌زمانی ترتیبی سکرت‌ها و اسنپ‌شات تغییرناپذیر
-- **صف ترتیبی `queueSessionSecretsWrite` و `writeEpoch`:** ثبت اسنپ‌شات تغییرناپذیر عمیق در لحظه فراخوانی جهت جلوگیری قطعی از شرایط مسابقه (Race Condition)، اعتبارسنجی ۱۲ بایتی IV و داده‌های احراز هویت اضافی (AAD).
-- **گزارش سلامت خزانه‌داری (`getSecretVaultHealth`):** گزارش دقیق وضعیت سخت‌افزاری و توانایی‌های کریپتوگرافی محیط اجرا (`idb-hardware-backed`، `session-memory-only`، یا `degraded`).
+### ۳. بررسی شکست‌بسته حوزه‌ها (Scope Checking) و حذف روتین‌های زامبی
+- **اعتبارسنجی حوزه‌های دسترسی با `getRequiredScope`:** استعلام حوزه‌های الزامی در `executeProviderRequest` و بازگرداندن وضعیت `403 SCOPE_INSUFFICIENT` در صورت فقدان یا ناکافی بودن حوزه‌های اعطا شده (`grantedScopes`).
+- **سرکوب قطعی روتین‌های زامبی در `mergeStateWithRevision`:** ادغام دوطرفه `deletedRoutineIds` و `deletedRoutineMeta` و فیلتر کردن قطعی روتین‌های حذف‌شده در ادغام وضعیت ابری.
+- **بررسی نمادها علیه آلودگی پیش‌نمونه (Symbol Prototype Pollution):** بررسی عمیق تمام کلیدهای نمادین `Object.getOwnPropertySymbols(val)` در تابع `hasDangerousKeysDeep`.
+- **بازنشانی فوری گیت تایید کاربر:** تنظیم فوری `_isResolvingApproval = false` در صورت وجود موارد باقی‌مانده در صف تاییدات جهت جلوگیری از نادیده گرفته شدن کلیک‌های کاربر.
 
-### ۴. ایمن‌سازی لایه پاک‌سازی ورودی‌ها و مسدودسازی SSRF متادیتای ابری
-- **مقاوم‌سازی `sanitizeSafeUrl` و `sanitizeHttpUrl`:** مسدودسازی قطعی دسترسی به متادیتای ارائه‌دهندگان ابری (`169.254.169.254`, `metadata.google.internal`, `instance-data`) و پشتیبانی از فیلتر آدرس‌های loopback.
-- **پالایش کاراکترهای مخفی با `INVISIBLE_FORMAT_CHARS_RE`:** حذف کامل کاراکترهای کنترلی مخفی یونیکد و فاصله‌های بدون عرض.
-- **تزریق سیاست امنیتی محتوا (CSP):** درج خودکار متاتگ CSP در پیش‌نمایش‌های زنده `srcdoc` در استودیو.
+### ۴. مقاوم‌سازی لایه ضد SSRF و پاک‌سازی تزریق پرامپت تودرتو
+- **مقاوم‌سازی `sanitizeSafeUrl` و `sanitizeHttpUrl`:** مسدودسازی قطعی بک‌اسلش (`/\evil.com` و مسیرهای مشکوک)، مسدودسازی طرح‌های فاقد دو اسلش (`http:evil.com`)، نرمال‌سازی براکت‌های IPv6، مسدودسازی رنج‌های خصوصی RFC 1918، شبکه CGNAT، آدرس‌های محلی IPv6 و پسوندهای داخلی (`.local`, `.internal`, `.lan`).
+- **خنثی‌سازی تگ‌های تزریق پرامپت تودرتو و چندمرحله‌ای:** تبدیل براکت‌های تمام‌عرض یونیکد (`［ ］ ＜ ＞`) به اسکی و اجرای حلقه‌ای پاک‌سازی تا محو کامل تمامی برچسب‌های مخفی نظیر `[AUTO_BRAIN` و `[OPTIONS:`.
 
-### ۵. اصلاح ترتیب کش گریدل در CI/CD و انتشارات تغییرناپذیر (Immutable Tags)
-- **اصلاح ترتیب کش Gradle (رفع شکست بیلد #130):** انتقال گام کش‌گذاری Gradle به پس از ایجاد پوشه اندروید توسط `npx cap sync android`.
-- **پاک‌سازی و امحای امن کلید (Keystore Shredding Trap):** پاک‌سازی و خرد کردن فایل کلید امضا با `trap ... EXIT` حتی در صورت شکست پایپ‌لاین.
-- **تولید سند اثبات اصالت بیلد (`dist/sbom-provenance.json`):** ثبت متادیتا و جزئیات امنیتی بسته بیلد شده.
-
-### ۶. مجموعه تست‌های جامع ۴۱۵ تایی در ۱۹ سوئیت با پوشش بالا
-- بیش از **۴۱۵ تست خودکار Jest** در ۱۹ سوئیت تست مجزا با ۱۰۰٪ قبولی و بدون هیچ شکستگی رفتاری.
-- آستانه پوشش کد (Coverage Gate) در بالاترین سطح کیفی:
-  - **پوشش توابع (Functions):** ۹۳.۷۲٪ (حداقل الزامی: ۸۵٪)
-  - **پوشش خطوط (Lines):** ۹۰.۶۸٪ (حداقل الزامی: ۸۵٪)
-  - **پوشش دستورات (Statements):** ۸۸.۹۲٪ (حداقل الزامی: ۸۵٪)
-  - **پوشش شرط‌ها (Branches):** ۸۰.۷۱٪ (حداقل الزامی: ۸۰٪)
+### ۵. ارزیابی کامل هر ۵ اسکریپت در تست‌های DOM و بیلد CI/CD
+- **تست جامع ۵ بلوک اسکریپت در `runtime-dom-wiring.test.js`:** ارزیابی همزمان اسکریپت گارد اولیه، اسکریپت اصلی `nexus-main-script`، ماژول فاز ۳، ماژول فاز ۴ و فاز ۵ با شبیه‌سازی کامل Canvas 2D و ران‌تایم مرورگر بدون خطا.
+- **۲ سوئیت تست جدید و ۴۵۵ تست پاس‌شده Jest:** شامل `__tests__/v59_audit_hardening.spec.js` و `__tests__/v59_subagent3_hardening.spec.js` با پوشش فراتر از ۹۴٪ توابع و ۹۱٪ خطوط.
+- **به‌روزرسانی خط لوله CI/CD:** نام‌گذاری و تگ‌گذاری خودکار بسته اندروید به `EG-Nexus-OS-v5.9.apk` با امضای دیجیتال و تولید SBOM.
 
 ---
 
@@ -53,8 +46,8 @@
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK (تمام اکشن‌ها با SHA پین شده)
-├── __tests__/                      # مجموعه تست‌های ۴۱۵ تایی Jest (۱۹ سوئیت)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v5.9 (تمام اکشن‌ها با SHA پین شده)
+├── __tests__/                      # مجموعه تست‌های ۴۵۵ تایی Jest (۲۱ سوئیت)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
 │   ├── generateUniqueId.spec.js   # تست‌های شناسه تصادفی و آزمون‌های یکتا
@@ -62,7 +55,7 @@ EG-Nexus-OS/
 │   ├── persistence.spec.js        # تست‌های ذخیره‌سازی و مهاجرت داده‌ها
 │   ├── provider-contracts.test.js # تست‌های قراردادهای ارائه‌دهندگان هوش مصنوعی
 │   ├── pure-aes-gcm-queue.test.js # تست‌های صف همزمانی و رمزنگاری خالص NIST
-│   ├── runtime-dom-wiring.test.js # تست‌های یکپارچگی هندلرهای DOM و اینترفیس
+│   ├── runtime-dom-wiring.test.js # تست‌های یکپارچگی ۵ بلوک اسکریپت DOM و اینترفیس
 │   ├── runtime-stress.test.js     # تست‌های هم‌زمانی و مقاومت در برابر بار بالا
 │   ├── sanitization.spec.js       # تست‌های تزریق اسکریپت، پاک‌سازی URL و ضد XSS
 │   ├── secrets-reload.test.js     # تست‌های ماندگاری رمزنگاری پس از ریلود در حافظه
@@ -73,6 +66,8 @@ EG-Nexus-OS/
 │   ├── v57_audit_sanitization_security.spec.js # تست‌های تخصصی ممیزی امنیتی v5.7
 │   ├── v58_audit_hardening.spec.js # تست‌های تخصصی ممیزی امنیتی و معماری v5.8
 │   ├── v58_coverage_booster.spec.js # تست‌های عمیق پوشش انشعاب‌های هسته
+│   ├── v59_audit_hardening.spec.js # تست‌های تخصصی ممیزی امنیتی، SSRF و توکن‌های v5.9
+│   ├── v59_subagent3_hardening.spec.js # تست‌های بررسی حوزه‌ها، روتین‌های زامبی و ضد تزریق
 │   └── worker_queue.spec.js       # تست‌های صف پردازش وظایف ورکر
 ├── scripts/
 │   ├── sync-audit-report.js       # اسکریپت همگام‌ساز خودکار گزارش ممیزی با داده‌های واقعی Jest
@@ -81,15 +76,15 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها و مدیریت حالت
 │   ├── providers/                 # رجیستری ارتباط با مدل‌های هوش مصنوعی
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی و تاییدات
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v5.8.0
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v5.9.0
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
 ├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA
 ├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی
-├── package.json                   # شناسه پکیج نسخه 5.8.0 و اسکریپت‌ها
+├── package.json                   # شناسه پکیج نسخه 5.9.0 و اسکریپت‌ها
 ├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v5.9.0
 ```
 
 ---
@@ -98,8 +93,8 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/amirrezas/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v5.8.0` یا تگ متحرک `latest-apk`) را انتخاب کنید.
-3. فایل **`EG-Nexus-OS-v5.8.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
+2. آخرین نسخه منتشرشده (`v5.9.0` یا تگ متحرک `latest-apk`) را انتخاب کنید.
+3. فایل **`EG-Nexus-OS-v5.9.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است.
 
 ### روش دوم: نصب در قالب وب‌اپلیکیشن پیشرونده (PWA)
@@ -119,19 +114,6 @@ npm ci
 
 # ۲. اجرای ممیزی امنیت زنجیره تامین
 npm audit
-
-# ۳. بررسی یکپارچگی سینتکس و ساختار جاوااسکریپت
-npm run test:syntax
-
-# ۴. اجرای کامل تست‌های Jest با گزارش پوشش خط‌به‌خط
-npm test -- --runInBand --coverage
-
-# ۵. بازرسی ساختاری پایتون و شمارش متدها
-python3 full_app_audit.py
-
-# ۶. همگام‌سازی خودکار شاخص‌های رسمی ممیزی
-npm run audit:sync
-```
 
 # ۳. بررسی یکپارچگی سینتکس و ساختار جاوااسکریپت
 npm run test:syntax
@@ -169,25 +151,6 @@ sequenceDiagram
     Crypto-->>Vault: Ciphertext + AuthTag ۱۶ بایتی
     Vault->>Session: ذخیره ایمن (فاقد syncCiphertext یا کلید خام)
     Session-->>User: تایید عملیات موفق بدون نشت حافظه
-```
-
----
-
-## 🧩 نمونه استفاده از گذرگاه پلاگین (`window.NexusBus`)
-
-برای توسعه ماژول‌های دلخواه بدون دستکاری هسته اصلی:
-
-```javascript
-window.NexusBus.registerPlugin({
-  id: 'my-custom-plugin',
-  name: 'پلاگین آزمایشی من',
-  version: '1.0.0',
-  init(ctx) {
-    ctx.on('custom:ping', (payload) => {
-      ctx.showToast('پلاگین پیام را دریافت کرد: ' + payload.text);
-    });
-  }
-});
 ```
 
 ---

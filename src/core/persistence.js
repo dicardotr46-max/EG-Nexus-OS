@@ -12,6 +12,7 @@
   function syncNexusCore(target) {
     if (!target) return;
     target.NexusCore = target.NexusCore || {};
+    target.NexusCore.API_KEY_NAMES = exports.API_KEY_NAMES;
     Object.assign(target.NexusCore, exports);
     target._nexusCorePersistence = exports;
     target.NexusPersistence = exports;
@@ -37,7 +38,8 @@
         sanitization: target._nexusCoreSanitization,
         approvals: target._nexusCoreApprovals,
         providers: target._nexusCoreProviders,
-        STORAGE_KEYS
+        STORAGE_KEYS,
+        API_KEY_NAMES: exports.API_KEY_NAMES
       }
     );
     for (const key of Object.keys(exports)) {
@@ -600,14 +602,24 @@
       const primaryCloud = isRemoteNewer ? (remoteState.cloudConfig || {}) : (localState.cloudConfig || {});
       const secondaryCloud = isRemoteNewer ? (localState.cloudConfig || {}) : (remoteState.cloudConfig || {});
 
+      const mergedDeletedIds = Array.from(new Set([...(localState.cloudConfig?.deletedRoutineIds || []), ...(remoteState.cloudConfig?.deletedRoutineIds || [])]));
+      const mergedDeletedMeta = {
+        ...(localState.cloudConfig?.deletedRoutineMeta || {}),
+        ...(remoteState.cloudConfig?.deletedRoutineMeta || {})
+      };
+
       merged.cloudConfig = {
         ...secondaryCloud,
         ...primaryCloud,
+        deletedRoutineIds: mergedDeletedIds,
+        deletedRoutineMeta: mergedDeletedMeta,
         stateRevision: nextRevision,
         lastSyncAt: new Date().toISOString()
       };
 
       merged.routines = mergeArrayById('routines', localState.routines, remoteState.routines, handleConflict);
+      const deletedSet = new Set(mergedDeletedIds.map(String));
+      merged.routines = (merged.routines || []).filter(rt => rt && !deletedSet.has(String(rt.id)));
 
       if (Array.isArray(localState.conversations) || Array.isArray(remoteState.conversations)) {
         merged.conversations = mergeArrayById('conversations', localState.conversations, remoteState.conversations, handleConflict);

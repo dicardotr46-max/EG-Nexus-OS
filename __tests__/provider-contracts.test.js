@@ -398,6 +398,7 @@ describe('Provider Contracts & Resilience Suite', () => {
         providerId: 'termux',
         action: 'exec',
         token: 'bridge-token-xyz',
+        grantedScopes: ['terminal:exec'],
         approved: false,
         approvalGateHandler: ({ reason }) => {
           gateTriggered = true;
@@ -417,6 +418,7 @@ describe('Provider Contracts & Resilience Suite', () => {
         providerId: 'termux',
         action: 'exec',
         token: 'bridge-token-xyz',
+        grantedScopes: ['terminal:exec'],
         approved: true,
         executeFn: async () => ({ stdout: 'Termux bridge active (60FPS verified)' })
       });
@@ -444,6 +446,7 @@ describe('Provider Contracts & Resilience Suite', () => {
         providerId: 'github',
         action: 'commits',
         token: '',
+        grantedScopes: ['repo'],
         approved: true
       });
 

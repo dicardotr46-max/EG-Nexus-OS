@@ -80,6 +80,11 @@
     const cleaned = url.replace(INVISIBLE_FORMAT_CHARS_RE, '').trim();
     if (!cleaned) return fallback;
 
+    // Block inputs containing backslash or multiple leading slashes/backslashes
+    if (cleaned.includes('\\') || /^[\/\\]{2,}/.test(cleaned)) {
+      return fallback;
+    }
+
     // Block protocol-relative URLs
     if (/^\/\//.test(cleaned)) return fallback;
 
@@ -99,6 +104,11 @@
     const scheme = cleaned.slice(0, colonIdx).trim().toLowerCase();
     const ALLOWED_SCHEMES = new Set(['https', 'http', 'mailto', 'tel']);
     if (!ALLOWED_SCHEMES.has(scheme)) {
+      return fallback;
+    }
+
+    // Block http or https URLs lacking double slashes (e.g. "http:evil.com")
+    if ((scheme === 'http' || scheme === 'https') && !/^https?:\/\//i.test(cleaned)) {
       return fallback;
     }
 
@@ -137,6 +147,7 @@
   function sanitizeHttpUrl(rawUrl, options = {}) {
     const blockLoopback = Boolean(options && (options.blockLoopback || options.blockPrivateIps));
     const allowLocalBridge = Boolean(options && (options.allowLocalBridge || options.allowLoopback));
+    const blockPrivateIps = Boolean(options && options.blockPrivateIps);
     const raw = String(rawUrl || '').trim();
     if (!raw || /[\s"'<>\\\r\n\t]/.test(raw)) return '#';
     const u = raw.replace(INVISIBLE_FORMAT_CHARS_RE, '');
@@ -145,18 +156,66 @@
       const parsed = new URL(u);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '#';
       if (parsed.username || parsed.password) return '#';
-      const host = parsed.hostname.toLowerCase();
-      if (!host || (host !== 'localhost' && !host.includes('.'))) {
+      const rawHost = parsed.hostname.toLowerCase();
+      const host = rawHost.replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+      if (!host || (host !== 'localhost' && !host.includes('.') && !host.includes(':'))) {
         return '#';
       }
-      // Block cloud metadata SSRF
-      if (host === '169.254.169.254' || host === 'metadata.google.internal' || host === 'instance-data') {
+
+      // Block cloud metadata SSRF (IPv4 and IPv6)
+      if (
+        host === '169.254.169.254' ||
+        host === 'metadata.google.internal' ||
+        host === 'instance-data' ||
+        host === 'fd00:ec2::254' ||
+        host.startsWith('::ffff:169.254.') ||
+        host.startsWith('::ffff:a9fe:')
+      ) {
         return '#';
       }
+
       // Block loopback if requested, unless explicitly allowed
-      if (blockLoopback && !allowLocalBridge && (host === '127.0.0.1' || host === 'localhost' || host === '::1' || /^127\./.test(host))) {
-        return '#';
+      if (blockLoopback && !allowLocalBridge) {
+        if (
+          host === '0.0.0.0' ||
+          host === 'localhost' ||
+          rawHost === 'localhost.' ||
+          host.endsWith('.localhost') ||
+          host === '127.0.0.1' ||
+          /^127\./.test(host) ||
+          host === '::1' ||
+          host === '::' ||
+          host.startsWith('::ffff:127.') ||
+          host.startsWith('::ffff:7f')
+        ) {
+          return '#';
+        }
       }
+
+      // Block RFC 1918 private ranges, CGNAT, local IPv6, and suffixes
+      if (blockPrivateIps && !allowLocalBridge) {
+        if (
+          /^(?:local|internal|lan)$/i.test(host) ||
+          /\.(?:local|internal|lan)$/i.test(host)
+        ) {
+          return '#';
+        }
+
+        const ip4 = host.startsWith('::ffff:') ? host.slice(7) : host;
+        // RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+        if (/^10\./.test(ip4) || /^192\.168\./.test(ip4) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(ip4)) {
+          return '#';
+        }
+        // CGNAT: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
+        if (/^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip4)) {
+          return '#';
+        }
+        // Local IPv6: fe80: (link-local), fc / fd (unique local)
+        if (host.startsWith('fe80:') || (host.includes(':') && /^(?:fc|fd)/i.test(host))) {
+          return '#';
+        }
+      }
+
       return parsed.href;
     } catch (e) {
       return '#';
@@ -164,18 +223,23 @@
   }
 
   function sanitizeUntrustedWebSnippet(rawSnippet) {
-    let text = String(rawSnippet || '').replace(INVISIBLE_FORMAT_CHARS_RE, '');
+    let text = String(rawSnippet || '')
+      .replace(INVISIBLE_FORMAT_CHARS_RE, '')
+      .replace(/\uFF3B/g, '[')
+      .replace(/\uFF3D/g, ']')
+      .replace(/\uFF1C/g, '<')
+      .replace(/\uFF1E/g, '>');
 
     let prev;
     do {
       prev = text;
-      text = text.replace(/<\/?untrusted_web_data[^<>]*>*/gi, '');
+      text = text
+        .replace(/<\/?untrusted_web_data[^<>]*>*/gi, '')
+        .replace(/\[\s*AUTO_(?:BRAIN|SKILL)\b/gi, '[BLOCKED_WEB_TAG')
+        .replace(/\[\s*OPTIONS\s*:/gi, '[BLOCKED_WEB_OPTIONS:');
     } while (text !== prev);
 
-    return text
-      .replace(/\[\s*AUTO_(?:BRAIN|SKILL)\b/gi, '[BLOCKED_WEB_TAG')
-      .replace(/\[\s*OPTIONS\s*:/gi, '[BLOCKED_WEB_OPTIONS:')
-      .trim();
+    return text.trim();
   }
 
   function splitStringByCodePoints(str, maxCodePoints = 3800) {

@@ -508,5 +508,177 @@ describe('Secrets Real Reload Test Suite (Simulated Page Reload)', () => {
       expect(hydrated.appConnections.telegram.token).toBe('bot987654:pure-telegram-token');
       expect(hydrated.localComputerConfig.bridgeToken).toBe('pure-bridge-hydrate');
     });
+
+    describe('v5.9.0 Hardening: Key Clearing, RefreshToken Persistence, and Sync Cache Update', () => {
+      test('Requirement 1: _normalizeSecretsPayload supports clearing individual keys and preserving undefined fields', () => {
+        const secrets = require('../src/security/secrets.js');
+        const existing = {
+          version: secrets.SESSION_SECRETS_SCHEMA_VERSION,
+          initialized: true,
+          apiKeys: { gemini: 'existing-gemini', openai: 'existing-openai', deepseek: 'existing-deepseek' },
+          connectionTokens: { github: 'ghp_existing', slack: 'xoxb_existing' },
+          accountTokens: { google_acc1: 'ya29.old', google_acc2: 'ya29.keep' },
+          accountRefreshTokens: { google_acc1: '1//ref_old', google_acc2: '1//ref_keep' },
+          bridgeToken: 'existing-bridge',
+          workerSecret: 'existing-worker',
+          supabaseKey: 'existing-sb-key',
+          supabaseAuthToken: 'existing-sb-auth',
+          botToken: 'existing-bot'
+        };
+
+        // 1. Partial update: clear gemini, set new deepseek, leave openai undefined
+        const partialClear = {
+          apiKeys: { gemini: '', deepseek: 'new-deepseek' },
+          connectionTokens: { github: '' },
+          accountTokens: { google_acc1: '' },
+          accountRefreshTokens: { google_acc1: '' },
+          bridgeToken: '',
+          cloudConfig: { workerSecret: '' },
+          telegramConfig: { botToken: '' }
+        };
+
+        const normalized = secrets._normalizeSecretsPayload(partialClear, existing);
+
+        // Cleared keys are cleared
+        expect(normalized.apiKeys.gemini).toBe('');
+        expect(normalized.connectionTokens.github).toBeUndefined();
+        expect(normalized.accountTokens.google_acc1).toBeUndefined();
+        expect(normalized.accountRefreshTokens.google_acc1).toBeUndefined();
+        expect(normalized.bridgeToken).toBe('');
+        expect(normalized.workerSecret).toBe('');
+        expect(normalized.botToken).toBe('');
+
+        // Undefined fields are preserved from existing
+        expect(normalized.apiKeys.openai).toBe('existing-openai');
+        expect(normalized.apiKeys.deepseek).toBe('new-deepseek');
+        expect(normalized.connectionTokens.slack).toBe('xoxb_existing');
+        expect(normalized.accountTokens.google_acc2).toBe('ya29.keep');
+        expect(normalized.accountRefreshTokens.google_acc2).toBe('1//ref_keep');
+        expect(normalized.supabaseKey).toBe('existing-sb-key');
+        expect(normalized.supabaseAuthToken).toBe('existing-sb-auth');
+      });
+
+      test('Requirement 1b: appConnections deletions and token clearings correctly clear connectionTokens and accountTokens', () => {
+        const secrets = require('../src/security/secrets.js');
+        const existing = {
+          version: secrets.SESSION_SECRETS_SCHEMA_VERSION,
+          initialized: true,
+          apiKeys: {},
+          connectionTokens: { github: 'ghp_old', google: 'goog_old' },
+          accountTokens: { github_user1: 'gh_u1', google_acc1: 'goog_u1' },
+          accountRefreshTokens: { google_acc1: 'goog_ref1' },
+          bridgeToken: '',
+          workerSecret: '',
+          supabaseKey: '',
+          supabaseAuthToken: '',
+          botToken: ''
+        };
+
+        // github is completely omitted from appConnections (deleted by user), google token cleared
+        const appState = {
+          appConnections: {
+            google: {
+              token: '',
+              accounts: [
+                { id: 'acc1', token: '', refreshToken: '' }
+              ]
+            }
+          }
+        };
+
+        const normalized = secrets._normalizeSecretsPayload(appState, existing);
+        expect(normalized.connectionTokens.github).toBeUndefined();
+        expect(normalized.accountTokens.github_user1).toBeUndefined();
+        expect(normalized.connectionTokens.google).toBeUndefined();
+        expect(normalized.accountTokens.google_acc1).toBeUndefined();
+        expect(normalized.accountRefreshTokens.google_acc1).toBeUndefined();
+      });
+
+      test('Requirement 2: OAuth refreshToken is preserved across page reload and restored to appConnections accounts', async () => {
+        const secretsC1 = require('../src/security/secrets.js');
+        const persistence = require('../src/core/persistence.js');
+
+        const liveAppState = {
+          apiKeys: { gemini: 'AIzaSy-OAuth-Test' },
+          appConnections: {
+            google: {
+              token: 'ya29.main-google-token',
+              accounts: [
+                { id: 'user_work', email: 'work@nexus.os', token: 'ya29.work-access-token', refreshToken: '1//secret-refresh-work' },
+                { id: 'user_home', email: 'home@nexus.os', token: 'ya29.home-access-token', refreshToken: '1//secret-refresh-home' }
+              ]
+            }
+          }
+        };
+
+        // Write session secrets
+        const writeOk = secretsC1.writeSessionSecrets(liveAppState, sharedSessionStorage);
+        expect(writeOk).toBe(true);
+
+        // Verify that buildPersistedState (which goes to localStorage) indeed strips refreshToken
+        const persistedState = persistence.buildPersistedState(liveAppState);
+        expect(persistedState.appConnections.google.accounts[0].refreshToken).toBe('');
+        expect(persistedState.appConnections.google.accounts[1].refreshToken).toBe('');
+
+        // Wipe RAM (simulate page reload)
+        jest.resetModules();
+
+        // New context after reload
+        const secretsC2 = require('../src/security/secrets.js');
+        const readSync = secretsC2.readSessionSecrets(sharedSessionStorage);
+        expect(readSync.accountRefreshTokens.google_user_work).toBe('1//secret-refresh-work');
+        expect(readSync.accountRefreshTokens.user_work).toBe('1//secret-refresh-work');
+        expect(readSync.accountRefreshTokens.google_user_home).toBe('1//secret-refresh-home');
+
+        // Apply session secrets to the stripped persistedState
+        const rehydratedState = secretsC2.applySessionSecrets(persistedState, sharedSessionStorage);
+        expect(rehydratedState.appConnections.google.accounts[0].token).toBe('ya29.work-access-token');
+        expect(rehydratedState.appConnections.google.accounts[0].refreshToken).toBe('1//secret-refresh-work');
+        expect(rehydratedState.appConnections.google.accounts[1].token).toBe('ya29.home-access-token');
+        expect(rehydratedState.appConnections.google.accounts[1].refreshToken).toBe('1//secret-refresh-home');
+
+        // Also test async reload path
+        jest.resetModules();
+        const secretsC3 = require('../src/security/secrets.js');
+        const readAsync = await secretsC3.readSessionSecretsAsync(sharedSessionStorage);
+        expect(readAsync.accountRefreshTokens.google_user_work).toBe('1//secret-refresh-work');
+
+        const rehydratedAsync = await secretsC3.applySessionSecretsAsync(persistedState, sharedSessionStorage);
+        expect(rehydratedAsync.appConnections.google.accounts[0].refreshToken).toBe('1//secret-refresh-work');
+      });
+
+      test('Requirement 3: writeSessionSecrets synchronously updates _cachedSessionSecrets and prevents double revision increment in browser environment', () => {
+        const secrets = require('../src/security/secrets.js');
+        secrets.resetSessionWriteQueue();
+
+        // Simulate browser environment without nodeCrypto
+        const origGetNodeCrypto = secrets._getNodeCrypto;
+        secrets._getNodeCrypto = () => null;
+
+        try {
+          const revBefore = secrets.getSessionWriteRevision();
+          expect(revBefore).toBe(0);
+
+          const payload = {
+            apiKeys: { grok: 'xai-browser-sync-key' },
+            bridgeToken: 'browser-sync-bridge'
+          };
+
+          const ok = secrets.writeSessionSecrets(payload, sharedSessionStorage);
+          expect(ok).toBe(true);
+
+          // Revision MUST increment exactly once (not twice!)
+          const revAfter = secrets.getSessionWriteRevision();
+          expect(revAfter).toBe(revBefore + 1);
+
+          // Synchronous read MUST return updated secrets immediately from updated _cachedSessionSecrets
+          const readImmediately = secrets.readSessionSecrets(sharedSessionStorage);
+          expect(readImmediately.apiKeys.grok).toBe('xai-browser-sync-key');
+          expect(readImmediately.bridgeToken).toBe('browser-sync-bridge');
+        } finally {
+          secrets._getNodeCrypto = origGetNodeCrypto;
+        }
+      });
+    });
   });
 });

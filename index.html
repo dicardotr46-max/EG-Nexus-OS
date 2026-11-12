@@ -725,7 +725,7 @@ body > header,
       return '<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-500/15 border border-slate-500/30 text-slate-400 font-medium app-tier-badge tier-catalog-only">Catalog-only</span>';
     }
     window.getProviderTierBadge = getProviderTierBadge;
-    const API_KEY_NAMES = ['gemini', 'deepseek', 'kimi', 'grok', 'openrouter', 'tavily'];
+    const API_KEY_NAMES = (typeof window !== 'undefined' && window.NexusCore && Array.isArray(window.NexusCore.API_KEY_NAMES)) ? window.NexusCore.API_KEY_NAMES : ['gemini', 'openrouter', 'deepseek', 'grok', 'kimi', 'tavily', 'perplx', 'openai', 'anthropic', 'google', 'groq', 'mistral', 'perplexica', 'cohere'];
     const AVATAR_COLORS = [
       { id: 'gray', hex: '#8e8e98' },
       { id: 'blue', hex: '#1d8cf8' },
@@ -1580,14 +1580,32 @@ body > header,
           );
           const phase4Verify = !hasPhase4Legacy || (function() {
             try {
-              const raw = sessionStorage.getItem('eg_nexus_phase4_session_secrets_v1');
-              const data = raw ? JSON.parse(raw) : null;
-              if (!data) return false;
-              if (parsed.cloudConfig?.workerSecret && !data.workerSecret) return false;
-              if (parsed.cloudConfig?.supabaseKey && !data.supabaseKey) return false;
-              if (parsed.cloudConfig?.supabaseAuthToken && !data.supabaseAuthToken) return false;
-              if (parsed.telegramConfig?.botToken && !data.telegramBotToken && !data.botToken) return false;
-              return true;
+              const sec = (typeof readSessionSecrets === 'function') ? readSessionSecrets() : null;
+              const rawEnv = sessionStorage.getItem(SESSION_SECRETS_KEY);
+              const env = rawEnv ? JSON.parse(rawEnv) : null;
+              const isEncryptedEnvelope = Boolean(env && (env.encrypted || (env.ciphertext && env.iv)));
+
+              if (parsed.cloudConfig?.workerSecret) {
+                const inSec = Boolean(sec?.workerSecret && String(sec.workerSecret).trim());
+                const inEnv = Boolean(env?.workerSecret && String(env.workerSecret).trim());
+                if (!inSec && !inEnv && !isEncryptedEnvelope) return false;
+              }
+              if (parsed.cloudConfig?.supabaseKey) {
+                const inSec = Boolean(sec?.supabaseKey && String(sec.supabaseKey).trim());
+                const inEnv = Boolean(env?.supabaseKey && String(env.supabaseKey).trim());
+                if (!inSec && !inEnv && !isEncryptedEnvelope) return false;
+              }
+              if (parsed.cloudConfig?.supabaseAuthToken) {
+                const inSec = Boolean(sec?.supabaseAuthToken && String(sec.supabaseAuthToken).trim());
+                const inEnv = Boolean(env?.supabaseAuthToken && String(env.supabaseAuthToken).trim());
+                if (!inSec && !inEnv && !isEncryptedEnvelope) return false;
+              }
+              if (parsed.telegramConfig?.botToken) {
+                const inSec = Boolean((sec?.botToken || sec?.telegramBotToken) && String(sec.botToken || sec.telegramBotToken).trim());
+                const inEnv = Boolean((env?.botToken || env?.telegramBotToken) && String(env.botToken || env.telegramBotToken).trim());
+                if (!inSec && !inEnv && !isEncryptedEnvelope) return false;
+              }
+              return Boolean(sec || env);
             } catch (_) { return false; }
           })();
 
@@ -1764,13 +1782,9 @@ body > header,
     window.escapeHtml = escapeHtml;
 
     function sanitizeSafeUrl(url, fallback = '#') {
-      if (!url || typeof url !== 'string') return fallback;
-      const cleaned = url.replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]+/g, '').trim();
-      if (!cleaned || /^(?:javascript|data|vbscript|file|blob):/i.test(cleaned)) {
-        return fallback;
-      }
-      return cleaned;
+      return (window._nexusCoreSanitization || window.NexusSanitization || window.NexusCore)?.sanitizeSafeUrl(url, fallback);
     }
+    window.sanitizeSafeUrl = sanitizeSafeUrl;
 
 
     // Safe escaping for string literals inside inline onclick="fn('...')" attributes
@@ -13220,21 +13234,10 @@ body > header,
 
 
     // Strict URL parser & validator (Fixes P2-W6)
-    function sanitizeHttpUrl(rawUrl) {
-      const u = String(rawUrl || '').trim();
-      if (!u || /[\s"'<>\\\r\n\t]/.test(u)) return '#';
-      try {
-        const parsed = new URL(u);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '#';
-        if (parsed.username || parsed.password) return '#';
-        if (!parsed.hostname || !parsed.hostname.includes('.')) {
-          if (parsed.hostname !== 'localhost') return '#';
-        }
-        return parsed.href;
-      } catch (e) {
-        return '#';
-      }
+    function sanitizeHttpUrl(rawUrl, options) {
+      return (window._nexusCoreSanitization || window.NexusSanitization || window.NexusCore)?.sanitizeHttpUrl(rawUrl, options);
     }
+    window.sanitizeHttpUrl = sanitizeHttpUrl;
 
 
     // Privacy & SSRF Guard for user URLs before forwarding to third-party Jina Reader (Fixes Audit #21 & P2-C12)
@@ -20737,13 +20740,14 @@ function readPhase4SessionSecrets() {
 function writePhase4SessionSecrets(state) {
   try {
     sessionStorage.removeItem(PHASE4_SESSION_SECRETS_KEY);
-    const queueFn = (typeof queueSessionSecretsWrite === 'function')
-      ? queueSessionSecretsWrite
-      : ((typeof window !== 'undefined' && window.NexusSecrets?.queueSessionSecretsWrite) ? window.NexusSecrets.queueSessionSecretsWrite : null);
+    const coreSecrets = (typeof window !== 'undefined')
+      ? (window._nexusCoreSecrets || window.NexusSecrets || window.NexusCore)
+      : null;
+    const queueFn = coreSecrets?.queueSessionSecretsWrite;
     if (typeof queueFn === 'function') {
       queueFn(state).catch(() => {});
-    } else if (typeof writeSessionSecrets === 'function') {
-      writeSessionSecrets(state);
+    } else if (typeof coreSecrets?.writeSessionSecrets === 'function') {
+      coreSecrets.writeSessionSecrets(state);
     }
     return true;
   } catch (err) { return false; }
@@ -20761,36 +20765,7 @@ function applyPhase4SessionSecrets() {
 }
 function installPhase4SecretPersistenceBoundary() {
   if (typeof window === 'undefined' || window._phase4SecretPersistenceBoundary) return;
-  if (typeof window.buildPersistedState !== 'function' || typeof window.writeSessionSecrets !== 'function') return;
   window._phase4SecretPersistenceBoundary = true;
-  const priorBuild = window.buildPersistedState;
-  const priorSessionWrite = window.writeSessionSecrets;
-  window.buildPersistedState = function phase4BuildPersistedState(...args) {
-    const persisted = priorBuild.apply(this, args);
-    if (persisted?.cloudConfig) persisted.cloudConfig = { ...persisted.cloudConfig,
-      workerSecret: '', supabaseKey: '', supabaseAuthToken: '' };
-    if (persisted?.telegramConfig) persisted.telegramConfig = { ...persisted.telegramConfig, botToken: '' };
-    return persisted;
-  };
-  window.writeSessionSecrets = function phase4WriteSessionSecrets(state, ...args) {
-    if (!writePhase4SessionSecrets(state)) return false;
-    return priorSessionWrite.call(this, state, ...args);
-  };
-  const priorWriteAsync = window.writeSessionSecretsAsync;
-  if (typeof priorWriteAsync === 'function') {
-    window.writeSessionSecretsAsync = async function phase4WriteSessionSecretsAsync(state, ...args) {
-      if (!writePhase4SessionSecrets(state)) return false;
-      return priorWriteAsync.call(this, state, ...args);
-    };
-  }
-  const priorQueueWrite = window.queueSessionSecretsWrite;
-  if (typeof priorQueueWrite === 'function') {
-    window.queueSessionSecretsWrite = async function phase4QueueSessionSecretsWrite(state, ...args) {
-      writePhase4SessionSecrets(state);
-      return priorQueueWrite.call(this, state, ...args);
-    };
-  }
-  // Empty saved values intentionally override old disk credentials too.
   applyPhase4SessionSecrets();
 }
 window.installPhase4SecretPersistenceBoundary = installPhase4SecretPersistenceBoundary;

@@ -710,6 +710,7 @@
       apiKeys: emptyApiKeys(),
       connectionTokens: {},
       accountTokens: {},
+      accountRefreshTokens: {},
       bridgeToken: '',
       workerSecret: '',
       supabaseKey: '',
@@ -756,6 +757,16 @@
     const out = _createEmptySessionSecrets();
     out.initialized = true;
 
+    if (stateOrSecrets._rawInput) {
+      out._rawInput = stateOrSecrets._rawInput;
+    } else {
+      try {
+        out._rawInput = JSON.parse(JSON.stringify(stateOrSecrets));
+      } catch (_) {
+        out._rawInput = { ...stateOrSecrets };
+      }
+    }
+
     const keyList = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
       ? globalThis.API_KEY_NAMES
       : API_KEY_NAMES;
@@ -793,6 +804,13 @@
         }
       });
     }
+    if (stateOrSecrets.accountRefreshTokens && typeof stateOrSecrets.accountRefreshTokens === 'object' && !Array.isArray(stateOrSecrets.accountRefreshTokens)) {
+      Object.keys(stateOrSecrets.accountRefreshTokens).forEach(id => {
+        if (typeof id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(id) && typeof stateOrSecrets.accountRefreshTokens[id] === 'string') {
+          out.accountRefreshTokens[id] = stateOrSecrets.accountRefreshTokens[id].trim();
+        }
+      });
+    }
 
     if (stateOrSecrets.appConnections && typeof stateOrSecrets.appConnections === 'object' && !Array.isArray(stateOrSecrets.appConnections)) {
       Object.keys(stateOrSecrets.appConnections).forEach(id => {
@@ -803,10 +821,16 @@
         }
         if (conn && Array.isArray(conn.accounts)) {
           conn.accounts.forEach(acc => {
-            if (acc && typeof acc.id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(acc.id) && typeof acc.token === 'string' && acc.token.trim()) {
+            if (acc && typeof acc.id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(acc.id)) {
               const scopedKey = acc.id.startsWith(id + '_') ? acc.id : `${id}_${acc.id}`;
-              out.accountTokens[scopedKey] = acc.token.trim();
-              out.accountTokens[acc.id] = acc.token.trim();
+              if (typeof acc.token === 'string' && acc.token.trim()) {
+                out.accountTokens[scopedKey] = acc.token.trim();
+                out.accountTokens[acc.id] = acc.token.trim();
+              }
+              if (typeof acc.refreshToken === 'string' && acc.refreshToken.trim()) {
+                out.accountRefreshTokens[scopedKey] = acc.refreshToken.trim();
+                out.accountRefreshTokens[acc.id] = acc.refreshToken.trim();
+              }
             }
           });
         }
@@ -852,6 +876,7 @@
     const copy = _createEmptySessionSecrets();
     if (secrets && typeof secrets === 'object') {
       _populateResultFromDecrypted(copy, secrets);
+      if (secrets._rawInput) copy._rawInput = secrets._rawInput;
     }
     return copy;
   }
@@ -933,6 +958,14 @@
       });
     }
 
+    if (dec.accountRefreshTokens && typeof dec.accountRefreshTokens === 'object' && !Array.isArray(dec.accountRefreshTokens)) {
+      Object.keys(dec.accountRefreshTokens).forEach(accId => {
+        if (typeof accId === 'string' && !['__proto__', 'constructor', 'prototype'].includes(accId) && typeof dec.accountRefreshTokens[accId] === 'string') {
+          result.accountRefreshTokens[accId] = dec.accountRefreshTokens[accId].trim();
+        }
+      });
+    }
+
     if (typeof dec.bridgeToken === 'string' && dec.bridgeToken.trim()) {
       result.bridgeToken = dec.bridgeToken.trim();
     }
@@ -954,12 +987,34 @@
   }
 
   function _normalizeSecretsPayload(stateOrSecrets, existing) {
+    const rawInput = (stateOrSecrets && typeof stateOrSecrets === 'object' && stateOrSecrets._rawInput)
+      ? stateOrSecrets._rawInput
+      : ((stateOrSecrets && typeof stateOrSecrets === 'object') ? stateOrSecrets : {});
     const extracted = _extractSecretsInput(stateOrSecrets);
     const existingSafe = (existing && typeof existing === 'object') ? existing : _createEmptySessionSecrets();
+
+    const keyList = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
+      ? globalThis.API_KEY_NAMES
+      : API_KEY_NAMES;
+
     const mergedApiKeys = { ...(existingSafe.apiKeys || {}) };
     Object.keys(extracted.apiKeys || {}).forEach(k => {
       if (typeof extracted.apiKeys[k] === 'string' && extracted.apiKeys[k].trim()) {
         mergedApiKeys[k] = extracted.apiKeys[k].trim();
+      }
+    });
+
+    // Clear individual apiKeys explicitly set to empty string in rawInput
+    if (rawInput.apiKeys && typeof rawInput.apiKeys === 'object' && !Array.isArray(rawInput.apiKeys)) {
+      Object.keys(rawInput.apiKeys).forEach(k => {
+        if (rawInput.apiKeys[k] === '' || (typeof rawInput.apiKeys[k] === 'string' && !rawInput.apiKeys[k].trim())) {
+          mergedApiKeys[k] = '';
+        }
+      });
+    }
+    keyList.forEach(k => {
+      if (rawInput[k] === '' || (typeof rawInput[k] === 'string' && !rawInput[k].trim())) {
+        mergedApiKeys[k] = '';
       }
     });
 
@@ -970,6 +1025,30 @@
       }
     });
 
+    // Clear connectionTokens explicitly set to empty or null
+    if (rawInput.connectionTokens && typeof rawInput.connectionTokens === 'object' && !Array.isArray(rawInput.connectionTokens)) {
+      Object.keys(rawInput.connectionTokens).forEach(id => {
+        if (rawInput.connectionTokens[id] === '' || (typeof rawInput.connectionTokens[id] === 'string' && !rawInput.connectionTokens[id].trim()) || rawInput.connectionTokens[id] === null) {
+          delete mergedConnTokens[id];
+        }
+      });
+    }
+
+    // Handle appConnections: clear or deleted connections
+    if (rawInput.appConnections && typeof rawInput.appConnections === 'object' && !Array.isArray(rawInput.appConnections)) {
+      Object.keys(mergedConnTokens).forEach(id => {
+        if (!(id in rawInput.appConnections)) {
+          delete mergedConnTokens[id];
+        }
+      });
+      Object.keys(rawInput.appConnections).forEach(id => {
+        const conn = rawInput.appConnections[id];
+        if (!conn || conn.token === '' || (typeof conn.token === 'string' && !conn.token.trim()) || conn.token === null) {
+          delete mergedConnTokens[id];
+        }
+      });
+    }
+
     const mergedAccountTokens = { ...(existingSafe.accountTokens || {}) };
     Object.keys(extracted.accountTokens || {}).forEach(k => {
       if (typeof extracted.accountTokens[k] === 'string' && extracted.accountTokens[k].trim()) {
@@ -977,17 +1056,127 @@
       }
     });
 
+    const mergedAccountRefreshTokens = { ...(existingSafe.accountRefreshTokens || {}) };
+    Object.keys(extracted.accountRefreshTokens || {}).forEach(k => {
+      if (typeof extracted.accountRefreshTokens[k] === 'string' && extracted.accountRefreshTokens[k].trim()) {
+        mergedAccountRefreshTokens[k] = extracted.accountRefreshTokens[k].trim();
+      }
+    });
+
+    // Clear accountTokens / accountRefreshTokens explicitly set to empty in rawInput
+    if (rawInput.accountTokens && typeof rawInput.accountTokens === 'object' && !Array.isArray(rawInput.accountTokens)) {
+      Object.keys(rawInput.accountTokens).forEach(id => {
+        if (rawInput.accountTokens[id] === '' || (typeof rawInput.accountTokens[id] === 'string' && !rawInput.accountTokens[id].trim()) || rawInput.accountTokens[id] === null) {
+          delete mergedAccountTokens[id];
+        }
+      });
+    }
+
+    if (rawInput.accountRefreshTokens && typeof rawInput.accountRefreshTokens === 'object' && !Array.isArray(rawInput.accountRefreshTokens)) {
+      Object.keys(rawInput.accountRefreshTokens).forEach(id => {
+        if (rawInput.accountRefreshTokens[id] === '' || (typeof rawInput.accountRefreshTokens[id] === 'string' && !rawInput.accountRefreshTokens[id].trim()) || rawInput.accountRefreshTokens[id] === null) {
+          delete mergedAccountRefreshTokens[id];
+        }
+      });
+    }
+
+    // Handle account clearing / deletion in appConnections
+    if (rawInput.appConnections && typeof rawInput.appConnections === 'object' && !Array.isArray(rawInput.appConnections)) {
+      Object.keys(existingSafe.connectionTokens || {}).forEach(id => {
+        if (!(id in rawInput.appConnections)) {
+          Object.keys(mergedAccountTokens).forEach(accKey => {
+            if (accKey.startsWith(id + '_')) delete mergedAccountTokens[accKey];
+          });
+          Object.keys(mergedAccountRefreshTokens).forEach(accKey => {
+            if (accKey.startsWith(id + '_')) delete mergedAccountRefreshTokens[accKey];
+          });
+        }
+      });
+
+      Object.keys(rawInput.appConnections).forEach(id => {
+        const conn = rawInput.appConnections[id];
+        if (conn && Array.isArray(conn.accounts)) {
+          conn.accounts.forEach(acc => {
+            if (acc && typeof acc.id === 'string') {
+              const scopedKey = acc.id.startsWith(id + '_') ? acc.id : `${id}_${acc.id}`;
+              if (acc.token === '' || (typeof acc.token === 'string' && !acc.token.trim()) || acc.token === null) {
+                delete mergedAccountTokens[scopedKey];
+                delete mergedAccountTokens[acc.id];
+              }
+              if (acc.refreshToken === '' || (typeof acc.refreshToken === 'string' && !acc.refreshToken.trim()) || acc.refreshToken === null) {
+                delete mergedAccountRefreshTokens[scopedKey];
+                delete mergedAccountRefreshTokens[acc.id];
+              }
+            }
+          });
+        }
+      });
+    }
+
+    // Scalar fields
+    let bridgeToken = existingSafe.bridgeToken || '';
+    if (extracted.bridgeToken) {
+      bridgeToken = extracted.bridgeToken;
+    } else if (rawInput.bridgeToken === '' || (typeof rawInput.bridgeToken === 'string' && !rawInput.bridgeToken.trim())) {
+      bridgeToken = '';
+    } else if (rawInput.localComputerConfig && typeof rawInput.localComputerConfig === 'object' &&
+               (rawInput.localComputerConfig.bridgeToken === '' || (typeof rawInput.localComputerConfig.bridgeToken === 'string' && !rawInput.localComputerConfig.bridgeToken.trim()))) {
+      bridgeToken = '';
+    }
+
+    let workerSecret = existingSafe.workerSecret || '';
+    if (extracted.workerSecret) {
+      workerSecret = extracted.workerSecret;
+    } else if (rawInput.workerSecret === '' || (typeof rawInput.workerSecret === 'string' && !rawInput.workerSecret.trim())) {
+      workerSecret = '';
+    } else if (rawInput.cloudConfig && typeof rawInput.cloudConfig === 'object' &&
+               (rawInput.cloudConfig.workerSecret === '' || (typeof rawInput.cloudConfig.workerSecret === 'string' && !rawInput.cloudConfig.workerSecret.trim()))) {
+      workerSecret = '';
+    }
+
+    let supabaseKey = existingSafe.supabaseKey || '';
+    if (extracted.supabaseKey) {
+      supabaseKey = extracted.supabaseKey;
+    } else if (rawInput.supabaseKey === '' || (typeof rawInput.supabaseKey === 'string' && !rawInput.supabaseKey.trim())) {
+      supabaseKey = '';
+    } else if (rawInput.cloudConfig && typeof rawInput.cloudConfig === 'object' &&
+               (rawInput.cloudConfig.supabaseKey === '' || (typeof rawInput.cloudConfig.supabaseKey === 'string' && !rawInput.cloudConfig.supabaseKey.trim()))) {
+      supabaseKey = '';
+    }
+
+    let supabaseAuthToken = existingSafe.supabaseAuthToken || '';
+    if (extracted.supabaseAuthToken) {
+      supabaseAuthToken = extracted.supabaseAuthToken;
+    } else if (rawInput.supabaseAuthToken === '' || (typeof rawInput.supabaseAuthToken === 'string' && !rawInput.supabaseAuthToken.trim())) {
+      supabaseAuthToken = '';
+    } else if (rawInput.cloudConfig && typeof rawInput.cloudConfig === 'object' &&
+               (rawInput.cloudConfig.supabaseAuthToken === '' || (typeof rawInput.cloudConfig.supabaseAuthToken === 'string' && !rawInput.cloudConfig.supabaseAuthToken.trim()))) {
+      supabaseAuthToken = '';
+    }
+
+    let botToken = existingSafe.botToken || '';
+    if (extracted.botToken) {
+      botToken = extracted.botToken;
+    } else if (rawInput.botToken === '' || (typeof rawInput.botToken === 'string' && !rawInput.botToken.trim()) ||
+               rawInput.telegramBotToken === '' || (typeof rawInput.telegramBotToken === 'string' && !rawInput.telegramBotToken.trim())) {
+      botToken = '';
+    } else if (rawInput.telegramConfig && typeof rawInput.telegramConfig === 'object' &&
+               (rawInput.telegramConfig.botToken === '' || (typeof rawInput.telegramConfig.botToken === 'string' && !rawInput.telegramConfig.botToken.trim()))) {
+      botToken = '';
+    }
+
     const secrets = {
       version: SESSION_SECRETS_SCHEMA_VERSION,
       initialized: true,
       apiKeys: mergedApiKeys,
       connectionTokens: mergedConnTokens,
       accountTokens: mergedAccountTokens,
-      bridgeToken: extracted.bridgeToken || existingSafe.bridgeToken || '',
-      workerSecret: extracted.workerSecret || existingSafe.workerSecret || '',
-      supabaseKey: extracted.supabaseKey || existingSafe.supabaseKey || '',
-      supabaseAuthToken: extracted.supabaseAuthToken || existingSafe.supabaseAuthToken || '',
-      botToken: extracted.botToken || existingSafe.botToken || ''
+      accountRefreshTokens: mergedAccountRefreshTokens,
+      bridgeToken,
+      workerSecret,
+      supabaseKey,
+      supabaseAuthToken,
+      botToken
     };
     return secrets;
   }
@@ -1223,12 +1412,12 @@
   }
 
   function writeSessionSecrets(stateOrSecrets, storage) {
-    const currentRev = ++writeRevision;
     const store = _getStorage(storage);
     const existing = readSessionSecrets(store);
     const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
 
     if (!store || typeof store.setItem !== 'function') {
+      const currentRev = ++writeRevision;
       _cachedSessionSecrets = _cloneSessionSecrets(secrets);
       lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, currentRev);
       return true;
@@ -1259,6 +1448,7 @@
       }
 
       if (hexCombined) {
+        const currentRev = ++writeRevision;
         store.setItem(targetKey, JSON.stringify({
           encrypted: true,
           algorithm: 'AES-GCM-256',
@@ -1273,6 +1463,7 @@
       } else {
         // Pure browser synchronous call fallback:
         // Schedule sequential write queue so WebCrypto persists pure AES-GCM-256 without syncCiphertext
+        _cachedSessionSecrets = _cloneSessionSecrets(secrets);
         if (typeof queueSessionSecretsWrite === 'function') {
           queueSessionSecretsWrite(secrets, store);
         } else if (typeof writeSessionSecretsAsync === 'function') {
@@ -1406,14 +1597,20 @@
         state.appConnections[id].token = secrets.connectionTokens[id];
       }
     });
-    if (secrets.accountTokens) {
+    if (secrets.accountTokens || secrets.accountRefreshTokens) {
       Object.keys(state.appConnections).forEach(id => {
         const conn = state.appConnections[id];
         if (conn && Array.isArray(conn.accounts)) {
           conn.accounts.forEach(acc => {
             if (acc?.id) {
-              const tok = secrets.accountTokens[`${id}_${acc.id}`] || secrets.accountTokens[acc.id];
-              if (tok) acc.token = tok;
+              if (secrets.accountTokens) {
+                const tok = secrets.accountTokens[`${id}_${acc.id}`] || secrets.accountTokens[acc.id];
+                if (tok) acc.token = tok;
+              }
+              if (secrets.accountRefreshTokens) {
+                const refTok = secrets.accountRefreshTokens[`${id}_${acc.id}`] || secrets.accountRefreshTokens[acc.id];
+                if (refTok) acc.refreshToken = refTok;
+              }
             }
           });
         }

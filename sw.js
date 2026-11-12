@@ -1,7 +1,7 @@
 // ============================================================================
-// EG NEXUS OS v5.8.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
+// EG NEXUS OS v5.9.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
 // ============================================================================
-const CACHE_NAME = 'eg-nexus-os-v5.8.0-pwa-cache';
+const CACHE_NAME = 'eg-nexus-os-v5.9.0-pwa-cache';
 const CORE_ASSETS = [
   './',
   './index.html',

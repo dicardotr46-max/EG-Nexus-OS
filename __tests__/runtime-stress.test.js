@@ -156,6 +156,7 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
         providerId: 'supabase',
         action: 'sync',
         token: 'sb_test_token_123',
+        grantedScopes: ['authenticated'],
         approved: true,
         executeFn: offlineFetch,
         retryOptions: {
@@ -660,9 +661,9 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
       const lock = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
 
       // Strict version parity
-      expect(pkg.version).toBe('5.8.0');
-      expect(lock.version).toBe('5.8.0');
-      expect(lock.packages[''].version).toBe('5.8.0');
+      expect(pkg.version).toBe('5.9.0');
+      expect(lock.version).toBe('5.9.0');
+      expect(lock.packages[''].version).toBe('5.9.0');
       expect(lock.lockfileVersion).toBe(3);
 
       // Overrides verification (minimatch 11.0.8 resolution)

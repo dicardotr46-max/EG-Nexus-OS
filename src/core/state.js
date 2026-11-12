@@ -207,6 +207,20 @@
         }
       } catch (_) {}
     }
+
+    const ownSymbols = Object.getOwnPropertySymbols(val);
+    for (let i = 0; i < ownSymbols.length; i++) {
+      const sym = ownSymbols[i];
+      const desc = sym.description || (typeof sym.toString === 'function' ? sym.toString().slice(7, -1) : '');
+      if (DANGEROUS_KEYS.has(sym) || (desc && DANGEROUS_KEYS.has(desc))) return true;
+      try {
+        const child = val[sym];
+        if (child && typeof child === 'object' && hasDangerousKeysDeep(child, seen)) {
+          return true;
+        }
+      } catch (_) {}
+    }
+
     return false;
   }
 

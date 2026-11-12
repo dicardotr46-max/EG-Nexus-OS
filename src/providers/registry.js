@@ -624,7 +624,7 @@
 
     // Step 2: Validate provider action scope
     const providerDef = PROVIDERS[providerId] || catalogItem;
-    const requiredScope = providerDef?.scopes?.[action];
+    const requiredScope = (typeof getRequiredScope === 'function' ? getRequiredScope(providerId, action) : null) || providerDef?.scopes?.[action] || null;
     if (requiredScope) {
       if (!grantedScopes || (Array.isArray(grantedScopes) && grantedScopes.length === 0)) {
         return {

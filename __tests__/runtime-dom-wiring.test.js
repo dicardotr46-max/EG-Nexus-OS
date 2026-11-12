@@ -54,6 +54,21 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       }
     }
 
+    const mockContext2D = new Proxy({
+      measureText: () => ({ width: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 }),
+      createLinearGradient: () => ({ addColorStop() {} }),
+      createRadialGradient: () => ({ addColorStop() {} }),
+      createPattern: () => ({}),
+      getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+      putImageData() {}
+    }, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        return (...args) => {};
+      },
+      set() { return true; }
+    });
+
     const elements = new Map();
     function getOrCreateElement(id) {
       if (!elements.has(id)) {
@@ -62,15 +77,35 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
           innerText: '',
           textContent: '',
           innerHTML: '',
+          value: '',
           style: {},
+          getContext: () => mockContext2D,
+          toDataURL: () => 'data:image/png;base64,',
           classList: {
             _classes: new Set(['hidden']),
             add(c) { this._classes.add(c); },
             remove(c) { this._classes.delete(c); },
-            contains(c) { return this._classes.has(c); }
+            contains(c) { return this._classes.has(c); },
+            toggle(c, force) {
+              if (force !== undefined) {
+                force ? this._classes.add(c) : this._classes.delete(c);
+              } else {
+                this._classes.has(c) ? this._classes.delete(c) : this._classes.add(c);
+              }
+            }
           },
           addEventListener() {},
-          removeEventListener() {}
+          removeEventListener() {},
+          setAttribute() {},
+          getAttribute() { return null; },
+          removeAttribute() {},
+          focus() {},
+          blur() {},
+          click() {},
+          appendChild() {},
+          removeChild() {},
+          querySelector() { return null; },
+          querySelectorAll() { return []; }
         });
       }
       return elements.get(id);
@@ -78,8 +113,43 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
 
     const window = {
       document: {
+        readyState: 'loading',
         getElementById: (id) => getOrCreateElement(id),
-        createElement: (tag) => ({ tagName: tag, innerHTML: '', appendChild() {}, style: {}, classList: { add() {}, remove() {} } }),
+        createElement: (tag) => ({
+          tagName: String(tag).toUpperCase(),
+          innerHTML: '',
+          textContent: '',
+          innerText: '',
+          style: {},
+          getContext: () => mockContext2D,
+          toDataURL: () => 'data:image/png;base64,',
+          classList: {
+            _classes: new Set(),
+            add(c) { this._classes.add(c); },
+            remove(c) { this._classes.delete(c); },
+            contains(c) { return this._classes.has(c); },
+            toggle(c, force) {
+              if (force !== undefined) {
+                force ? this._classes.add(c) : this._classes.delete(c);
+              } else {
+                this._classes.has(c) ? this._classes.delete(c) : this._classes.add(c);
+              }
+            }
+          },
+          setAttribute() {},
+          getAttribute() { return null; },
+          removeAttribute() {},
+          appendChild() {},
+          removeChild() {},
+          addEventListener() {},
+          removeEventListener() {},
+          querySelector() { return null; },
+          querySelectorAll() { return []; }
+        }),
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        head: { appendChild() {} },
+        body: { appendChild() {} },
         addEventListener() {},
         removeEventListener() {}
       },
@@ -102,11 +172,16 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       TextDecoder,
       Math,
       parseInt,
+      parseFloat,
       Promise,
       Set,
       Map,
       setTimeout,
       clearTimeout,
+      setInterval: () => 1,
+      clearInterval: () => {},
+      requestAnimationFrame: (cb) => setTimeout(cb, 16),
+      cancelAnimationFrame: (id) => clearTimeout(id),
       addEventListener() {},
       removeEventListener() {},
       dispatchEvent() { return true; },
@@ -123,6 +198,11 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
         close() {}
         addEventListener() {}
         removeEventListener() {}
+      },
+      Image: class MockImage {
+        constructor() {
+          setTimeout(() => { if (typeof this.onload === 'function') this.onload(); }, 1);
+        }
       },
       matchMedia: () => ({
         matches: false,
@@ -152,12 +232,12 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       vm.runInContext(code, context);
     }
 
-    // Load the ENTIRE nexus-main-script in full without slicing
+    // Load ALL 5 inline scripts from index.html (including Phase 3, Phase 4 #eg-nexus-phase4-module, and Phase 5 #eg-nexus-phase5-module)
     if (loadFullScript) {
-      const scriptMatch = indexHtml.match(/<script id="nexus-main-script">([\s\S]*?)<\/script>/);
-      if (scriptMatch) {
-        const fullScript = scriptMatch[1];
-        vm.runInContext(fullScript, context);
+      const inlineScripts = [...indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+        .filter(m => !m[1].includes('src='));
+      for (const m of inlineScripts) {
+        vm.runInContext(m[2], context);
       }
     }
 
@@ -552,6 +632,42 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       expect(cleaned.profileName).toBe('Ali Reza');
       expect(cleaned.effortMode).toBe('ultra');
       expect(cleaned.apiKeys.gemini).toBe('AIzaSyTrimMe');
+    });
+  });
+
+  // -------------------------------------------------------------
+  // Requirement 1f: v5.9.0 Multi-Script Integration & Secrets Stability
+  // -------------------------------------------------------------
+  describe('Requirement 1f: v5.9.0 Multi-Script Integration & Secrets Stability', () => {
+    it('should evaluate all 5 inline script blocks from index.html cleanly', () => {
+      const inlineScripts = [...indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+        .filter(m => !m[1].includes('src='));
+      expect(inlineScripts.length).toBe(5);
+
+      const win = createDomRuntime({ loadFullScript: true });
+      expect(win).toBeDefined();
+      expect(win._phase4SecretPersistenceBoundary).toBe(true);
+      expect(win.NexusMCP).toBeDefined();
+    });
+
+    it('should verify window.API_KEY_NAMES.length === 14 and matches defined keys', () => {
+      const win = createDomRuntime({ loadFullScript: true });
+      expect(Array.isArray(win.API_KEY_NAMES)).toBe(true);
+      expect(win.API_KEY_NAMES.length).toBe(14);
+      expect(win.API_KEY_NAMES).toEqual([
+        'gemini', 'openrouter', 'deepseek', 'grok', 'kimi', 'tavily', 'perplx',
+        'openai', 'anthropic', 'google', 'groq', 'mistral', 'perplexica', 'cohere'
+      ]);
+    });
+
+    it('should verify calling queueSessionSecretsWrite and saveState across multiple iterations executes without RangeError: Maximum call stack size exceeded and completes cleanly', () => {
+      const win = createDomRuntime({ loadFullScript: true });
+      expect(() => {
+        for (let i = 0; i < 20; i++) {
+          win.queueSessionSecretsWrite(win.appState);
+          win.saveState();
+        }
+      }).not.toThrow();
     });
   });
 });

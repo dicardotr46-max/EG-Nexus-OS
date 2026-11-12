@@ -153,9 +153,13 @@
       }
     } finally {
       if (timer) clearTimeout(timer);
-      setTimeout(() => {
+      if (ui.pendingApprovalQueue && ui.pendingApprovalQueue.length > 0) {
         ui._isResolvingApproval = false;
-      }, 320);
+      } else {
+        setTimeout(() => {
+          ui._isResolvingApproval = false;
+        }, 320);
+      }
     }
   }
 
