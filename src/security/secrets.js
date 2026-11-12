@@ -18,6 +18,9 @@
       target.getSessionWriteRevision = exports.getSessionWriteRevision;
       target.resetSessionWriteQueue = exports.resetSessionWriteQueue;
     }
+    if (typeof exports.getSecretVaultHealth === 'function') {
+      target.getSecretVaultHealth = exports.getSecretVaultHealth;
+    }
     const STORAGE_KEYS = (target.NexusCore && target.NexusCore.STORAGE_KEYS) || exports.STORAGE_KEYS || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
     Object.assign(
       target.NexusCore,
@@ -195,7 +198,13 @@
     return out;
   }
 
+  let _customNodeCrypto = null;
+  let _hasCustomNodeCrypto = false;
+
   function _getNodeCrypto() {
+    if (_hasCustomNodeCrypto) {
+      return typeof _customNodeCrypto === 'function' ? _customNodeCrypto() : _customNodeCrypto;
+    }
     if (typeof require === 'function') {
       try {
         const nc = require('crypto');
@@ -257,6 +266,16 @@
     return out;
   }
 
+  function _toAadBytes(aad) {
+    if (!aad) return null;
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      try {
+        return Buffer.from(aad, 'utf8');
+      } catch (_) {}
+    }
+    return new TextEncoder().encode(String(aad));
+  }
+
   // Client-side AES-GCM 256-bit encryption key stored in memory and persisted per session
   let _sessionCryptoKey = null;
   let _sessionCryptoKeyPromise = null;
@@ -270,6 +289,20 @@
   let lastAppliedWriteRevision = 0;
   let sessionWriteState = 'idle';
   let activePendingCount = 0;
+  let writeEpoch = 0;
+
+  function _zeroizeBuffer(buf) {
+    try {
+      if (!buf) return;
+      if (buf instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(buf))) {
+        buf.fill(0);
+      } else if (buf instanceof ArrayBuffer) {
+        new Uint8Array(buf).fill(0);
+      } else if (buf.buffer instanceof ArrayBuffer) {
+        new Uint8Array(buf.buffer, buf.byteOffset || 0, buf.byteLength || buf.buffer.byteLength).fill(0);
+      }
+    } catch (_) {}
+  }
 
   function getSessionWriteState() {
     return sessionWriteState;
@@ -280,6 +313,7 @@
   }
 
   function resetSessionWriteQueue() {
+    writeEpoch++;
     sessionWriteQueue = Promise.resolve();
     writeRevision = 0;
     lastAppliedWriteRevision = 0;
@@ -288,14 +322,16 @@
   }
 
   function queueSessionSecretsWrite(stateOrSecrets, storage) {
+    const currentEpoch = writeEpoch;
     const targetRevision = ++writeRevision;
     activePendingCount++;
     sessionWriteState = 'pending';
+    const immutableSnapshot = _cloneSessionSecrets(_extractSecretsInput(stateOrSecrets));
 
     const task = async () => {
       sessionWriteState = 'pending';
       try {
-        if (targetRevision < lastAppliedWriteRevision) {
+        if (writeEpoch !== currentEpoch || targetRevision < lastAppliedWriteRevision) {
           activePendingCount = Math.max(0, activePendingCount - 1);
           if (activePendingCount === 0 && sessionWriteState === 'pending') {
             sessionWriteState = 'success';
@@ -303,7 +339,21 @@
           return true;
         }
 
-        const ok = await writeSessionSecretsAsync(stateOrSecrets, storage);
+        let ok = false;
+        if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
+          ok = await navigator.locks.request('nexus_secrets_writer', async () => {
+            if (writeEpoch !== currentEpoch) return true;
+            return await _performWriteSessionSecretsAsync(immutableSnapshot, storage);
+          });
+        } else {
+          ok = await _performWriteSessionSecretsAsync(immutableSnapshot, storage);
+        }
+
+        if (writeEpoch !== currentEpoch) {
+          activePendingCount = Math.max(0, activePendingCount - 1);
+          return true;
+        }
+
         if (!ok) {
           throw new Error('writeSessionSecretsAsync returned false');
         }
@@ -328,8 +378,14 @@
   function _resetSessionCryptoState() {
     _sessionCryptoKey = null;
     _sessionCryptoKeyPromise = null;
-    _sessionKeyRaw = null;
-    _sessionSeedRaw = null;
+    if (_sessionKeyRaw) {
+      _zeroizeBuffer(_sessionKeyRaw);
+      _sessionKeyRaw = null;
+    }
+    if (_sessionSeedRaw) {
+      _zeroizeBuffer(_sessionSeedRaw);
+      _sessionSeedRaw = null;
+    }
     _cachedSessionSecrets = null;
     resetSessionWriteQueue();
   }
@@ -509,9 +565,9 @@
     }
     if (_isKeyBytes(attachedKey)) {
       _sessionKeyRaw = (attachedKey instanceof Uint8Array)
-        ? attachedKey
+        ? new Uint8Array(attachedKey)
         : new Uint8Array(attachedKey.buffer, attachedKey.byteOffset, attachedKey.byteLength);
-      return _sessionKeyRaw;
+      return new Uint8Array(_sessionKeyRaw);
     }
 
     // 2. If key is already in module memory, attach to store and return
@@ -519,16 +575,16 @@
       if (store && typeof store === 'object' && !store[SESSION_KEY_SYM]) {
         try {
           Object.defineProperty(store, SESSION_KEY_SYM, {
-            value: _sessionKeyRaw,
+            value: new Uint8Array(_sessionKeyRaw),
             writable: true,
             enumerable: false,
             configurable: true
           });
         } catch (_) {
-          try { store[SESSION_KEY_SYM] = _sessionKeyRaw; } catch (__) {}
+          try { store[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw); } catch (__) {}
         }
       }
-      return _sessionKeyRaw;
+      return new Uint8Array(_sessionKeyRaw);
     }
 
     // 3. If legacy seed was in storage, derive key from it
@@ -548,25 +604,25 @@
     if (store && typeof store === 'object') {
       try {
         Object.defineProperty(store, SESSION_KEY_SYM, {
-          value: _sessionKeyRaw,
+          value: new Uint8Array(_sessionKeyRaw),
           writable: true,
           enumerable: false,
           configurable: true
         });
       } catch (_) {
-        try { store[SESSION_KEY_SYM] = _sessionKeyRaw; } catch (__) {}
+        try { store[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw); } catch (__) {}
       }
       if (typeof store._getStore === 'function') {
         try {
           const internal = store._getStore();
           if (internal && typeof internal === 'object') {
-            internal[SESSION_KEY_SYM] = _sessionKeyRaw;
+            internal[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw);
           }
         } catch (_) {}
       }
     }
 
-    return _sessionKeyRaw;
+    return new Uint8Array(_sessionKeyRaw);
   }
 
   /**
@@ -654,8 +710,23 @@
       apiKeys: emptyApiKeys(),
       connectionTokens: {},
       accountTokens: {},
-      bridgeToken: ''
+      bridgeToken: '',
+      workerSecret: '',
+      supabaseKey: '',
+      supabaseAuthToken: '',
+      botToken: ''
     };
+
+    Object.defineProperty(res, 'telegramBotToken', {
+      configurable: true,
+      enumerable: false,
+      get() {
+        return this.botToken || '';
+      },
+      set(val) {
+        this.botToken = typeof val === 'string' ? val : String(val || '');
+      }
+    });
 
     const keyList = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
       ? globalThis.API_KEY_NAMES
@@ -676,6 +747,105 @@
     });
 
     return res;
+  }
+
+  function _extractSecretsInput(stateOrSecrets) {
+    if (!stateOrSecrets || typeof stateOrSecrets !== 'object') {
+      return _createEmptySessionSecrets();
+    }
+    const out = _createEmptySessionSecrets();
+    out.initialized = true;
+
+    const keyList = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
+      ? globalThis.API_KEY_NAMES
+      : API_KEY_NAMES;
+
+    if (stateOrSecrets.apiKeys && typeof stateOrSecrets.apiKeys === 'object' && !Array.isArray(stateOrSecrets.apiKeys)) {
+      keyList.forEach(k => {
+        if (typeof stateOrSecrets.apiKeys[k] === 'string' && stateOrSecrets.apiKeys[k].trim()) {
+          out.apiKeys[k] = stateOrSecrets.apiKeys[k].trim();
+        }
+      });
+      Object.keys(stateOrSecrets.apiKeys).forEach(k => {
+        if (typeof stateOrSecrets.apiKeys[k] === 'string' && stateOrSecrets.apiKeys[k].trim()) {
+          out.apiKeys[k] = stateOrSecrets.apiKeys[k].trim();
+        }
+      });
+    }
+
+    keyList.forEach(k => {
+      if (typeof stateOrSecrets[k] === 'string' && stateOrSecrets[k].trim()) {
+        out.apiKeys[k] = stateOrSecrets[k].trim();
+      }
+    });
+
+    if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object' && !Array.isArray(stateOrSecrets.connectionTokens)) {
+      Object.keys(stateOrSecrets.connectionTokens).forEach(id => {
+        if (isSafeConnectionId(id) && typeof stateOrSecrets.connectionTokens[id] === 'string') {
+          out.connectionTokens[id] = stateOrSecrets.connectionTokens[id].trim();
+        }
+      });
+    }
+    if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object' && !Array.isArray(stateOrSecrets.accountTokens)) {
+      Object.keys(stateOrSecrets.accountTokens).forEach(id => {
+        if (typeof id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(id) && typeof stateOrSecrets.accountTokens[id] === 'string') {
+          out.accountTokens[id] = stateOrSecrets.accountTokens[id].trim();
+        }
+      });
+    }
+
+    if (stateOrSecrets.appConnections && typeof stateOrSecrets.appConnections === 'object' && !Array.isArray(stateOrSecrets.appConnections)) {
+      Object.keys(stateOrSecrets.appConnections).forEach(id => {
+        if (!isSafeConnectionId(id)) return;
+        const conn = stateOrSecrets.appConnections[id];
+        if (conn && typeof conn.token === 'string' && conn.token.trim()) {
+          out.connectionTokens[id] = conn.token.trim();
+        }
+        if (conn && Array.isArray(conn.accounts)) {
+          conn.accounts.forEach(acc => {
+            if (acc && typeof acc.id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(acc.id) && typeof acc.token === 'string' && acc.token.trim()) {
+              const scopedKey = acc.id.startsWith(id + '_') ? acc.id : `${id}_${acc.id}`;
+              out.accountTokens[scopedKey] = acc.token.trim();
+              out.accountTokens[acc.id] = acc.token.trim();
+            }
+          });
+        }
+      });
+    }
+
+    if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
+      out.bridgeToken = stateOrSecrets.bridgeToken.trim();
+    } else if (typeof stateOrSecrets?.localComputerConfig?.bridgeToken === 'string' && stateOrSecrets.localComputerConfig.bridgeToken.trim()) {
+      out.bridgeToken = stateOrSecrets.localComputerConfig.bridgeToken.trim();
+    }
+
+    if (typeof stateOrSecrets.workerSecret === 'string' && stateOrSecrets.workerSecret.trim()) {
+      out.workerSecret = stateOrSecrets.workerSecret.trim();
+    } else if (typeof stateOrSecrets?.cloudConfig?.workerSecret === 'string' && stateOrSecrets.cloudConfig.workerSecret.trim()) {
+      out.workerSecret = stateOrSecrets.cloudConfig.workerSecret.trim();
+    }
+
+    if (typeof stateOrSecrets.supabaseKey === 'string' && stateOrSecrets.supabaseKey.trim()) {
+      out.supabaseKey = stateOrSecrets.supabaseKey.trim();
+    } else if (typeof stateOrSecrets?.cloudConfig?.supabaseKey === 'string' && stateOrSecrets.cloudConfig.supabaseKey.trim()) {
+      out.supabaseKey = stateOrSecrets.cloudConfig.supabaseKey.trim();
+    }
+
+    if (typeof stateOrSecrets.supabaseAuthToken === 'string' && stateOrSecrets.supabaseAuthToken.trim()) {
+      out.supabaseAuthToken = stateOrSecrets.supabaseAuthToken.trim();
+    } else if (typeof stateOrSecrets?.cloudConfig?.supabaseAuthToken === 'string' && stateOrSecrets.cloudConfig.supabaseAuthToken.trim()) {
+      out.supabaseAuthToken = stateOrSecrets.cloudConfig.supabaseAuthToken.trim();
+    }
+
+    if (typeof stateOrSecrets.botToken === 'string' && stateOrSecrets.botToken.trim()) {
+      out.botToken = stateOrSecrets.botToken.trim();
+    } else if (typeof stateOrSecrets.telegramBotToken === 'string' && stateOrSecrets.telegramBotToken.trim()) {
+      out.botToken = stateOrSecrets.telegramBotToken.trim();
+    } else if (typeof stateOrSecrets?.telegramConfig?.botToken === 'string' && stateOrSecrets.telegramConfig.botToken.trim()) {
+      out.botToken = stateOrSecrets.telegramConfig.botToken.trim();
+    }
+
+    return out;
   }
 
   function _cloneSessionSecrets(secrets) {
@@ -766,96 +936,59 @@
     if (typeof dec.bridgeToken === 'string' && dec.bridgeToken.trim()) {
       result.bridgeToken = dec.bridgeToken.trim();
     }
+
+    if (typeof dec.workerSecret === 'string' && dec.workerSecret.trim()) {
+      result.workerSecret = dec.workerSecret.trim();
+    }
+    if (typeof dec.supabaseKey === 'string' && dec.supabaseKey.trim()) {
+      result.supabaseKey = dec.supabaseKey.trim();
+    }
+    if (typeof dec.supabaseAuthToken === 'string' && dec.supabaseAuthToken.trim()) {
+      result.supabaseAuthToken = dec.supabaseAuthToken.trim();
+    }
+    if (typeof dec.botToken === 'string' && dec.botToken.trim()) {
+      result.botToken = dec.botToken.trim();
+    } else if (typeof dec.telegramBotToken === 'string' && dec.telegramBotToken.trim()) {
+      result.botToken = dec.telegramBotToken.trim();
+    }
   }
 
   function _normalizeSecretsPayload(stateOrSecrets, existing) {
+    const extracted = _extractSecretsInput(stateOrSecrets);
+    const existingSafe = (existing && typeof existing === 'object') ? existing : _createEmptySessionSecrets();
+    const mergedApiKeys = { ...(existingSafe.apiKeys || {}) };
+    Object.keys(extracted.apiKeys || {}).forEach(k => {
+      if (typeof extracted.apiKeys[k] === 'string' && extracted.apiKeys[k].trim()) {
+        mergedApiKeys[k] = extracted.apiKeys[k].trim();
+      }
+    });
+
+    const mergedConnTokens = { ...(existingSafe.connectionTokens || {}) };
+    Object.keys(extracted.connectionTokens || {}).forEach(k => {
+      if (typeof extracted.connectionTokens[k] === 'string' && extracted.connectionTokens[k].trim()) {
+        mergedConnTokens[k] = extracted.connectionTokens[k].trim();
+      }
+    });
+
+    const mergedAccountTokens = { ...(existingSafe.accountTokens || {}) };
+    Object.keys(extracted.accountTokens || {}).forEach(k => {
+      if (typeof extracted.accountTokens[k] === 'string' && extracted.accountTokens[k].trim()) {
+        mergedAccountTokens[k] = extracted.accountTokens[k].trim();
+      }
+    });
+
     const secrets = {
       version: SESSION_SECRETS_SCHEMA_VERSION,
       initialized: true,
-      apiKeys: { ...existing.apiKeys },
-      connectionTokens: { ...existing.connectionTokens },
-      accountTokens: { ...existing.accountTokens },
-      bridgeToken: existing.bridgeToken || ''
+      apiKeys: mergedApiKeys,
+      connectionTokens: mergedConnTokens,
+      accountTokens: mergedAccountTokens,
+      bridgeToken: extracted.bridgeToken || existingSafe.bridgeToken || '',
+      workerSecret: extracted.workerSecret || existingSafe.workerSecret || '',
+      supabaseKey: extracted.supabaseKey || existingSafe.supabaseKey || '',
+      supabaseAuthToken: extracted.supabaseAuthToken || existingSafe.supabaseAuthToken || '',
+      botToken: extracted.botToken || existingSafe.botToken || ''
     };
-
-    if (stateOrSecrets && stateOrSecrets.apiKeys && typeof stateOrSecrets.apiKeys === 'object' && !stateOrSecrets.appConnections) {
-      Object.keys(stateOrSecrets.apiKeys).forEach(name => {
-        if (typeof stateOrSecrets.apiKeys[name] === 'string' && stateOrSecrets.apiKeys[name].trim()) {
-          secrets.apiKeys[name] = stateOrSecrets.apiKeys[name].trim();
-        }
-      });
-      if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object' && !Array.isArray(stateOrSecrets.connectionTokens)) {
-        Object.keys(stateOrSecrets.connectionTokens).forEach(id => {
-          if (isSafeConnectionId(id) && typeof stateOrSecrets.connectionTokens[id] === 'string') {
-            secrets.connectionTokens[id] = stateOrSecrets.connectionTokens[id].trim();
-          }
-        });
-      }
-      if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object' && !Array.isArray(stateOrSecrets.accountTokens)) {
-        Object.keys(stateOrSecrets.accountTokens).forEach(id => {
-          if (typeof id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(id) && typeof stateOrSecrets.accountTokens[id] === 'string') {
-            secrets.accountTokens[id] = stateOrSecrets.accountTokens[id].trim();
-          }
-        });
-      }
-      if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
-        secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
-      }
-    } else if (stateOrSecrets && typeof stateOrSecrets === 'object') {
-      const allNames = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
-        ? globalThis.API_KEY_NAMES
-        : API_KEY_NAMES;
-      allNames.forEach(name => {
-        const value = stateOrSecrets[name];
-        if (typeof value === 'string' && value.trim()) secrets.apiKeys[name] = value.trim();
-      });
-      if (stateOrSecrets.apiKeys && typeof stateOrSecrets.apiKeys === 'object') {
-        Object.keys(stateOrSecrets.apiKeys).forEach(name => {
-          const value = stateOrSecrets.apiKeys[name];
-          if (typeof value === 'string' && value.trim()) secrets.apiKeys[name] = value.trim();
-        });
-      }
-      if (typeof stateOrSecrets.bridgeToken === 'string' && stateOrSecrets.bridgeToken.trim()) {
-        secrets.bridgeToken = stateOrSecrets.bridgeToken.trim();
-      }
-      if (stateOrSecrets.connectionTokens && typeof stateOrSecrets.connectionTokens === 'object' && !Array.isArray(stateOrSecrets.connectionTokens)) {
-        Object.keys(stateOrSecrets.connectionTokens).forEach(id => {
-          if (isSafeConnectionId(id) && typeof stateOrSecrets.connectionTokens[id] === 'string') {
-            secrets.connectionTokens[id] = stateOrSecrets.connectionTokens[id].trim();
-          }
-        });
-      }
-      if (stateOrSecrets.accountTokens && typeof stateOrSecrets.accountTokens === 'object' && !Array.isArray(stateOrSecrets.accountTokens)) {
-        Object.keys(stateOrSecrets.accountTokens).forEach(id => {
-          if (typeof id === 'string' && !['__proto__', 'constructor', 'prototype'].includes(id) && typeof stateOrSecrets.accountTokens[id] === 'string') {
-            secrets.accountTokens[id] = stateOrSecrets.accountTokens[id].trim();
-          }
-        });
-      }
-      const connections = stateOrSecrets.appConnections;
-      if (connections && typeof connections === 'object' && !Array.isArray(connections)) {
-        Object.keys(connections).forEach(id => {
-          const conn = connections[id];
-          const token = conn?.token;
-          if (isSafeConnectionId(id) && typeof token === 'string' && token.trim()) {
-            secrets.connectionTokens[id] = token.trim();
-          }
-          if (Array.isArray(conn?.accounts)) {
-            conn.accounts.forEach(acc => {
-              if (acc?.id && typeof acc.token === 'string' && acc.token.trim()) {
-                if (!['__proto__', 'constructor', 'prototype'].includes(acc.id)) {
-                  secrets.accountTokens[acc.id] = acc.token.trim();
-                  secrets.accountTokens[`${id}_${acc.id}`] = acc.token.trim();
-                }
-              }
-            });
-          }
-        });
-      }
-      if (typeof stateOrSecrets?.localComputerConfig?.bridgeToken === 'string' && stateOrSecrets.localComputerConfig.bridgeToken.trim()) {
-        secrets.bridgeToken = stateOrSecrets.localComputerConfig.bridgeToken.trim();
-      }
-    }
     return secrets;
   }
 
@@ -904,16 +1037,25 @@
       // If Node.js crypto is available, decrypt synchronously using decipheriv
       const nodeCrypto = _getNodeCrypto();
       if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
+        let plainBytes = null;
         try {
           const keyBytes = _initMemorySessionKey(store);
           const ivBytes = _hexToUint8(parsed.iv);
+          if (!ivBytes || !(ivBytes instanceof Uint8Array) || ivBytes.byteLength !== 12) {
+            _quarantineCorruptedPayload(store, targetKey, raw);
+            return result;
+          }
           const combined = _hexToUint8(parsed.ciphertext);
-          if (combined.length >= 16) {
+          if (combined && combined.length >= 16) {
             const authTag = combined.subarray(combined.length - 16);
             const encData = combined.subarray(0, combined.length - 16);
             const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBytes, ivBytes);
+            const aad = parsed.aad || parsed.additionalData;
+            if (aad) {
+              decipher.setAAD(_toAadBytes(aad));
+            }
             decipher.setAuthTag(authTag);
-            const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
+            plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
             const decStr = new TextDecoder().decode(plainBytes);
             const dec = JSON.parse(decStr);
             _populateResultFromDecrypted(result, dec);
@@ -924,15 +1066,17 @@
           // Decryption or auth tag failed: fail-closed against algorithm downgrade
           _quarantineCorruptedPayload(store, targetKey, raw);
           return result;
+        } finally {
+          if (plainBytes) _zeroizeBuffer(plainBytes);
         }
       }
 
-      // If in browser without async, return cached secrets or gracefully return empty structure
+      // In browser without synchronous Node crypto, NEVER quarantine valid AES-GCM-256 payloads!
+      // Return cached secrets if available, or return pendingAsyncHydration so async reader can decrypt with WebCrypto
       if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
         return _cloneSessionSecrets(_cachedSessionSecrets);
       }
-      _quarantineCorruptedPayload(store, targetKey, raw);
-      return result;
+      return { ...result, initialized: false, pendingAsyncHydration: true };
     }
 
     // Handle legacy format strictly when algorithm === 'sync-stream-v1'
@@ -992,6 +1136,10 @@
     }
 
     const iv = _hexToUint8(parsed.iv);
+    if (!iv || !(iv instanceof Uint8Array) || iv.byteLength !== 12) {
+      _quarantineCorruptedPayload(store, targetKey, raw);
+      return result;
+    }
     const algorithm = parsed.algorithm || 'sync-stream-v1';
 
     // Try Web Crypto AES-GCM decryption if algorithm is AES-GCM-256
@@ -999,18 +1147,23 @@
       const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
       const combined = _hexToUint8(parsed.ciphertext);
       let decStr = null;
+      let plainBytes = null;
+      const aad = parsed.aad || parsed.additionalData;
 
       if (cryptoObj && cryptoObj.subtle) {
         try {
           const key = await _getOrCreateWebCryptoKey(store);
           if (key) {
-            const decAb = await cryptoObj.subtle.decrypt({ name: 'AES-GCM', iv }, key, combined);
+            const decParams = { name: 'AES-GCM', iv };
+            if (aad) {
+              decParams.additionalData = new TextEncoder().encode(aad);
+            }
+            const decAb = await cryptoObj.subtle.decrypt(decParams, key, combined);
             decStr = new TextDecoder().decode(decAb);
           }
         } catch (_) {}
       }
 
-      /* istanbul ignore if */
       if (!decStr) {
         const nodeCrypto = _getNodeCrypto();
         if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
@@ -1020,8 +1173,11 @@
               const authTag = combined.subarray(combined.length - 16);
               const encData = combined.subarray(0, combined.length - 16);
               const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBytes, iv);
+              if (aad) {
+                decipher.setAAD(_toAadBytes(aad));
+              }
               decipher.setAuthTag(authTag);
-              const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
+              plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
               decStr = new TextDecoder().decode(plainBytes);
             }
           } catch (_) {}
@@ -1033,9 +1189,11 @@
           const dec = JSON.parse(decStr);
           _populateResultFromDecrypted(result, dec);
           _cachedSessionSecrets = _cloneSessionSecrets(result);
+          if (plainBytes) _zeroizeBuffer(plainBytes);
           return result;
         } catch (_) {}
       }
+      if (plainBytes) _zeroizeBuffer(plainBytes);
 
       // Decryption or auth tag verification failed:
       // Fail-closed against algorithm downgrade attack (never fallback to syncCiphertext)
@@ -1076,19 +1234,23 @@
       return true;
     }
 
+    let plainBytes = null;
     try {
       const iv = new Uint8Array(12);
       _fillSecureRandomBytes(iv);
 
       const jsonStr = JSON.stringify(secrets);
-      const plainBytes = new TextEncoder().encode(jsonStr);
+      plainBytes = new TextEncoder().encode(jsonStr);
       const keyRaw = _initMemorySessionKey(store);
 
       let hexCombined = null;
+      const targetKey = _resolveSecretsStorageKey(store);
+      const aadString = 'v' + SESSION_SECRETS_SCHEMA_VERSION + ':' + targetKey;
       const nodeCrypto = _getNodeCrypto();
       if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
         try {
           const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
+          cipher.setAAD(_toAadBytes(aadString));
           const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
           const tag = cipher.getAuthTag();
           const combined = _concatUint8([enc, tag]);
@@ -1096,7 +1258,6 @@
         } catch (_) {}
       }
 
-      const targetKey = _resolveSecretsStorageKey(store);
       if (hexCombined) {
         store.setItem(targetKey, JSON.stringify({
           encrypted: true,
@@ -1104,6 +1265,7 @@
           initialized: true,
           iv: _uint8ToHex(iv),
           ciphertext: hexCombined,
+          aad: aadString,
           version: SESSION_SECRETS_SCHEMA_VERSION
         }));
         _cachedSessionSecrets = _cloneSessionSecrets(secrets);
@@ -1112,19 +1274,21 @@
         // Pure browser synchronous call fallback:
         // Schedule sequential write queue so WebCrypto persists pure AES-GCM-256 without syncCiphertext
         if (typeof queueSessionSecretsWrite === 'function') {
-          queueSessionSecretsWrite(secrets, store).catch(() => {});
+          queueSessionSecretsWrite(secrets, store);
         } else if (typeof writeSessionSecretsAsync === 'function') {
-          writeSessionSecretsAsync(secrets, store).catch(() => {});
+          writeSessionSecretsAsync(secrets, store);
         }
       }
 
       return true;
     } catch (e) {
       return false;
+    } finally {
+      if (plainBytes) _zeroizeBuffer(plainBytes);
     }
   }
 
-  async function writeSessionSecretsAsync(stateOrSecrets, storage) {
+  async function _performWriteSessionSecretsAsync(stateOrSecrets, storage) {
     const store = _getStorage(storage);
     const existing = await readSessionSecretsAsync(store);
     const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
@@ -1134,33 +1298,37 @@
       return true;
     }
 
+    let plainBytes = null;
     try {
       const iv = new Uint8Array(12);
       _fillSecureRandomBytes(iv);
 
       const jsonStr = JSON.stringify(secrets);
-      const plainBytes = new TextEncoder().encode(jsonStr);
+      plainBytes = new TextEncoder().encode(jsonStr);
       const keyRaw = _initMemorySessionKey(store);
 
       let hexCombined = null;
+      const targetKey = _resolveSecretsStorageKey(store);
+      const aadString = 'v' + SESSION_SECRETS_SCHEMA_VERSION + ':' + targetKey;
+      const aadBytes = new TextEncoder().encode(aadString);
 
       const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
       if (cryptoObj && cryptoObj.subtle) {
         try {
           const key = await _getOrCreateWebCryptoKey(store);
           if (key) {
-            const ab = await cryptoObj.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBytes);
+            const ab = await cryptoObj.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aadBytes }, key, plainBytes);
             hexCombined = _uint8ToHex(new Uint8Array(ab));
           }
         } catch (_) {}
       }
 
-      /* istanbul ignore if */
       if (!hexCombined) {
         const nodeCrypto = _getNodeCrypto();
         if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
           try {
             const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
+            cipher.setAAD(_toAadBytes(aadString));
             const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
             const tag = cipher.getAuthTag();
             const combined = _concatUint8([enc, tag]);
@@ -1173,20 +1341,48 @@
         return false;
       }
 
-      const targetKey = _resolveSecretsStorageKey(store);
       store.setItem(targetKey, JSON.stringify({
         encrypted: true,
         algorithm: 'AES-GCM-256',
         initialized: true,
         iv: _uint8ToHex(iv),
         ciphertext: hexCombined,
+        aad: aadString,
         version: SESSION_SECRETS_SCHEMA_VERSION
       }));
       _cachedSessionSecrets = _cloneSessionSecrets(secrets);
       return true;
     } catch (e) {
       return false;
+    } finally {
+      if (plainBytes) _zeroizeBuffer(plainBytes);
     }
+  }
+
+  async function writeSessionSecretsAsync(stateOrSecrets, storage) {
+    try {
+      return await queueSessionSecretsWrite(stateOrSecrets, storage);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getSecretVaultHealth() {
+    const hasIdb = Boolean(_getIdbFactory());
+    const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+    const hasWebCrypto = Boolean(cryptoObj && cryptoObj.subtle);
+    const hasNodeCrypto = Boolean(_getNodeCrypto());
+    const mode = hasIdb ? 'idb-hardware-backed' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded');
+    return {
+      ok: Boolean(hasWebCrypto || hasNodeCrypto),
+      hasIndexedDB: hasIdb,
+      hasWebCrypto,
+      hasNodeCrypto,
+      mode,
+      activePendingCount,
+      writeEpoch,
+      schemaVersion: SESSION_SECRETS_SCHEMA_VERSION
+    };
   }
 
   function _hydrateStateWithSecrets(state, secrets) {
@@ -1229,6 +1425,22 @@
       }
       state.localComputerConfig.bridgeToken = secrets.bridgeToken;
     }
+    if (secrets.workerSecret) {
+      if (!state.cloudConfig || typeof state.cloudConfig !== 'object') state.cloudConfig = {};
+      state.cloudConfig.workerSecret = secrets.workerSecret;
+    }
+    if (secrets.supabaseKey) {
+      if (!state.cloudConfig || typeof state.cloudConfig !== 'object') state.cloudConfig = {};
+      state.cloudConfig.supabaseKey = secrets.supabaseKey;
+    }
+    if (secrets.supabaseAuthToken) {
+      if (!state.cloudConfig || typeof state.cloudConfig !== 'object') state.cloudConfig = {};
+      state.cloudConfig.supabaseAuthToken = secrets.supabaseAuthToken;
+    }
+    if (secrets.botToken) {
+      if (!state.telegramConfig || typeof state.telegramConfig !== 'object') state.telegramConfig = {};
+      state.telegramConfig.botToken = secrets.botToken;
+    }
     return state;
   }
 
@@ -1267,8 +1479,11 @@
     getSessionWriteState,
     getSessionWriteRevision,
     resetSessionWriteQueue,
+    getSecretVaultHealth,
     applySessionSecrets,
     applySessionSecretsAsync,
+    _zeroizeBuffer,
+    _extractSecretsInput,
     _nonCryptoCompatCodec,
     _syncTransform,
     _fillSecureRandomBytes,
@@ -1286,7 +1501,18 @@
     _concatUint8,
     _quarantineCorruptedPayload,
     _resolveSecretsStorageKey,
-    _getNodeCrypto,
+    get _getNodeCrypto() {
+      return _hasCustomNodeCrypto ? _customNodeCrypto : _getNodeCrypto;
+    },
+    set _getNodeCrypto(fn) {
+      if (fn === _getNodeCrypto) {
+        _hasCustomNodeCrypto = false;
+        _customNodeCrypto = null;
+      } else {
+        _hasCustomNodeCrypto = true;
+        _customNodeCrypto = fn;
+      }
+    },
     _normalizeSecretsPayload
   };
 });

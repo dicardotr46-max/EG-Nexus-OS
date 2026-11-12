@@ -191,6 +191,49 @@
   const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__']);
   const _proxyCache = new WeakMap();
 
+  function hasDangerousKeysDeep(val, seen = new WeakSet()) {
+    if (!val || typeof val !== 'object') return false;
+    if (seen.has(val)) return false;
+    seen.add(val);
+
+    const ownProps = Object.getOwnPropertyNames(val);
+    for (let i = 0; i < ownProps.length; i++) {
+      const k = ownProps[i];
+      if (DANGEROUS_KEYS.has(k)) return true;
+      try {
+        const child = val[k];
+        if (child && typeof child === 'object' && hasDangerousKeysDeep(child, seen)) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  function secureRandomHex(bytes = 6) {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        const arr = new Uint8Array(bytes);
+        crypto.getRandomValues(arr);
+        let s = '';
+        for (let i = 0; i < arr.length; i++) s += arr[i].toString(16).padStart(2, '0');
+        return s;
+      }
+    } catch (_) {}
+    try {
+      const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
+      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+        return nodeCrypto.randomBytes(bytes).toString('hex');
+      }
+    } catch (_) {}
+    return Date.now().toString(36).padEnd(bytes * 2, '0').slice(0, bytes * 2);
+  }
+
+  function secureRandomId(prefix = 'id') {
+    const p = prefix ? String(prefix).trim() : 'id';
+    return (p ? p + '_' : '') + Date.now().toString(36) + '_' + secureRandomHex(4);
+  }
+
   function createProtectedStateProxy(target) {
     if (!target || typeof target !== 'object') {
       return target;
@@ -204,6 +247,10 @@
         if (prop === '_isStateProxy') return true;
         if (prop === '_rawTarget') return obj;
         const val = Reflect.get(obj, prop, receiver);
+        const desc = Object.getOwnPropertyDescriptor(obj, prop);
+        if (desc && !desc.configurable && !desc.writable) {
+          return val;
+        }
         if (val && typeof val === 'object') {
           return createProtectedStateProxy(val);
         }
@@ -211,27 +258,32 @@
       },
       set(obj, prop, value, receiver) {
         if (typeof prop === 'string' && DANGEROUS_KEYS.has(prop)) {
-          return false;
+          return true;
         }
-        if (value && typeof value === 'object') {
-          for (const k of DANGEROUS_KEYS) {
-            if (Object.prototype.hasOwnProperty.call(value, k)) {
-              return false;
-            }
-          }
+        if (value && typeof value === 'object' && hasDangerousKeysDeep(value)) {
+          return true;
         }
         obj[prop] = value;
         return true;
       },
       defineProperty(obj, prop, descriptor) {
         if (typeof prop === 'string' && DANGEROUS_KEYS.has(prop)) {
-          return false;
+          return true;
         }
-        return Reflect.defineProperty(obj, prop, descriptor);
+        if (descriptor && typeof descriptor === 'object') {
+          if (descriptor.value && typeof descriptor.value === 'object' && hasDangerousKeysDeep(descriptor.value)) {
+            return true;
+          }
+        }
+        try {
+          return Reflect.defineProperty(obj, prop, descriptor);
+        } catch (_) {
+          return true;
+        }
       },
       deleteProperty(obj, prop) {
         if (typeof prop === 'string' && DANGEROUS_KEYS.has(prop)) {
-          return false;
+          return true;
         }
         return Reflect.deleteProperty(obj, prop);
       },
@@ -257,6 +309,9 @@
     createInitialAppState,
     createInitialUiState,
     createProtectedStateProxy,
+    hasDangerousKeysDeep,
+    secureRandomHex,
+    secureRandomId,
     appState,
     uiState
   };

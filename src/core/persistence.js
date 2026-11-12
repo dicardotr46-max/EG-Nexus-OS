@@ -242,14 +242,15 @@
     src.totalEstimatedCostUSD = (Number.isFinite(costNum) && costNum >= 0) ? costNum : 0;
 
     const rawKeys = (src.apiKeys && typeof src.apiKeys === 'object' && !Array.isArray(src.apiKeys)) ? src.apiKeys : {};
-    src.apiKeys = {
-      gemini: typeof rawKeys.gemini === 'string' ? rawKeys.gemini.trim() : '',
-      deepseek: typeof rawKeys.deepseek === 'string' ? rawKeys.deepseek.trim() : '',
-      kimi: typeof rawKeys.kimi === 'string' ? rawKeys.kimi.trim() : '',
-      grok: typeof rawKeys.grok === 'string' ? rawKeys.grok.trim() : '',
-      openrouter: typeof rawKeys.openrouter === 'string' ? rawKeys.openrouter.trim() : '',
-      tavily: typeof rawKeys.tavily === 'string' ? rawKeys.tavily.trim() : ''
-    };
+    src.apiKeys = {};
+    const keyNamesList = (typeof globalThis !== 'undefined' && Array.isArray(globalThis.API_KEY_NAMES))
+      ? globalThis.API_KEY_NAMES
+      : (typeof window !== 'undefined' && Array.isArray(window.API_KEY_NAMES)
+        ? window.API_KEY_NAMES
+        : API_KEY_NAMES);
+    keyNamesList.forEach(k => {
+      src.apiKeys[k] = typeof rawKeys[k] === 'string' ? rawKeys[k].trim() : '';
+    });
 
     const isSafeConn = (typeof globalThis !== 'undefined' && typeof globalThis.isSafeConnectionId === 'function')
       ? globalThis.isSafeConnectionId
@@ -282,9 +283,30 @@
     src.appConnections = cleanConns;
     src.addedAppIds = Array.isArray(src.addedAppIds) ? src.addedAppIds.filter(x => typeof x === 'string' && x.trim()) : [];
 
-    const genId = (typeof globalThis !== 'undefined' && typeof globalThis.generateUniqueId === 'function')
-      ? globalThis.generateUniqueId
-      : (p = 'id') => p + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    const genId = (typeof globalThis !== 'undefined' && typeof globalThis.secureRandomId === 'function')
+      ? globalThis.secureRandomId
+      : (typeof globalThis !== 'undefined' && typeof globalThis.generateUniqueId === 'function')
+        ? globalThis.generateUniqueId
+        : (p = 'id') => {
+            let rnd = '';
+            try {
+              if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+                const arr = new Uint8Array(4);
+                crypto.getRandomValues(arr);
+                rnd = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+              }
+            } catch (_) {}
+            if (!rnd) {
+              try {
+                const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
+                if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+                  rnd = nodeCrypto.randomBytes(4).toString('hex');
+                }
+              } catch (_) {}
+            }
+            if (!rnd) rnd = Date.now().toString(36) + '0000';
+            return (p ? p + '_' : '') + Date.now().toString(36) + '_' + rnd;
+          };
 
     const sanitizeAvatar = (typeof globalThis !== 'undefined' && typeof globalThis.sanitizeAvatarSpec === 'function')
       ? globalThis.sanitizeAvatarSpec
@@ -567,11 +589,20 @@
       const remoteRev = getStateRevision(remoteState);
       const nextRevision = Math.max(localRev, remoteRev) + 1;
 
-      const merged = { ...localState, ...remoteState };
+      const localTs = Date.parse(localState?.cloudConfig?.lastSyncAt || 0) || 0;
+      const remoteTs = Date.parse(remoteState?.cloudConfig?.lastSyncAt || 0) || 0;
+      const isRemoteNewer = remoteRev > localRev || (remoteRev === localRev && remoteTs > localTs);
+
+      const primary = isRemoteNewer ? remoteState : localState;
+      const secondary = isRemoteNewer ? localState : remoteState;
+      const merged = { ...secondary, ...primary };
+
+      const primaryCloud = isRemoteNewer ? (remoteState.cloudConfig || {}) : (localState.cloudConfig || {});
+      const secondaryCloud = isRemoteNewer ? (localState.cloudConfig || {}) : (remoteState.cloudConfig || {});
 
       merged.cloudConfig = {
-        ...(localState.cloudConfig || {}),
-        ...(remoteState.cloudConfig || {}),
+        ...secondaryCloud,
+        ...primaryCloud,
         stateRevision: nextRevision,
         lastSyncAt: new Date().toISOString()
       };
@@ -770,15 +801,35 @@
         stateRevision: rev
       };
     } catch (netErr) {
+      let rolledBack = false;
+      let rollbackError = null;
       if (storage && typeof storage.setItem === 'function' && backupRaw !== null) {
-        storage.setItem(storageKey, backupRaw);
+        try {
+          storage.setItem(storageKey, backupRaw);
+          rolledBack = true;
+        } catch (rollbackErr) {
+          rolledBack = false;
+          rollbackError = rollbackErr.message || String(rollbackErr);
+        }
       }
       return {
         ok: false,
-        rolledBack: true,
-        error: netErr.message || String(netErr)
+        rolledBack,
+        error: netErr.message || String(netErr),
+        ...(rollbackError ? { rollbackError } : {})
       };
     }
+  }
+
+  function toTimestampMs(val) {
+    if (typeof val === 'number' && Number.isFinite(val)) return val;
+    if (typeof val === 'string' && val.trim()) {
+      const num = Number(val);
+      if (Number.isFinite(num)) return num;
+      const parsed = Date.parse(val);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
   }
 
   function mergeMultiTabState(localState, incomingState, options = {}) {
@@ -832,6 +883,17 @@
       }
     });
 
+    function toTimestampMs(val) {
+      if (typeof val === 'number' && Number.isFinite(val)) return val;
+      if (typeof val === 'string' && val.trim()) {
+        const num = Number(val);
+        if (Number.isFinite(num)) return num;
+        const parsed = Date.parse(val);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return 0;
+    }
+
     function mergeCollection(localArr = [], incomingArr = [], itemTsField = 'updatedAtTs') {
       const map = new Map();
       (Array.isArray(localArr) ? localArr : []).forEach(item => {
@@ -843,8 +905,8 @@
           map.set(item.id, JSON.parse(JSON.stringify(item)));
         } else {
           const existing = map.get(item.id);
-          const exTs = Number(existing[itemTsField]) || Number(existing.version) || 0;
-          const inTs = Number(item[itemTsField]) || Number(item.version) || 0;
+          const exTs = toTimestampMs(existing[itemTsField]) || toTimestampMs(existing.version) || 0;
+          const inTs = toTimestampMs(item[itemTsField]) || toTimestampMs(item.version) || 0;
           const comp = compareTimestampsWithClockSkewProtection(exTs, inTs, options);
           if (comp.winner === 'B' || (comp.winner === 'equal' && primaryWinner === 'incoming')) {
             map.set(item.id, JSON.parse(JSON.stringify(item)));
@@ -954,6 +1016,7 @@
     sanitizeLoadedState,
     buildPersistedState,
     emptyApiKeys,
+    toTimestampMs,
     getStateRevision,
     mergeArrayById,
     mergeStateWithRevision,

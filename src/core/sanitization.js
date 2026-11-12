@@ -4,11 +4,9 @@
  */
 (function(root, factory) {
   const exports = factory(root);
-  /* istanbul ignore else */
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = exports;
   }
-  /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
     target.NexusCore = target.NexusCore || {};
@@ -47,19 +45,16 @@
       }
     }
   }
-  /* istanbul ignore next */
   if (root) {
     syncNexusCore(root);
   }
-  /* istanbul ignore next */
   if (typeof globalThis !== 'undefined') {
     syncNexusCore(globalThis);
   }
-  /* istanbul ignore next */
   if (typeof window !== 'undefined') {
     syncNexusCore(window);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : /* istanbul ignore next */ this, function(target) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(target) {
   'use strict';
 
   const STORAGE_KEYS = (target && target.NexusCore && target.NexusCore.STORAGE_KEYS) ||
@@ -68,6 +63,8 @@
     (typeof globalThis !== 'undefined' && globalThis.NexusCore && globalThis.NexusCore.STORAGE_KEYS) ||
     Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
   const STORAGE_KEY = STORAGE_KEYS.current;
+
+  const INVISIBLE_FORMAT_CHARS_RE = /[\u0000-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]+/g;
 
   function escapeHtml(str) {
     return String(str ?? '')
@@ -80,10 +77,35 @@
 
   function sanitizeSafeUrl(url, fallback = '#') {
     if (!url || typeof url !== 'string') return fallback;
-    const cleaned = url.replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]+/g, '').trim();
-    if (!cleaned || /^(?:javascript|data|vbscript|file|blob):/i.test(cleaned)) {
+    const cleaned = url.replace(INVISIBLE_FORMAT_CHARS_RE, '').trim();
+    if (!cleaned) return fallback;
+
+    // Block protocol-relative URLs
+    if (/^\/\//.test(cleaned)) return fallback;
+
+    // Allow safe relative paths, query strings, and fragments
+    if (/^(?:#[^]*|\?[^]*|\/(?!\/)[^]*|\.\/[^]*|\.\.\/[^]*)$/.test(cleaned)) {
+      return cleaned;
+    }
+
+    const colonIdx = cleaned.indexOf(':');
+    if (colonIdx === -1) {
+      if (!/[<>"'`\s]/.test(cleaned)) {
+        return cleaned;
+      }
       return fallback;
     }
+
+    const scheme = cleaned.slice(0, colonIdx).trim().toLowerCase();
+    const ALLOWED_SCHEMES = new Set(['https', 'http', 'mailto', 'tel']);
+    if (!ALLOWED_SCHEMES.has(scheme)) {
+      return fallback;
+    }
+
+    if (/[\u0000-\u001F"<>`\s]/.test(cleaned)) {
+      return fallback;
+    }
+
     return cleaned;
   }
 
@@ -112,15 +134,28 @@
       .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 1632));
   }
 
-  function sanitizeHttpUrl(rawUrl) {
-    const u = String(rawUrl || '').trim();
-    if (!u || /[\s"'<>\\\r\n\t]/.test(u)) return '#';
+  function sanitizeHttpUrl(rawUrl, options = {}) {
+    const blockLoopback = Boolean(options && (options.blockLoopback || options.blockPrivateIps));
+    const allowLocalBridge = Boolean(options && (options.allowLocalBridge || options.allowLoopback));
+    const raw = String(rawUrl || '').trim();
+    if (!raw || /[\s"'<>\\\r\n\t]/.test(raw)) return '#';
+    const u = raw.replace(INVISIBLE_FORMAT_CHARS_RE, '');
+    if (!u) return '#';
     try {
       const parsed = new URL(u);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '#';
       if (parsed.username || parsed.password) return '#';
-      if (!parsed.hostname || !parsed.hostname.includes('.')) {
-        if (parsed.hostname !== 'localhost') return '#';
+      const host = parsed.hostname.toLowerCase();
+      if (!host || (host !== 'localhost' && !host.includes('.'))) {
+        return '#';
+      }
+      // Block cloud metadata SSRF
+      if (host === '169.254.169.254' || host === 'metadata.google.internal' || host === 'instance-data') {
+        return '#';
+      }
+      // Block loopback if requested, unless explicitly allowed
+      if (blockLoopback && !allowLocalBridge && (host === '127.0.0.1' || host === 'localhost' || host === '::1' || /^127\./.test(host))) {
+        return '#';
       }
       return parsed.href;
     } catch (e) {
@@ -129,18 +164,12 @@
   }
 
   function sanitizeUntrustedWebSnippet(rawSnippet) {
-    let text = String(rawSnippet || '')
-      .replace(/[\u200B-\u200D\uFEFF]/g, '');
+    let text = String(rawSnippet || '').replace(INVISIBLE_FORMAT_CHARS_RE, '');
 
     let prev;
     do {
       prev = text;
-      text = text.replace(/<\/?untrusted_web_data[^<>]*>/gi, '');
-    } while (text !== prev);
-
-    do {
-      prev = text;
-      text = text.replace(/<\/?untrusted_web_data[^>]*>/gi, '');
+      text = text.replace(/<\/?untrusted_web_data[^<>]*>*/gi, '');
     } while (text !== prev);
 
     return text
@@ -162,6 +191,7 @@
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
+    INVISIBLE_FORMAT_CHARS_RE,
     escapeHtml,
     sanitizeSafeUrl,
     escapeJsAttr,

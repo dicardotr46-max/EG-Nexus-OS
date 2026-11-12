@@ -99,10 +99,18 @@
     }
   }
 
-  async function resolveApprovalGate(approved) {
+  async function resolveApprovalGate(approved, timeoutMs = 30000) {
     const ui = getUiState();
     if (ui._isResolvingApproval) return;
     ui._isResolvingApproval = true;
+
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Approval gate execution timed out after ${timeoutMs}ms`));
+      }, Math.max(100, Number(timeoutMs) || 30000));
+      if (typeof timer.unref === 'function') timer.unref();
+    });
 
     try {
       if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
@@ -118,27 +126,33 @@
         }
       }
 
+      let executionPromise = null;
       if (approved && item && typeof item.onApprove === 'function') {
         const res = item.onApprove();
         if (res && typeof res.then === 'function') {
-          await Promise.resolve(res);
+          executionPromise = res;
         }
       } else if (!approved) {
         if (item && typeof item.onReject === 'function') {
           const res = item.onReject();
           if (res && typeof res.then === 'function') {
-            await Promise.resolve(res);
+            executionPromise = res;
           }
         }
         if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
           window.showToast('عملیات حساس توسط شما لغو شد 🛡️');
         }
       }
+
+      if (executionPromise) {
+        await Promise.race([executionPromise, timeoutPromise]);
+      }
     } catch (err) {
       if (typeof console !== 'undefined' && typeof console.error === 'function') {
         console.error('Error in resolveApprovalGate:', err);
       }
     } finally {
+      if (timer) clearTimeout(timer);
       setTimeout(() => {
         ui._isResolvingApproval = false;
       }, 320);

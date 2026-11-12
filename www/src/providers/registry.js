@@ -477,11 +477,13 @@
       return true;
     }
 
+    const normalizeScope = s => String(s || '').trim().replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
+    const canonicalRequired = normalizeScope(requiredScope);
+
     return scopeList.some(scope => {
       if (scope === requiredScope) return true;
-      const shortRequired = requiredScope.replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
-      const shortScope = scope.replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
-      return shortScope === shortRequired || scope.includes(shortRequired);
+      const canonicalScope = normalizeScope(scope);
+      return canonicalScope === canonicalRequired;
     });
   }
 
@@ -611,17 +613,35 @@
     const catalogItem = APPS_CATALOG.find(app => app.id === providerId);
     if (catalogItem && catalogItem.type === 'MCP') {
       const conn = appConnections?.[providerId];
-      if (conn && conn.mcpEnabled === false) {
+      if (conn && (conn.mcpEnabled === false || conn.connected === false)) {
         return {
           status: 403,
           error: 'MCP_DISABLED',
-          message: `MCP server for ${providerId} is disabled.`
+          message: `MCP server for ${providerId} is disabled or disconnected.`
         };
       }
     }
 
     // Step 2: Validate provider action scope
-    if (grantedScopes !== undefined && grantedScopes !== null) {
+    const providerDef = PROVIDERS[providerId] || catalogItem;
+    const requiredScope = providerDef?.scopes?.[action];
+    if (requiredScope) {
+      if (!grantedScopes || (Array.isArray(grantedScopes) && grantedScopes.length === 0)) {
+        return {
+          status: 403,
+          error: 'SCOPE_INSUFFICIENT',
+          message: `Action ${action} on provider ${providerId} requires scope ${requiredScope}, but none granted.`
+        };
+      }
+      const hasScope = validateProviderScope(providerId, action, grantedScopes);
+      if (!hasScope) {
+        return {
+          status: 403,
+          error: 'SCOPE_INSUFFICIENT',
+          message: `Insufficient scope for action ${action} on provider ${providerId}`
+        };
+      }
+    } else if (grantedScopes !== undefined && grantedScopes !== null) {
       const hasScope = validateProviderScope(providerId, action, grantedScopes);
       if (!hasScope) {
         return {
@@ -649,8 +669,10 @@
       };
     }
 
-    // Step 4: Token presence validation for non-anonymous providers
-    if (providerId !== 'clash_royale' && providerId !== 'coingecko' && (!token || !String(token).trim())) {
+    // Step 4: Token presence validation based on provider authType !== 'none'
+    const authType = providerDef?.authType || catalogItem?.authType;
+    const requiresToken = authType ? (authType !== 'none') : (providerId !== 'clash_royale' && providerId !== 'coingecko' && providerId !== 'web_search');
+    if (requiresToken && (!token || !String(token).trim())) {
       return formatProviderError({ status: 401, message: 'Authentication token is required' }, providerId);
     }
 
@@ -847,6 +869,30 @@
     };
   }
 
+  function secureRandomHex(bytes = 6) {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        const arr = new Uint8Array(bytes);
+        crypto.getRandomValues(arr);
+        let s = '';
+        for (let i = 0; i < arr.length; i++) s += arr[i].toString(16).padStart(2, '0');
+        return s;
+      }
+    } catch (_) {}
+    try {
+      const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
+      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+        return nodeCrypto.randomBytes(bytes).toString('hex');
+      }
+    } catch (_) {}
+    return Date.now().toString(36).padEnd(bytes * 2, '0').slice(0, bytes * 2);
+  }
+
+  function secureRandomId(prefix = 'id') {
+    const p = prefix ? String(prefix).trim() : 'id';
+    return (p ? p + '_' : '') + Date.now().toString(36) + '_' + secureRandomHex(4);
+  }
+
   // MCP Server Contract
   function isMcpServerEnabled(providerId, appConnections) {
     if (!appConnections || typeof appConnections !== 'object') return false;
@@ -857,7 +903,7 @@
   function formatMcpToolCall(serverName, toolName, args = {}) {
     return {
       jsonrpc: '2.0',
-      id: `mcp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      id: secureRandomId('mcp'),
       method: 'tools/call',
       params: {
         name: toolName,
@@ -1079,6 +1125,7 @@
     cleanMemoryState,
     resolveProviderModelId,
     recordModelTokenAndCostUsage,
-    isAppGenuinelyConnected
+    isAppGenuinelyConnected,
+    secureRandomId
   };
 });

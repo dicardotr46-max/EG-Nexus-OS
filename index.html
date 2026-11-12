@@ -811,44 +811,8 @@ body > header,
       { id: 'coingecko', name: 'CoinGecko', category: 'Finance', type: 'MCP', author: 'CoinGecko', website: 'https://coingecko.com', desc: 'Access real-time crypto market data, prices, and trends.' },
       { id: 'clash_royale', name: 'Clash Royale Official API', category: 'Dev & AI', type: 'App', author: 'Supercell', website: 'https://developer.clashroyale.com', desc: 'Live player battle logs, Electro Giant meta win-rates, and clan analytics.' }
     ];
-    // Default Application State (Clean & Empty Home List on Start)
-    var appState = {
-      profileName: 'Ali',
-      dreamMemory: 'علاقه‌مند به توسعه اپلیکیشن ورزشی اندروید با فریم‌ریت ۶۰fps و تولید محتوای حرفه‌ای کلش رویال (Electro Giant) برای ۵ پلتفرم.',
-      effortMode: 'standard', // light | standard | high | ultra
-      diffOnlyMode: true,
-      maxGroupTurns: 3,
-      totalTokensUsed: 0,
-      totalEstimatedCostUSD: 0,
-      apiKeys: {
-        gemini: '',
-        deepseek: '',
-        kimi: '',
-        grok: '',
-        openrouter: '',
-        tavily: ''
-      },
-      agentsCatalog: [], // Empty initially so user creates their own or uses Scan & Create
-      chats: [],         // Empty initially per user's instruction
-      activeChatId: null,
-      activeAgentProfileId: null,
-      addedAppIds: [],   // ZERO fake checkmarks
-      appConnections: {}, // Stores real tokens/accounts per appId
-      skills: [
-        {
-          id: 'sk_workout_60fps',
-          title: '🏋️ استاندارد ممیزی ۶۰ فریم حرکات ورزشی اندروید',
-          source: 'System Built-in',
-          desc: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.'
-        },
-        {
-          id: 'sk_clash_viral',
-          title: '👑 فرمول شورتس وایرال کلش رویال (۵ پلتفرم)',
-          source: 'System Built-in',
-          desc: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.'
-        }
-      ],
-      studioCode: `<!DOCTYPE html>
+    const DEFAULT_WORKOUT_STUDIO_TEMPLATE = (typeof window !== 'undefined' && window.NexusState && window.NexusState.DEFAULT_WORKOUT_STUDIO_TEMPLATE) ||
+      `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8" />
@@ -872,31 +836,121 @@ body > header,
     }
   <\/script>
 </body>
-</html>`
-    };
+</html>`;
+
+    function createInitialAppState() {
+      if (typeof window !== 'undefined' && window.NexusState && typeof window.NexusState.createInitialAppState === 'function') {
+        return window.NexusState.createInitialAppState();
+      }
+      return {
+        profileName: 'Ali',
+        dreamMemory: 'علاقه‌مند به توسعه اپلیکیشن ورزشی اندروید با فریم‌ریت ۶۰fps و تولید محتوای حرفه‌ای کلش رویال (Electro Giant) برای ۵ پلتفرم.',
+        effortMode: 'standard',
+        diffOnlyMode: true,
+        maxGroupTurns: 3,
+        totalTokensUsed: 0,
+        totalEstimatedCostUSD: 0,
+        apiKeys: {
+          gemini: '',
+          deepseek: '',
+          kimi: '',
+          grok: '',
+          openrouter: '',
+          tavily: '',
+          perplx: ''
+        },
+        agentsCatalog: [],
+        chats: [],
+        activeChatId: null,
+        activeAgentProfileId: null,
+        addedAppIds: [],
+        appConnections: {},
+        skills: [
+          {
+            id: 'sk_workout_60fps',
+            title: '🏋️ استاندارد ممیزی ۶۰ فریم حرکات ورزشی اندروید',
+            source: 'System Built-in',
+            desc: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.'
+          },
+          {
+            id: 'sk_clash_viral',
+            title: '👑 فرمول شورتس وایرال کلش رویال (۵ پلتفرم)',
+            source: 'System Built-in',
+            desc: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.'
+          }
+        ],
+        brainNodes: [],
+        routines: [],
+        studioCode: DEFAULT_WORKOUT_STUDIO_TEMPLATE,
+        browserConfig: {
+          mode: 'hybrid_operator',
+          allowedDomains: '',
+          blockedDomains: ''
+        },
+        localComputerConfig: {
+          bridgeUrl: 'http://127.0.0.1:8765',
+          bridgeToken: '',
+          connected: false,
+          allowedFolders: '/sdcard/Download/NexusProjects',
+          lastTerminalOutput: ''
+        },
+        cloudConfig: {
+          workerUrl: '',
+          workerSecret: '',
+          supabaseUrl: '',
+          supabaseKey: '',
+          supabaseAuthToken: '',
+          workspaceId: 'default',
+          stateRevision: 1,
+          deletedRoutineIds: [],
+          deletedRoutineMeta: {},
+          lastSyncAt: ''
+        },
+        telegramConfig: {
+          botToken: '',
+          adminChatId: '',
+          syncEnabled: false
+        }
+      };
+    }
+
+    function createInitialUiState() {
+      if (typeof window !== 'undefined' && window.NexusState && typeof window.NexusState.createInitialUiState === 'function') {
+        return window.NexusState.createInitialUiState();
+      }
+      return {
+        avatarPickerState: {
+          mode: 'create',
+          color: '#1d8cf8',
+          shape: 'roundedSquare',
+          face: 'wink'
+        },
+        pendingAttachment: null,
+        stopOrchestrationFlag: false,
+        pendingApprovalCallback: null,
+        pendingApprovalQueue: [],
+        _isResolvingApproval: false,
+        activeAppsViewMode: 'catalog',
+        activeAppsCategory: 'All',
+        lastStudioErrorText: '',
+        isOrchestratorRunning: false,
+        activeAbortController: null,
+        activeThinkingAgent: null,
+        activeViewHistoryStack: ['view-home']
+      };
+    }
+
+    // Default Application State (Bound to Unified Protected Proxies from src/core/state.js)
+    var appState = (typeof window !== 'undefined' && window.NexusState && window.NexusState.appState) ||
+      (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.appState) ||
+      (typeof createProtectedStateProxy === 'function' ? createProtectedStateProxy(createInitialAppState()) : createInitialAppState());
     // UI state object consolidating previously scattered globals
-    var uiState = {
-      // Temporary state for Avatar Customizer
-      avatarPickerState: {
-        mode: 'create', // 'create' | 'edit'
-        color: '#1d8cf8',
-        shape: 'roundedSquare',
-        face: 'wink'
-      },
-      pendingAttachment: null,
-      stopOrchestrationFlag: false,
-      pendingApprovalCallback: null,
-      activeAppsViewMode: 'catalog', // 'catalog' | 'added'
-      activeAppsCategory: 'All',
-      lastStudioErrorText: '',
-      isOrchestratorRunning: false,
-      activeAbortController: null,
-      activeThinkingAgent: null,
-      activeViewHistoryStack: ['view-home']
-    };
-    const DEFAULT_WORKOUT_STUDIO_TEMPLATE = appState.studioCode;
+    var uiState = (typeof window !== 'undefined' && window.NexusState && window.NexusState.uiState) ||
+      (typeof window !== 'undefined' && window.NexusCore && window.NexusCore.uiState) ||
+      (typeof createProtectedStateProxy === 'function' ? createProtectedStateProxy(createInitialUiState()) : createInitialUiState());
     appState.skillsCatalog = appState.skills;
     window.appState = appState;
+    window.uiState = uiState;
     let _nexusIdCounter = 0;
     let _orchestratorRunSeq = 0;
     const activeApiControllers = new Set(); window.activeApiControllers = activeApiControllers;
@@ -945,9 +999,46 @@ body > header,
     }
 
 
+    function secureRandomHex(bytes = 6) {
+      if (typeof window !== 'undefined' && window.NexusState && typeof window.NexusState.secureRandomHex === 'function') {
+        return window.NexusState.secureRandomHex(bytes);
+      }
+      try {
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+          const arr = new Uint8Array(bytes);
+          crypto.getRandomValues(arr);
+          let s = '';
+          for (let i = 0; i < arr.length; i++) s += arr[i].toString(16).padStart(2, '0');
+          return s;
+        }
+      } catch (_) {}
+      return Date.now().toString(36) + '000000';
+    }
+
+    function secureRandomId(prefix = 'id') {
+      if (typeof window !== 'undefined' && window.NexusState && typeof window.NexusState.secureRandomId === 'function') {
+        return window.NexusState.secureRandomId(prefix);
+      }
+      const p = prefix ? String(prefix).trim() : 'id';
+      return (p ? p + '_' : '') + Date.now().toString(36) + '_' + secureRandomHex(4);
+    }
+
     function generateUniqueId(prefix = 'id') {
       _nexusIdCounter = (_nexusIdCounter + 1) % 1000000;
-      const rand = Math.random().toString(36).slice(2, 6);
+      let rand = '';
+      try {
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+          const arr = new Uint8Array(3);
+          crypto.getRandomValues(arr);
+          rand = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch (_) {}
+      if (!rand && typeof secureRandomHex === 'function') {
+        rand = secureRandomHex(3);
+      }
+      if (!rand) {
+        rand = Date.now().toString(36).slice(-4);
+      }
       return `${prefix}_${Date.now()}_${_nexusIdCounter}_${rand}`;
     }
 
@@ -1247,7 +1338,7 @@ body > header,
      * Advanced Swarm dynamic sub-agent spawning for ad-hoc parallel reasoning.
      */
     function spawnDynamicSwarmSubAgent(taskType, roleDescription, customModel = null) {
-      const subId = 'sub_ag_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const subId = secureRandomId('sub_ag');
       const subModel = customModel || (typeof resolveBestSwarmModel === 'function' ? resolveBestSwarmModel('kimi-k3') : 'gemini-3.8-flash');
       return {
         id: subId,
@@ -1378,9 +1469,10 @@ body > header,
       try {
         if (!parsed) {
           appState.skillsCatalog = appState.skills;
-          applySessionSecrets(appState);
           if (typeof applySessionSecretsAsync === 'function') {
             await applySessionSecretsAsync(appState);
+          } else if (typeof applySessionSecrets === 'function') {
+            applySessionSecrets(appState);
           }
           window.appState = appState;
           return;
@@ -1388,10 +1480,12 @@ body > header,
 
         const mergedKeys = { ...appState.apiKeys, ...((parsed.apiKeys && typeof parsed.apiKeys === 'object' && !Array.isArray(parsed.apiKeys)) ? parsed.apiKeys : {}) };
         const mergedConns = { ...appState.appConnections, ...((parsed.appConnections && typeof parsed.appConnections === 'object' && !Array.isArray(parsed.appConnections)) ? parsed.appConnections : {}) };
-        appState = sanitizeLoadedState({ ...appState, ...parsed, apiKeys: mergedKeys, appConnections: mergedConns }, appState);
-        applySessionSecrets(appState);
+        const sanitized = sanitizeLoadedState({ ...appState, ...parsed, apiKeys: mergedKeys, appConnections: mergedConns }, appState);
+        Object.assign(appState, sanitized);
         if (typeof applySessionSecretsAsync === 'function') {
           await applySessionSecretsAsync(appState);
+        } else if (typeof applySessionSecrets === 'function') {
+          applySessionSecrets(appState);
         }
         window.appState = appState;
 
@@ -1545,19 +1639,21 @@ body > header,
       window.appState = appState;
       let sessionSaveOk = false;
       try {
-        const writeFn = (typeof window !== 'undefined' && typeof window.writeSessionSecrets === 'function')
-          ? window.writeSessionSecrets
-          : writeSessionSecrets;
-        sessionSaveOk = writeFn(appState);
         const queueFn = (typeof window !== 'undefined' && typeof window.queueSessionSecretsWrite === 'function')
           ? window.queueSessionSecretsWrite
           : (typeof queueSessionSecretsWrite === 'function' ? queueSessionSecretsWrite : null);
         if (typeof queueFn === 'function') {
+          sessionSaveOk = true;
           queueFn(appState).catch((err) => {
             const safeMsg = String(err && err.message ? err.message : err || 'Session secrets write error')
               .replace(/AIza[0-9A-Za-z-_]{20,}|sk-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9]{20,}|bot[0-9]{6,}:[a-zA-Z0-9_-]{20,}/g, '[REDACTED]');
             console.warn('[NexusSecrets] Sequential session secrets write failed:', safeMsg);
           });
+        } else {
+          const writeFn = (typeof window !== 'undefined' && typeof window.writeSessionSecrets === 'function')
+            ? window.writeSessionSecrets
+            : writeSessionSecrets;
+          sessionSaveOk = writeFn(appState);
         }
       } catch (_) { sessionSaveOk = false; }
       if (!sessionSaveOk) {
@@ -3064,35 +3160,73 @@ body > header,
     }
 
 
-    function triggerApprovalGate(reason, onApprove) {
-      if (!Array.isArray(uiState.pendingApprovalQueue)) uiState.pendingApprovalQueue = [];
-      uiState.pendingApprovalQueue.push({ reason, onApprove });
-      const current = uiState.pendingApprovalQueue[0];
-      const txtEl = document.getElementById('approvalGateText');
-      if (txtEl && current) txtEl.innerText = current.reason;
-      document.getElementById('approvalGateBanner')?.classList.remove('hidden');
-    }
-
-
-    function resolveApprovalGate(approved) {
-      if (uiState._isResolvingApproval) return;
-      uiState._isResolvingApproval = true;
-      setTimeout(() => { uiState._isResolvingApproval = false; }, 320);
-      if (!Array.isArray(uiState.pendingApprovalQueue)) uiState.pendingApprovalQueue = [];
-      const item = uiState.pendingApprovalQueue.shift();
-      if (uiState.pendingApprovalQueue.length === 0) {
-        document.getElementById('approvalGateBanner')?.classList.add('hidden');
+    // Wire directly to unified singleton from src/security/approvals.js
+    function triggerApprovalGate(reason, onApprove, onReject) {
+      if (typeof window !== 'undefined' && window.NexusApprovals && typeof window.NexusApprovals.triggerApprovalGate === 'function') {
+        return window.NexusApprovals.triggerApprovalGate(reason, onApprove, onReject);
+      }
+      if (typeof window !== 'undefined' && window.NexusCore && typeof window.NexusCore.triggerApprovalGate === 'function') {
+        return window.NexusCore.triggerApprovalGate(reason, onApprove, onReject);
+      }
+      const ui = (typeof getUiState === 'function')
+        ? getUiState()
+        : ((typeof uiState !== 'undefined') ? uiState : ((typeof window !== 'undefined' && window.uiState) ? window.uiState : {}));
+      if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
+      let item;
+      if (typeof reason === 'object' && reason !== null && typeof reason.reason === 'string') {
+        item = { reason: reason.reason, onApprove: reason.onApprove, onReject: reason.onReject };
       } else {
-        const next = uiState.pendingApprovalQueue[0];
-        const txtEl = document.getElementById('approvalGateText');
-        if (txtEl && next) txtEl.innerText = next.reason;
+        item = { reason, onApprove, onReject };
       }
-      if (approved && item && typeof item.onApprove === 'function') {
-        item.onApprove();
-      } else if (!approved) {
-        showToast('عملیات حساس توسط شما لغو شد 🛡️');
+      ui.pendingApprovalQueue.push(item);
+      const current = ui.pendingApprovalQueue[0];
+      if (typeof document !== 'undefined') {
+        const txtEl = document.getElementById('approvalGateText');
+        if (txtEl && current) txtEl.innerText = current.reason;
+        document.getElementById('approvalGateBanner')?.classList.remove('hidden');
       }
     }
+
+    async function resolveApprovalGate(approved, timeoutMs = 30000) {
+      if (typeof window !== 'undefined' && window.NexusApprovals && typeof window.NexusApprovals.resolveApprovalGate === 'function') {
+        return window.NexusApprovals.resolveApprovalGate(approved, timeoutMs);
+      }
+      if (typeof window !== 'undefined' && window.NexusCore && typeof window.NexusCore.resolveApprovalGate === 'function') {
+        return window.NexusCore.resolveApprovalGate(approved, timeoutMs);
+      }
+      const ui = (typeof getUiState === 'function')
+        ? getUiState()
+        : ((typeof uiState !== 'undefined') ? uiState : ((typeof window !== 'undefined' && window.uiState) ? window.uiState : {}));
+      if (ui._isResolvingApproval) return;
+      ui._isResolvingApproval = true;
+      try {
+        if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
+        const item = ui.pendingApprovalQueue.shift();
+        if (typeof document !== 'undefined') {
+          if (ui.pendingApprovalQueue.length === 0) {
+            document.getElementById('approvalGateBanner')?.classList.add('hidden');
+          } else {
+            const next = ui.pendingApprovalQueue[0];
+            const txtEl = document.getElementById('approvalGateText');
+            if (txtEl && next) txtEl.innerText = next.reason;
+          }
+        }
+        if (approved && item && typeof item.onApprove === 'function') {
+          item.onApprove();
+        } else if (!approved) {
+          if (item && typeof item.onReject === 'function') item.onReject();
+          const showToastFn = (typeof showToast === 'function') ? showToast : (typeof window !== 'undefined' ? window.showToast : null);
+          if (typeof showToastFn === 'function') {
+            showToastFn('عملیات حساس توسط شما لغو شد 🛡️');
+          }
+        }
+      } finally {
+        setTimeout(() => { ui._isResolvingApproval = false; }, 320);
+      }
+    }
+
+    window.triggerApprovalGate = triggerApprovalGate;
+    window.resolveApprovalGate = resolveApprovalGate;
 
 
     function stopActiveOrchestration() {
@@ -4989,10 +5123,14 @@ body > header,
     }
     function openExternalProviderUrl(url) {
       if (!url) return;
+      const safe = (typeof sanitizeHttpUrl === 'function')
+        ? sanitizeHttpUrl(url)
+        : ((url.startsWith('https://') || url.startsWith('http://')) ? url : '#');
+      if (!safe || safe === '#') return;
       if (typeof window !== 'undefined' && window.Capacitor?.Plugins?.Browser?.open) {
-        try { window.Capacitor.Plugins.Browser.open({ url }); return; } catch (e) {}
+        try { window.Capacitor.Plugins.Browser.open({ url: safe }); return; } catch (e) {}
       }
-      try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { window.location.href = url; }
+      try { window.open(safe, '_blank', 'noopener,noreferrer'); } catch (e) { window.location.href = safe; }
     }
     window.pendingProviderConnection = null;
     let pendingProviderConnection = null;
@@ -10178,9 +10316,10 @@ body > header,
           const likes = m.like_count ?? '—';
           const comments = m.comments_count ?? '—';
           const typeIcon = m.media_type === 'VIDEO' ? '🎬' : (m.media_type === 'CAROUSEL_ALBUM' ? '📚' : '📷');
+          const safeThumb = sanitizeHttpUrl(thumb);
           return `
             <div class="rounded-xl bg-black/40 border border-white/10 p-2 flex items-center gap-2.5 text-xs">
-              ${thumb ? `<img src="${escapeHtml(thumb)}" class="w-12 h-12 rounded-lg object-cover shrink-0 border border-white/10" alt="post" />` : `<div class="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">${typeIcon}</div>`}
+              ${safeThumb && safeThumb !== '#' ? `<img src="${escapeHtml(safeThumb)}" class="w-12 h-12 rounded-lg object-cover shrink-0 border border-white/10" alt="post" />` : `<div class="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">${typeIcon}</div>`}
               <div class="min-w-0 flex-1 space-y-0.5 text-right">
                 <div class="text-[11px] text-white truncate font-medium">${escapeHtml(m.caption || 'بدون کپشن')}</div>
                 <div class="flex items-center gap-3 text-[10px] text-slate-400">
@@ -10194,12 +10333,13 @@ body > header,
           `;
         }).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">پستی در حافظه لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
 
+        const safeAvatar = sanitizeHttpUrl(avatar);
         body = `
           <div class="space-y-3" dir="rtl">
             <div class="rounded-2xl bg-gradient-to-l from-pink-500/20 via-purple-500/20 to-amber-500/20 border border-pink-500/30 p-3 space-y-2">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
-                  ${avatar ? `<img src="${escapeHtml(avatar)}" class="w-10 h-10 rounded-full border border-pink-400/50 object-cover" alt="avatar" />` : `<div class="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center text-white font-bold">IG</div>`}
+                  ${safeAvatar && safeAvatar !== '#' ? `<img src="${escapeHtml(safeAvatar)}" class="w-10 h-10 rounded-full border border-pink-400/50 object-cover" alt="avatar" />` : `<div class="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center text-white font-bold">IG</div>`}
                   <div>
                     <div class="text-sm font-extrabold text-white flex items-center gap-1">
                       <span>@${escapeHtml(username)}</span>
@@ -10270,16 +10410,19 @@ body > header,
         };
         const recent = Array.isArray(conn.recentVideos) ? conn.recentVideos : [];
 
-        const recentVideosHtml = recent.length ? recent.map(v => `
+        const recentVideosHtml = recent.length ? recent.map(v => {
+          const safeThumb = sanitizeHttpUrl(v.thumbnail);
+          return `
           <div class="rounded-xl bg-black/40 border border-white/10 p-2 flex items-center gap-2.5 text-xs">
-            ${v.thumbnail ? `<img src="${escapeHtml(v.thumbnail)}" class="w-14 h-10 rounded-lg object-cover shrink-0 border border-white/10" alt="video" />` : '<div class="w-14 h-10 rounded-lg bg-red-600/20 flex items-center justify-center text-red-400 shrink-0">▶</div>'}
+            ${safeThumb && safeThumb !== '#' ? `<img src="${escapeHtml(safeThumb)}" class="w-14 h-10 rounded-lg object-cover shrink-0 border border-white/10" alt="video" />` : '<div class="w-14 h-10 rounded-lg bg-red-600/20 flex items-center justify-center text-red-400 shrink-0">▶</div>'}
             <div class="min-w-0 flex-1 space-y-0.5 text-right">
               <div class="text-[11px] text-white truncate font-medium">${escapeHtml(v.title || 'ویدیو')}</div>
               <div class="text-[9px] text-slate-400">${escapeHtml(v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('fa-IR') : '')}</div>
             </div>
             ${v.id ? `<a href="https://youtube.com/watch?v=${escapeHtml(v.id)}" target="_blank" rel="noopener noreferrer" class="text-red-400 text-[10px] hover:underline shrink-0">تماشا ↗</a>` : ''}
           </div>
-        `).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">ویدیویی لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
+        `;
+        }).join('') : '<div class="text-[11px] text-slate-400 py-1.5 text-center">ویدیویی لود نشده؛ دکمه همگام‌سازی را بزنید.</div>';
 
         body = `
           <div class="space-y-3" dir="rtl">
@@ -12256,13 +12399,14 @@ body > header,
           };
         })();
       <\/script>`;
+      const cspMeta = '<meta http-equiv="Content-Security-Policy" content="object-src \'none\'; base-uri \'none\'; form-action \'none\';" />\n';
       const rawCode = String(appState.studioCode || '');
       if (/<head[^>]*>/i.test(rawCode)) {
-        frame.srcdoc = rawCode.replace(/<head[^>]*>/i, match => match + errorHook);
+        frame.srcdoc = rawCode.replace(/<head[^>]*>/i, match => match + cspMeta + errorHook);
       } else if (/<body[^>]*>/i.test(rawCode)) {
-        frame.srcdoc = rawCode.replace(/<body[^>]*>/i, match => match + errorHook);
+        frame.srcdoc = rawCode.replace(/<body[^>]*>/i, match => match + cspMeta + errorHook);
       } else {
-        frame.srcdoc = errorHook + rawCode;
+        frame.srcdoc = cspMeta + errorHook + rawCode;
       }
     }
     window.addEventListener('message', (ev) => {
@@ -15808,7 +15952,7 @@ body > header,
       const nowTs = Date.now();
       const nowStr = new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
       const nodeObj = {
-        id: 'br_p3_' + nowTs + '_' + Math.floor(Math.random() * 1000),
+        id: secureRandomId('br_p3'),
         category: cleanCat,
         text: cleanText,
         source: 'Phase 3 Studio',
@@ -19601,7 +19745,8 @@ body > header,
       const rawCode = String(appState.studioCode || '');
       // Compose the storage/modal polyfill BEFORE the one navigation.
       // The legacy wrapper sees its marker and does not navigate a second time.
-      const previewPrefix = buildSandboxStorageAndModalPolyfillScript() + errorHook;
+      const cspMeta = '<meta http-equiv="Content-Security-Policy" content="object-src \'none\'; base-uri \'none\'; form-action \'none\';" />\n';
+      const previewPrefix = cspMeta + buildSandboxStorageAndModalPolyfillScript() + errorHook;
       if (/<head[^>]*>/i.test(rawCode)) {
         frame.srcdoc = rawCode.replace(/<head[^>]*>/i, match => match + previewPrefix);
       } else if (/<body[^>]*>/i.test(rawCode)) {
@@ -19747,7 +19892,7 @@ function generateTelegramPairingCode() {
       return String(100000 + (arr[0] % 900000));
     }
   } catch (e) {}
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(100000 + (parseInt(secureRandomHex(3), 16) % 900000));
 }
 
 
@@ -19766,7 +19911,7 @@ function generatePhase4WorkspaceId() {
       return 'ws_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
     }
   } catch (e) {}
-  return 'ws_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  return secureRandomId('ws');
 }
 
 
@@ -20563,25 +20708,43 @@ function drainPhase4PendingTasksQueue() {
 
 
 
-// Keep the existing Phase-1 storage keys and live objects intact. Phase-4
-// credentials share its session-only policy; sessionStorage is not an XSS vault.
+// Phase 4 credentials now share the unified AES-GCM-256 encrypted session schema
+// managed by src/security/secrets.js (Zero cleartext in sessionStorage).
 const PHASE4_SESSION_SECRETS_KEY = 'eg_nexus_phase4_session_secrets_v1';
 function readPhase4SessionSecrets() {
   try {
+    const sec = (typeof readSessionSecrets === 'function')
+      ? readSessionSecrets()
+      : ((typeof window !== 'undefined' && window.NexusSecrets?.readSessionSecrets) ? window.NexusSecrets.readSessionSecrets() : null);
+    if (sec && (sec.workerSecret || sec.supabaseKey || sec.supabaseAuthToken || sec.botToken)) {
+      return {
+        workerSecret: sec.workerSecret || '',
+        supabaseKey: sec.supabaseKey || '',
+        supabaseAuthToken: sec.supabaseAuthToken || '',
+        botToken: sec.botToken || ''
+      };
+    }
+    // Backward compatibility cleanup for legacy cleartext
     const raw = sessionStorage.getItem(PHASE4_SESSION_SECRETS_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw);
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    if (raw) {
+      sessionStorage.removeItem(PHASE4_SESSION_SECRETS_KEY);
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    }
+    return null;
   } catch (err) { return null; }
 }
 function writePhase4SessionSecrets(state) {
   try {
-    sessionStorage.setItem(PHASE4_SESSION_SECRETS_KEY, JSON.stringify({
-      workerSecret: String(state?.cloudConfig?.workerSecret || ''),
-      supabaseKey: String(state?.cloudConfig?.supabaseKey || ''),
-      supabaseAuthToken: String(state?.cloudConfig?.supabaseAuthToken || ''),
-      botToken: String(state?.telegramConfig?.botToken || '')
-    }));
+    sessionStorage.removeItem(PHASE4_SESSION_SECRETS_KEY);
+    const queueFn = (typeof queueSessionSecretsWrite === 'function')
+      ? queueSessionSecretsWrite
+      : ((typeof window !== 'undefined' && window.NexusSecrets?.queueSessionSecretsWrite) ? window.NexusSecrets.queueSessionSecretsWrite : null);
+    if (typeof queueFn === 'function') {
+      queueFn(state).catch(() => {});
+    } else if (typeof writeSessionSecrets === 'function') {
+      writeSessionSecrets(state);
+    }
     return true;
   } catch (err) { return false; }
 }
@@ -20589,10 +20752,12 @@ function applyPhase4SessionSecrets() {
   ensurePhase4State();
   const value = readPhase4SessionSecrets();
   if (!value) return;
+  if (!appState.cloudConfig) appState.cloudConfig = {};
+  if (!appState.telegramConfig) appState.telegramConfig = {};
   ['workerSecret', 'supabaseKey', 'supabaseAuthToken'].forEach(key => {
-    appState.cloudConfig[key] = String(value[key] || '');
+    if (value[key]) appState.cloudConfig[key] = String(value[key] || '');
   });
-  appState.telegramConfig.botToken = String(value.botToken || '');
+  if (value.botToken) appState.telegramConfig.botToken = String(value.botToken || '');
 }
 function installPhase4SecretPersistenceBoundary() {
   if (typeof window === 'undefined' || window._phase4SecretPersistenceBoundary) return;
@@ -22695,7 +22860,7 @@ function enqueueOfflineCloudTask(taskType, payload = {}) {
     }
   }
   appState.cloudConfig.offlineQueue.push({
-    id: 'oq_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    id: secureRandomId('oq'),
     taskType,
     payload,
     attempts: 0,
@@ -22872,7 +23037,7 @@ function routePulledCloudMessageToPhase3Artifacts(msgObj) {
         if (appState.brainNodes.length >= PHASE4_MAX_BRAIN_NODES) appState.brainNodes.pop();
         const nowTs = Date.now();
         appState.brainNodes.unshift({
-          id: 'br_cloud_' + nowTs + '_' + Math.random().toString(36).slice(2, 5),
+          id: secureRandomId('br_cloud'),
           category: cleanCat,
           text: cleanNote,
           source: 'Cloud 24/7 Cron',
@@ -22884,7 +23049,7 @@ function routePulledCloudMessageToPhase3Artifacts(msgObj) {
           appState.pendingMemoryProposals.pop();
         }
         appState.pendingMemoryProposals.unshift({
-          id: 'prop_br_cloud_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          id: secureRandomId('prop_br_cloud'),
           kind: 'brain',
           category: cleanCat,
           title: isUntrustedExternal ? `${cleanCat} (قرنطینه ایمیل/وب‌هوک)` : cleanCat,
@@ -22914,7 +23079,7 @@ function routePulledCloudMessageToPhase3Artifacts(msgObj) {
       if (canAutoApprove) {
         if (appState.skills.length >= PHASE4_MAX_SKILLS_COUNT) appState.skills.pop();
         appState.skills.unshift({
-          id: 'sk_cloud_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          id: secureRandomId('sk_cloud'),
           title: skTitle,
           source: 'Cloud 24/7 Agent',
           desc: skDesc
@@ -22925,7 +23090,7 @@ function routePulledCloudMessageToPhase3Artifacts(msgObj) {
           appState.pendingMemoryProposals.pop();
         }
         appState.pendingMemoryProposals.unshift({
-          id: 'prop_sk_cloud_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          id: secureRandomId('prop_sk_cloud'),
           kind: 'skill',
           title: skTitle,
           category: isUntrustedExternal ? 'Skill (قرنطینه خارجی)' : 'Skill',
@@ -23475,7 +23640,7 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
                     return;
                   }
                   // ID collision with different content: assign a fresh collision ID so cloud message is never dropped
-                  m.id = 'msg_cloud_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+                  m.id = secureRandomId('msg_cloud');
                 }
                 targetChat.messages.push(m);
                 existingMsgMap.set(m.id, m);
@@ -23700,6 +23865,20 @@ const MAX_OFFLINE_ITEMS = 40;
 const LEASE_DURATION_MS = 60000; // 60s delivery lease before ACK
 const ROUTINE_LOCK_TTL_MS = 240000; // 4m best-effort KV lease, NOT an atomic distributed mutex
 const MAX_DAILY_CLOUD_RUNS = 180; // Cost & KV daily write budget guard
+
+function workerSecureHex(bytes = 4) {
+  try {
+    const arr = new Uint8Array(bytes);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    return Date.now().toString(36).slice(-bytes * 2);
+  }
+}
+
+function workerSecureId(prefix = 'id') {
+  return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + workerSecureHex(4);
+}
 
 
 
@@ -24090,7 +24269,7 @@ async function acquireRoutineExecutionLock(env, routineId, nowTs = Date.now(), t
     const existingTs = Number(String(existing).split(":")[0]) || 0;
     if (existingTs > nowTs) return null;
   }
-  const lockToken = (nowTs + ttlMs) + ":" + Math.random().toString(36).slice(2, 8);
+  const lockToken = (nowTs + ttlMs) + ":" + workerSecureHex(4);
   await env.NEXUS_KV.put(lockKey, lockToken, { expirationTtl: Math.max(10, Math.ceil(ttlMs / 1000) + 10) });
   const verified = await env.NEXUS_KV.get(lockKey);
   return verified === lockToken ? lockToken : null;
@@ -24617,7 +24796,7 @@ if (body.action === "PULL_OFFLINE_RESULTS") {
   const raw = env.NEXUS_KV ? await getKvWithFallback(env, "offline_completed", wsPrefix) : "[]";
   const allCompleted = safeJsonParse(raw, []);
   const deliverable = [];
-  const leaseToken = "lease_" + nowTs + "_" + Math.random().toString(36).slice(2, 8);
+  const leaseToken = "lease_" + nowTs + "_" + workerSecureHex(4);
   const updatedList = (Array.isArray(allCompleted) ? allCompleted : []).map(m => {
     if (!m || !m.id) return null;
     if (!m.leasedUntilTs || Number(m.leasedUntilTs) <= nowTs) {
@@ -24689,7 +24868,7 @@ if (body.action === "RUN_OFFLINE_SWARM") {
   const reply = out.ok ? out.text : "⚠️ [خطای سرویس ابری]: هیچ‌یک از مدل‌های تنظیم‌شده در Cloud Worker پاسخ ندادند.";
   if (body.saveToKv && env.NEXUS_KV) {
     await appendOfflineCompletedToKv(env, [{
-      id: "m_swarm_" + nowTs + "_" + Math.random().toString(36).slice(2, 6),
+      id: workerSecureId("m_swarm"),
       senderType: "agent",
       senderName: String(body.agentName || "Cloud Swarm").slice(0, 80) + " (Cloud 24/7 ☁️)",
       text: reply,
@@ -24767,7 +24946,7 @@ if ((body.action === "TRIGGER_ROUTINE_WEBHOOK" || isGitHubPushOrAction) && env.N
       }
       const finalMsg = sanitizeUntrustedExternalText(out.ok ? out.text : ("⚠️ خطا در اجرای وب‌هوک روتین: " + rt.title), 4000);
       newMessages.push({
-        id: "m_wh_" + nowTs + "_" + Math.random().toString(36).slice(2, 6),
+        id: workerSecureId("m_wh"),
         senderType: "agent",
         senderName: (rt.agentName || "Webhook Agent") + " (Webhook ☁️)",
         text: finalMsg,
@@ -24829,7 +25008,7 @@ if (body.action === "INBOUND_EMAIL_WEBHOOK") {
   );
   if (env.NEXUS_KV) {
     await appendOfflineCompletedToKv(env, [{
-      id: "m_mail_cloud_" + nowTs + "_" + Math.random().toString(36).slice(2, 6),
+      id: workerSecureId("m_mail_cloud"),
       senderType: "agent",
       senderName: "Inbound Email Agent (Cloud ✉️)",
       text: finalMsgText,
@@ -24935,7 +25114,7 @@ ctx.waitUntil((async () => {
           : ("⚠️ اجرای خودکار روتین «" + rt.title + "» به دلیل عدم پاسخ مدل‌های ابری با خطا مواجه شد.");
 
         newMessages.push({
-          id: "m_cloud_" + doneTs + "_" + Math.random().toString(36).slice(2, 6),
+          id: workerSecureId("m_cloud"),
           senderType: "agent",
           senderName: (rt.agentName || "Nexus Agent") + " (Cloud 24/7 ☁️)",
           text: finalCronText,
@@ -24995,7 +25174,7 @@ ctx.waitUntil((async () => {
   );
   if (env.NEXUS_KV) {
     await appendOfflineCompletedToKv(env, [{
-      id: "m_email_" + nowTs + "_" + Math.random().toString(36).slice(2, 6),
+      id: workerSecureId("m_email"),
       senderType: "agent",
       senderName: "Email Router (Cloud ✉️)",
       text: finalEmailText,
@@ -25990,7 +26169,7 @@ if (typeof document !== 'undefined') {
           const alreadyInBrain = Array.isArray(appState.brainNodes) && appState.brainNodes.some(b => b && String(b.text || '').trim() === cleanText);
           if (alreadyPending || alreadyInBrain) return false;
           appState.pendingMemoryProposals.unshift({
-            id: 'pmp_p5_' + nowTs + '_' + Math.floor(Math.random() * 1000),
+            id: secureRandomId('pmp_p5'),
             kind: 'brain',
             category: cleanCat,
             text: cleanText,
@@ -26034,7 +26213,7 @@ if (typeof document !== 'undefined') {
           });
         } else {
           appState.brainNodes.unshift({
-            id: 'br_p5_' + nowTs + '_' + Math.floor(Math.random() * 1000),
+            id: secureRandomId('br_p5'),
             category: cleanCat,
             text: cleanText,
             source: 'Phase 5 Operator',
@@ -26075,7 +26254,7 @@ if (typeof document !== 'undefined') {
           return 'nexus_tk_' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
         }
       } catch (e) {}
-      return 'nexus_tk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+      return 'nexus_tk_' + Date.now().toString(36) + '_' + secureRandomHex(8);
     }
 
 
@@ -29376,14 +29555,14 @@ if (typeof document !== 'undefined') {
         .trim() || '/sdcard/Download/NexusProjects';
       const t0 = Date.now();
       const reqTs = String(t0);
-      const reqNonce = Math.random().toString(36).slice(2, 12) + '_' + reqSeq;
+      const reqNonce = secureRandomHex(8) + '_' + reqSeq;
       const confirmToken = explicitlyConfirmedByUser
         ? await computeClientConfirmToken(appState.localComputerConfig.bridgeToken, cmd, reqNonce, reqTs)
         : '';
 
 
       try {
-        window._currentTermuxJobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        window._currentTermuxJobId = secureRandomId('job');
         const res = await fetchWithPhase5Timeout(`${baseUrl}/exec`, {
           method: 'POST',
           headers: {
@@ -30024,7 +30203,7 @@ http.createServer((req, res) => {
       }
 
 
-      const activeJobId = String(parsed.jobId || ('job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)));
+      const activeJobId = String(parsed.jobId || ('job_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex')));
       if (parsed.jobId && activeJobsMap.has(activeJobId)) {
         const existingJob = activeJobsMap.get(activeJobId);
         const statusMsg = existingJob && existingJob._cancelling ? 'is terminating' : 'is active';
@@ -30188,8 +30367,8 @@ if [ ! -f "package.json" ]; then
 fi
 
 
-# نصب نسخه دقیق و راستی‌آزمایی‌شده Capacitor 8.5.3 به همراه پلاگین‌های بومی مورد استفاده در فاز ۱ تا ۵
-npm install --save-exact @capacitor/core@8.5.3 @capacitor/cli@8.5.3 @capacitor/android@8.5.3 @capacitor/app @capacitor/browser @capacitor/filesystem @capacitor/share
+# نصب نسخه دقیق و راستی‌آزمایی‌شده Capacitor 8.6.0 به همراه پلاگین‌های بومی مورد استفاده در فاز ۱ تا ۵
+npm install --save-exact @capacitor/core@8.6.0 @capacitor/cli@8.6.0 @capacitor/android@8.6.0 @capacitor/app@8.1.2 @capacitor/browser@8.0.5 @capacitor/filesystem@8.1.5 @capacitor/share@8.0.3
 
 
 node -e '
@@ -30285,7 +30464,7 @@ if (fs.existsSync(mainActPath)) {
       "            WebSettings ws = getBridge().getWebView().getSettings();",
       "            ws.setMediaPlaybackRequiresUserGesture(false);",
       "            ws.setDomStorageEnabled(true);",
-      "            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);",
+      "            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);",
       "        }",
       "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {",
       "            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {",
@@ -30301,7 +30480,7 @@ if (fs.existsSync(mainActPath)) {
     if (patched.includes("super.onCreate(savedInstanceState);")) {
       patched = patched.replace(
         "super.onCreate(savedInstanceState);",
-        "super.onCreate(savedInstanceState);\\n        if (getBridge() != null && getBridge().getWebView() != null) { WebSettings ws = getBridge().getWebView().getSettings(); ws.setMediaPlaybackRequiresUserGesture(false); ws.setDomStorageEnabled(true); ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE); }\\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{ Manifest.permission.RECORD_AUDIO }, 1001); }"
+        "super.onCreate(savedInstanceState);\\n        if (getBridge() != null && getBridge().getWebView() != null) { WebSettings ws = getBridge().getWebView().getSettings(); ws.setMediaPlaybackRequiresUserGesture(false); ws.setDomStorageEnabled(true); ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); }\\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{ Manifest.permission.RECORD_AUDIO }, 1001); }"
       );
     } else {
       patched = patched.replace(/public\\s+class\\s+MainActivity\\s+extends\\s+BridgeActivity\\s*\\{/, "public class MainActivity extends BridgeActivity {\\n" + onCreateHook);
@@ -30313,24 +30492,24 @@ if (fs.existsSync(mainActPath)) {
 
 
 npx cap sync android
-echo "✅ پروژه اندروید Capacitor 8.5.3 آماده شد! در حال ساخت APK..."
+echo "✅ پروژه اندروید Capacitor 8.6.0 آماده شد! در حال ساخت APK..."
 cd android && chmod +x gradlew
 if [ -n "\${ANDROID_KEYSTORE_PATH:-}" ] && [ -f "\${ANDROID_KEYSTORE_PATH}" ]; then
   ./gradlew assembleRelease
   echo "🎉 فایل Release آماده شد: android/app/build/outputs/apk/release/"
 else
-  ./gradlew assembleDebug
-  echo "🎉 فایل نصبی آماده شد: android/app/build/outputs/apk/debug/app-debug.apk"
+  ./gradlew assembleRelease
+  echo "🎉 فایل نصبی آماده شد: android/app/build/outputs/apk/release/app-release-unsigned.apk"
 fi`;
     }
 
 
     function generateGitHubActionsApkWorkflow() {
       return `# ============================================================================
-# EG NEXUS OS v5.16 PASS-12 - GITHUB ACTIONS CLOUD APK BUILDER (Capacitor 8.5.3)
+# EG NEXUS OS v5.8.0 - GITHUB ACTIONS CLOUD APK BUILDER (Capacitor 8.6.0)
 # مسیر ذخیره در گیت‌هاب: .github/workflows/build-nexus-apk.yml
 # ============================================================================
-name: Build EG Nexus OS Android APK (Capacitor 8.5.3 Hardened)
+name: Build EG Nexus OS Android APK (Capacitor 8.6.0 Hardened)
 
 
 on:
@@ -30361,12 +30540,11 @@ jobs:
           node-version: '22'
 
 
-      - name: Setup Java JDK 21 (Temurin for Capacitor 8 / AGP with Gradle Cache)
+      - name: Setup Java JDK 21 (Temurin for Capacitor 8 / AGP)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
-          cache: 'gradle'
 
 
       - name: Build Capacitor Android Project & Assemble APK
@@ -30381,21 +30559,21 @@ jobs:
           fi
           cd build-cap
           npm init -y
-          npm install --save-exact @capacitor/core@8.5.3 @capacitor/cli@8.5.3 @capacitor/android@8.5.3 @capacitor/app @capacitor/browser @capacitor/filesystem @capacitor/share
+          npm install --save-exact @capacitor/core@8.6.0 @capacitor/cli@8.6.0 @capacitor/android@8.6.0 @capacitor/app@8.1.2 @capacitor/browser@8.0.5 @capacitor/filesystem@8.1.5 @capacitor/share@8.0.3
           node -e 'const fs=require("fs");fs.writeFileSync("capacitor.config.json",JSON.stringify({appId:"com.ali.egnexusos",appName:"EG Nexus OS",webDir:"www",server:{androidScheme:"https",cleartext:false,allowNavigation:["localhost","127.0.0.1"]},android:{allowMixedContent:false,captureInput:true,webContentsDebuggingEnabled:false}},null,2)+"\\n","utf8");'
           npx cap add android
-          node -e 'const fs=require("fs");const gp="android/gradle.properties";if(fs.existsSync(gp)&&!fs.readFileSync(gp,"utf8").includes("Dfile.encoding=UTF-8")){fs.appendFileSync(gp,"\\norg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8\\n","utf8");}fs.mkdirSync("android/app/src/main/res/xml",{recursive:true});fs.writeFileSync("android/app/src/main/res/xml/network_security_config.xml","<?xml version=\\"1.0\\" encoding=\\"utf-8\\"?>\\n<network-security-config>\\n    <base-config cleartextTrafficPermitted=\\"false\\" />\\n    <domain-config cleartextTrafficPermitted=\\"true\\">\\n        <domain includeSubdomains=\\"true\\">127.0.0.1</domain>\\n        <domain includeSubdomains=\\"true\\">localhost</domain>\\n        <domain includeSubdomains=\\"false\\">10.0.2.2</domain>\\n    </domain-config>\\n</network-security-config>\\n","utf8");const mfPath="android/app/src/main/AndroidManifest.xml";if(fs.existsSync(mfPath)){let mf=fs.readFileSync(mfPath,"utf8");if(!mf.includes("android.permission.RECORD_AUDIO")){mf=mf.replace("<application","<uses-permission android:name=\\"android.permission.RECORD_AUDIO\\" />\\n    <uses-permission android:name=\\"android.permission.MODIFY_AUDIO_SETTINGS\\" />\\n    <application");}mf=mf.replace(/\\s*android:usesCleartextTraffic=\\"true\\"/g,"");if(!mf.includes("networkSecurityConfig")){mf=mf.replace(/<application(\\s)/,"<application android:networkSecurityConfig=\\"@xml/network_security_config\\"$1");}fs.writeFileSync(mfPath,mf,"utf8");}const maPath="android/app/src/main/java/com/ali/egnexusos/MainActivity.java";if(fs.existsSync(maPath)){const orig=fs.readFileSync(maPath,"utf8");if(!orig.includes("RECORD_AUDIO")){let patched=orig.replace("import com.getcapacitor.BridgeActivity;","import android.Manifest;\\nimport android.content.pm.PackageManager;\\nimport android.os.Build;\\nimport android.os.Bundle;\\nimport android.webkit.WebSettings;\\nimport com.getcapacitor.BridgeActivity;");patched=patched.replace(/public\\s+class\\s+MainActivity\\s+extends\\s+BridgeActivity\\s*\\{/,"public class MainActivity extends BridgeActivity {\\n    @Override\\n    public void onCreate(Bundle savedInstanceState) {\\n        super.onCreate(savedInstanceState);\\n        if (getBridge() != null && getBridge().getWebView() != null) { WebSettings ws = getBridge().getWebView().getSettings(); ws.setMediaPlaybackRequiresUserGesture(false); ws.setDomStorageEnabled(true); ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE); }\\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{ Manifest.permission.RECORD_AUDIO }, 1001); }\\n    }");fs.writeFileSync(maPath,patched,"utf8");}}'
+          node -e 'const fs=require("fs");const gp="android/gradle.properties";if(fs.existsSync(gp)&&!fs.readFileSync(gp,"utf8").includes("Dfile.encoding=UTF-8")){fs.appendFileSync(gp,"\\norg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8\\n","utf8");}fs.mkdirSync("android/app/src/main/res/xml",{recursive:true});fs.writeFileSync("android/app/src/main/res/xml/network_security_config.xml","<?xml version=\\"1.0\\" encoding=\\"utf-8\\"?>\\n<network-security-config>\\n    <base-config cleartextTrafficPermitted=\\"false\\" />\\n    <domain-config cleartextTrafficPermitted=\\"true\\">\\n        <domain includeSubdomains=\\"true\\">127.0.0.1</domain>\\n        <domain includeSubdomains=\\"true\\">localhost</domain>\\n        <domain includeSubdomains=\\"false\\">10.0.2.2</domain>\\n    </domain-config>\\n</network-security-config>\\n","utf8");const mfPath="android/app/src/main/AndroidManifest.xml";if(fs.existsSync(mfPath)){let mf=fs.readFileSync(mfPath,"utf8");if(!mf.includes("android.permission.RECORD_AUDIO")){mf=mf.replace("<application","<uses-permission android:name=\\"android.permission.RECORD_AUDIO\\" />\\n    <uses-permission android:name=\\"android.permission.MODIFY_AUDIO_SETTINGS\\" />\\n    <application");}mf=mf.replace(/\\s*android:usesCleartextTraffic=\\"true\\"/g,"");if(!mf.includes("networkSecurityConfig")){mf=mf.replace(/<application(\\s)/,"<application android:networkSecurityConfig=\\"@xml/network_security_config\\"$1");}fs.writeFileSync(mfPath,mf,"utf8");}const maPath="android/app/src/main/java/com/ali/egnexusos/MainActivity.java";if(fs.existsSync(maPath)){const orig=fs.readFileSync(maPath,"utf8");if(!orig.includes("RECORD_AUDIO")){let patched=orig.replace("import com.getcapacitor.BridgeActivity;","import android.Manifest;\\nimport android.content.pm.PackageManager;\\nimport android.os.Build;\\nimport android.os.Bundle;\\nimport android.webkit.WebSettings;\\nimport com.getcapacitor.BridgeActivity;");patched=patched.replace(/public\\s+class\\s+MainActivity\\s+extends\\s+BridgeActivity\\s*\\{/,"public class MainActivity extends BridgeActivity {\\n    @Override\\n    public void onCreate(Bundle savedInstanceState) {\\n        super.onCreate(savedInstanceState);\\n        if (getBridge() != null && getBridge().getWebView() != null) { WebSettings ws = getBridge().getWebView().getSettings(); ws.setMediaPlaybackRequiresUserGesture(false); ws.setDomStorageEnabled(true); ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); }\\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{ Manifest.permission.RECORD_AUDIO }, 1001); }\\n    }");fs.writeFileSync(maPath,patched,"utf8");}}'
           npx cap sync android
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
 
       - name: Upload Compiled Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EG-Nexus-OS-v5.16-apk
-          path: build-cap/android/app/build/outputs/apk/debug/app-debug.apk
+          name: EG-Nexus-OS-v5.8.0-apk
+          path: build-cap/android/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error`;
     }
 
@@ -31271,7 +31449,7 @@ jobs:
           stack = redactSensitiveTokens(stack).slice(0, 1200);
 
           const entry = {
-            id: 'bb_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+            id: secureRandomId('bb'),
             type: String(meta.type || 'runtime_error'),
             message,
             source: redactSensitiveTokens(meta.source || meta.filename || 'index.html').slice(0, 240),
@@ -31445,7 +31623,18 @@ jobs:
       function registerNexusServiceWorkerSafe() {
         if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
         if (typeof location === 'undefined' || !/^https?:$/i.test(location.protocol)) return;
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+          if (typeof window !== 'undefined') {
+            window._nexusServiceWorkerError = err && err.message ? err.message : String(err);
+            if (window._nexusBusDiagnostics && Array.isArray(window._nexusBusDiagnostics.errors)) {
+              window._nexusBusDiagnostics.errors.push({
+                type: 'ServiceWorkerRegistrationError',
+                message: window._nexusServiceWorkerError,
+                timestamp: Date.now()
+              });
+            }
+          }
+        });
       }
 
       if (typeof document !== 'undefined') {

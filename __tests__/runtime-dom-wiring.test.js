@@ -97,6 +97,7 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       Boolean,
       Number,
       Uint8Array,
+      Buffer: (typeof Buffer !== 'undefined' ? Buffer : undefined),
       TextEncoder,
       TextDecoder,
       Math,
@@ -156,9 +157,7 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       const scriptMatch = indexHtml.match(/<script id="nexus-main-script">([\s\S]*?)<\/script>/);
       if (scriptMatch) {
         const fullScript = scriptMatch[1];
-        try {
-          vm.runInContext(fullScript, context);
-        } catch (_) {}
+        vm.runInContext(fullScript, context);
       }
     }
 
@@ -224,6 +223,13 @@ describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
       expect(win._nexusCoreState.appState).toBeDefined();
       expect(win._nexusCoreState.uiState).toBeDefined();
       expect(win._nexusCoreState.STORAGE_KEY).toBe('eg_nexus_os_v5_master_state');
+    });
+
+    it('should bind window.appState directly to window.NexusState.appState proxy singleton', () => {
+      expect(win.appState).toBeDefined();
+      expect(win.NexusState).toBeDefined();
+      expect(win.appState).toBe(win.NexusState.appState);
+      expect(win.uiState).toBe(win.NexusState.uiState);
     });
 
     it('should define window._nexusCoreApprovals and match src/security/approvals exports', () => {
