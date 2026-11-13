@@ -202,7 +202,7 @@ jobs:
           echo "✅ Release APK signing and verification completed successfully."
 
       - name: 10. Upload Ready-to-Install Signed Android APK
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EG-Nexus-OS-v6.1-Signed-APK
           path: dist/EG-Nexus-OS-v6.1-release-signed.apk
