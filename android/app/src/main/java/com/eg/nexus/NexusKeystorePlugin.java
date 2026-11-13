@@ -115,8 +115,9 @@ public class NexusKeystorePlugin extends Plugin {
             SecretKey secretKey = getOrCreateSecretKey();
             JSObject sec = inspectKeySecurity(secretKey);
             ret.put("available", true);
-            ret.put("hardwareBacked", sec.getBool("hardwareBacked", false));
-            ret.put("securityLevel", sec.getString("securityLevel", "software"));
+            ret.put("hardwareBacked", Boolean.TRUE.equals(sec.getBool("hardwareBacked")));
+            String secLevel = sec.getString("securityLevel");
+            ret.put("securityLevel", secLevel != null ? secLevel : "software");
             ret.put("alias", KEY_ALIAS);
             ret.put("provider", ANDROID_KEYSTORE);
             call.resolve(ret);
@@ -136,8 +137,9 @@ public class NexusKeystorePlugin extends Plugin {
             SecretKey secretKey = getOrCreateSecretKey();
             JSObject sec = inspectKeySecurity(secretKey);
             ret.put("available", true);
-            ret.put("hardwareBacked", sec.getBool("hardwareBacked", false));
-            ret.put("securityLevel", sec.getString("securityLevel", "software"));
+            ret.put("hardwareBacked", Boolean.TRUE.equals(sec.getBool("hardwareBacked")));
+            String secLevel = sec.getString("securityLevel");
+            ret.put("securityLevel", secLevel != null ? secLevel : "software");
             ret.put("alias", KEY_ALIAS);
             ret.put("provider", ANDROID_KEYSTORE);
             call.resolve(ret);
