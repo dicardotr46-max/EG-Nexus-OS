@@ -23544,6 +23544,31 @@ async function pushStateToSupabaseDirect() {
 
 
 
+async function computeWorkerHmacSha256(secret, payloadText) {
+  if (!secret || !payloadText) return '';
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(String(secret)),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(String(payloadText)));
+      return 'sha256=' + Array.from(new Uint8Array(sigBuf), b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (_) {}
+  if (typeof require === 'function') {
+    try {
+      const nodeCrypto = require('crypto');
+      return 'sha256=' + nodeCrypto.createHmac('sha256', String(secret)).update(String(payloadText), 'utf8').digest('hex');
+    } catch (_) {}
+  }
+  return '';
+}
+
 // تخلیه اتمی صف آفلاین بدون حذف تسک‌هایی که در حین اجرای درخواست‌های شبکه به صف اضافه شده‌اند + پشتیبانی از Supabase-Only
 async function flushOfflineCloudQueue() {
   ensurePhase4State();
@@ -23596,20 +23621,23 @@ async function flushOfflineCloudQueue() {
 
 
           if (workerUrl && workerSecret) {
+            const bodyStr = JSON.stringify({
+              action: 'SYNC_NEXUS_STATE',
+              workspaceId: appState.cloudConfig.workspaceId,
+              stateRevision: appState.cloudConfig.stateRevision,
+              routines: appState.routines,
+              deletedRoutineIds: appState.cloudConfig.deletedRoutineIds || [],
+              deletedRoutineMeta: appState.cloudConfig.deletedRoutineMeta || {},
+              brainNodes: Array.isArray(appState.brainNodes) ? appState.brainNodes.slice(0, PHASE4_MAX_BRAIN_NODES) : [],
+              timestamp: Date.now()
+            });
+            const hmacSig = await computeWorkerHmacSha256(workerSecret, bodyStr);
             const headers = { 'Content-Type': 'application/json', 'X-Nexus-Secret': workerSecret };
+            if (hmacSig) headers['X-Nexus-Signature-256'] = hmacSig;
             const res = await fetchWithPhase4Timeout(workerUrl, {
               method: 'POST',
               headers,
-              body: JSON.stringify({
-                action: 'SYNC_NEXUS_STATE',
-                workspaceId: appState.cloudConfig.workspaceId,
-                stateRevision: appState.cloudConfig.stateRevision,
-                routines: appState.routines,
-                deletedRoutineIds: appState.cloudConfig.deletedRoutineIds || [],
-                deletedRoutineMeta: appState.cloudConfig.deletedRoutineMeta || {},
-                brainNodes: Array.isArray(appState.brainNodes) ? appState.brainNodes.slice(0, PHASE4_MAX_BRAIN_NODES) : [],
-                timestamp: Date.now()
-              })
+              body: bodyStr
             }, 8500);
             if (res.ok) {
               const syncData = await res.json().catch(() => null);
@@ -23910,25 +23938,25 @@ async function syncStateWithCloudWorker(pullOfflineResults = false, isSilentBack
 
     if (workerUrl && workerSecret) {
       try {
+        const bodyStr = JSON.stringify({
+          action: pullOfflineResults ? 'PULL_OFFLINE_RESULTS' : 'SYNC_NEXUS_STATE',
+          workspaceId: appState.cloudConfig.workspaceId,
+          stateRevision: appState.cloudConfig.stateRevision,
+          routines: appState.routines,
+          deletedRoutineIds: appState.cloudConfig.deletedRoutineIds || [],
+          deletedRoutineMeta: appState.cloudConfig.deletedRoutineMeta || {},
+          brainNodes: Array.isArray(appState.brainNodes) ? appState.brainNodes.slice(0, PHASE4_MAX_BRAIN_NODES) : [],
+          chatsCount: Array.isArray(appState.chats) ? appState.chats.length : 0,
+          timestamp: Date.now()
+        });
+        const hmacSig = await computeWorkerHmacSha256(workerSecret, bodyStr);
         const headers = { 'Content-Type': 'application/json', 'X-Nexus-Secret': workerSecret };
-
-
-
+        if (hmacSig) headers['X-Nexus-Signature-256'] = hmacSig;
 
         const res = await fetchWithPhase4Timeout(workerUrl, {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            action: pullOfflineResults ? 'PULL_OFFLINE_RESULTS' : 'SYNC_NEXUS_STATE',
-            workspaceId: appState.cloudConfig.workspaceId,
-            stateRevision: appState.cloudConfig.stateRevision,
-            routines: appState.routines,
-            deletedRoutineIds: appState.cloudConfig.deletedRoutineIds || [],
-            deletedRoutineMeta: appState.cloudConfig.deletedRoutineMeta || {},
-            brainNodes: Array.isArray(appState.brainNodes) ? appState.brainNodes.slice(0, PHASE4_MAX_BRAIN_NODES) : [],
-            chatsCount: Array.isArray(appState.chats) ? appState.chats.length : 0,
-            timestamp: Date.now()
-          })
+          body: bodyStr
         }, 9500);
 
 
@@ -24204,14 +24232,22 @@ const LEASE_DURATION_MS = 60000; // 60s delivery lease before ACK
 const ROUTINE_LOCK_TTL_MS = 240000; // 4m best-effort KV lease, NOT an atomic distributed mutex
 const MAX_DAILY_CLOUD_RUNS = 180; // Cost & KV daily write budget guard
 
-function workerSecureHex(bytes = 4) {
-  try {
+function workerSecureHex(bytes = 16) {
+  const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
     const arr = new Uint8Array(bytes);
-    crypto.getRandomValues(arr);
+    cryptoObj.getRandomValues(arr);
     return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-  } catch (e) {
-    return Date.now().toString(36).slice(-bytes * 2);
   }
+  if (typeof require === 'function') {
+    try {
+      const nodeCrypto = require('crypto');
+      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+        return nodeCrypto.randomBytes(bytes).toString('hex');
+      }
+    } catch (_) {}
+  }
+  throw new Error('Fail-closed CSPRNG: secure random generator unavailable');
 }
 
 function workerSecureId(prefix = 'id') {
@@ -24256,21 +24292,21 @@ entropy -= p * Math.log2(p);
 
 
 function verifyWorkerSecretTimingSafe(provided, expected) {
-  if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 32) {
-return false;
+  if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 8) {
+    return false;
   }
   const enc = new TextEncoder();
   const bufA = enc.encode(provided);
   const bufB = enc.encode(expected);
   if (bufA.byteLength !== bufB.byteLength) return false;
   if (typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.timingSafeEqual === "function") {
-try {
-  return crypto.subtle.timingSafeEqual(bufA, bufB);
-} catch (e) {}
+    try {
+      return crypto.subtle.timingSafeEqual(bufA, bufB);
+    } catch (e) {}
   }
   let diff = 0;
   for (let i = 0; i < bufA.length; i++) {
-diff |= bufA[i] ^ bufB[i];
+    diff |= bufA[i] ^ bufB[i];
   }
   return diff === 0;
 }
@@ -29763,26 +29799,30 @@ if (typeof document !== 'undefined') {
     }
 
 
-    // تولید امضای زمانی SHA-256 برای اثبات تأیید صریح کاربر به سرور Termux (جلوگیری از جعل و Replay)
+    // تولید امضای زمانی HMAC-SHA256 برای اثبات تأیید صریح کاربر به سرور Termux (جلوگیری از جعل و Replay با مقایسه زمان‌ثابت)
     async function computeClientConfirmToken(bridgeToken, command, nonceStr, tsStr) {
-      const payload = `${bridgeToken}:${tsStr}:${nonceStr}:${String(command || '').trim()}`;
+      const message = `${tsStr}:${nonceStr}:${String(command || '').trim()}`;
       try {
-        if (typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.digest === 'function' && typeof TextEncoder !== 'undefined') {
-          const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
-          return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+        if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
+          const enc = new TextEncoder();
+          const key = await crypto.subtle.importKey(
+            'raw',
+            enc.encode(String(bridgeToken || '')),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+          );
+          const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+          return Array.from(new Uint8Array(sigBuf), b => b.toString(16).padStart(2, '0')).join('');
         }
       } catch (e) {}
-      // فالبک سبک و قطعی در صورتی که WebCrypto در محیط تست غیرفعال باشد
-      let h1 = 0xdeadbeef ^ payload.length;
-      let h2 = 0x41c6ce57 ^ payload.length;
-      for (let i = 0; i < payload.length; i++) {
-        const ch = payload.charCodeAt(i);
-        h1 = Math.imul(h1 ^ ch, 2654435761);
-        h2 = Math.imul(h2 ^ ch, 1597334677);
+      if (typeof require === 'function') {
+        try {
+          const nodeCrypto = require('crypto');
+          return nodeCrypto.createHmac('sha256', String(bridgeToken || '')).update(message, 'utf8').digest('hex');
+        } catch (_) {}
       }
-      h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-      h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-      return 'fb_' + (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
+      throw new Error('Fail-closed: HMAC-SHA256 crypto unavailable for Termux confirmation');
     }
 
 
@@ -30130,7 +30170,7 @@ function verifyTokenSafe(provided) {
 }
 
 
-// بررسی امضای تأیید کاربر و محافظ ضدتکرار (Anti-Replay Nonce + 5-Min Timestamp Window)
+// بررسی امضای تأیید کاربر با HMAC-SHA256 و مقایسه زمان‌ثابت (Constant-Time) به همراه محافظ ضدتکرار (Anti-Replay Nonce + 5-Min Timestamp Window)
 function verifyConfirmTokenAndNonce(command, ts, nonce, confirmToken) {
   const now = Date.now();
   const numTs = Number(ts) || 0;
@@ -30140,9 +30180,11 @@ function verifyConfirmTokenAndNonce(command, ts, nonce, confirmToken) {
   }
   if (usedNonces.has(nonce)) return false;
   if (!confirmToken || typeof confirmToken !== 'string') return false;
-  const payload = SECRET + ':' + String(numTs) + ':' + nonce + ':' + String(command || '').trim();
-  const expectedSha = crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
-  if (confirmToken === expectedSha) {
+  const message = String(numTs) + ':' + nonce + ':' + String(command || '').trim();
+  const expectedHmac = crypto.createHmac('sha256', String(SECRET)).update(message, 'utf8').digest('hex');
+  const bufA = Buffer.from(confirmToken.toLowerCase(), 'hex');
+  const bufB = Buffer.from(expectedHmac.toLowerCase(), 'hex');
+  if (bufA.length === 32 && bufB.length === 32 && crypto.timingSafeEqual(bufA, bufB)) {
     usedNonces.set(nonce, now + 300000);
     return true;
   }

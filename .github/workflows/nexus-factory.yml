@@ -235,7 +235,7 @@ jobs:
           APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.1.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.1.0-${SHORT_SHA}"
+          RELEASE_TAG="v6.1.0-${GITHUB_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -265,33 +265,14 @@ jobs:
           echo "📦 Generating CycloneDX v1.5 SBOM from package-lock.json..."
           node scripts/generate-cyclonedx-sbom.js
 
-      - name: 4. Update Git Tags for Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Immutable release tag: check if already exists on remote
-          EXISTING_TAG_SHA=$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | awk '{print $1}')
-          if [ -n "$EXISTING_TAG_SHA" ]; then
-            if [ "$EXISTING_TAG_SHA" != "${GITHUB_SHA}" ]; then
-              echo "❌ ERROR: Remote tag ${RELEASE_TAG} points to ${EXISTING_TAG_SHA}, not current commit ${GITHUB_SHA}!"
-              exit 1
-            fi
-            echo "Immutable release tag ${RELEASE_TAG} already exists on remote for ${GITHUB_SHA}; skipping tag push."
-          else
-            git tag "${RELEASE_TAG}" "${GITHUB_SHA}"
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "${RELEASE_TAG}" || echo "Release tag push completed or managed by softprops release action"
-          fi
-
-      - name: 5. Publish APK to GitHub Releases
+      - name: 4. Publish APK to GitHub Releases
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.1 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v6.1.0 (${{ env.SHORT_SHA }})"
           make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.

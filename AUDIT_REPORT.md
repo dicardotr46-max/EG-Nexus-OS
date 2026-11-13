@@ -14,7 +14,7 @@
 EG Nexus OS v6.1 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
 
 This report documents verifiable, reproducible engineering evidence across three distinct architectural levels:
-1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across all 395 resolved packages, exact dependency pinning of all `@capacitor/*` libraries, and static event handler verification (`missing_handlers: 0` across 812 functions).
+1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across all 395 resolved packages, exact dependency pinning of all `@capacitor/*` libraries, and static event handler verification (`missing_handlers: 0` across 813 functions).
 2. **Level 2 (Unit, Contract & Coverage Testing):** 569 automated Jest tests across 26 test suites with a 100% pass rate, high coverage (91.18% function coverage, 89.29% line coverage, 87.8% statement coverage, 80.27% branch coverage) on decoupled `src/` modules loaded directly into `index.html`, proven `AES-GCM-256` reload persistence across isolated VM contexts, non-extractable WebCrypto key management in IndexedDB, and exhaustive provider resilience contracts (GitHub, Google, Telegram 429 backoff retry, Cloudflare KV LWW conflict resolution, MCP tool approval barriers).
 3. **Level 3 (Runtime & CI Build Boundaries):** Full runtime DOM wiring and concurrency stress verification (rapid click debounce, mid-sync offline rollback, multi-tab LWW concurrency, 500+ message chat truncation to `MAX_PERSISTED_MSGS_PER_CHAT = 300`), ephemeral session key derivation in browser sandboxes versus native hardware Keystores, persistent release keystore registered in GitHub Secrets with strict CI gate validation, automated Release APK signing and verification with `apksigner` (v1/v2/v3 schemes), and PR-gated continuous integration.
 
@@ -60,7 +60,7 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `a79ec18ae0f87df5c27d1ee1e8348650b8e1484352f434b715da8f2aeb585345` | MATCH |
+| `index.html` | `www/index.html` | `0626e48eb9d1d86e5b05be2ccc9a6e0149607fc48cad764069e2c73cde88fd19` | MATCH |
 | `sw.js` | `www/sw.js` | `09ee1a64e56b8c02779a2db58cc134ebd1f22f85fb8f7527752538bfc1acd99e` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -128,8 +128,8 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 32,037 lines | PASS |
-| Extracted Global & Named Functions | 812 functions | PASS |
+| Total Source Lines (`index.html`) | 32,079 lines | PASS |
+| Extracted Global & Named Functions | 813 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
 | Stub / Placeholder Review Items | 0 unhandled fatal blocks | PASS |
@@ -387,7 +387,7 @@ When a push to `main` occurs or a `workflow_dispatch` is triggered:
 | **Worker / Termux Syntax** | Termux bridge template | `node --check` OK | PASS |
 | **Supply Chain** | `npm audit` across 395 packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
 | **Capacitor Pinning** | Exact version pins in `package.json` | 7 packages locked (no `^`) | PASS |
-| **Static Handler Wiring** | `missing_handlers` in 812 functions | Exactly 0 missing handlers | PASS |
+| **Static Handler Wiring** | `missing_handlers` in 813 functions | Exactly 0 missing handlers | PASS |
 | **Automated Tests** | Jest test suite execution | 569 passed, 0 failed, 26 suites | PASS |
 | **Test Coverage** | Code coverage on `src/` modules | 91.18% funcs, 89.29% lines, 87.8% stmts | PASS |
 | **Crypto Persistence** | AES-GCM-256 reload across 2 contexts | 100% secrets restored, tampered quarantined | PASS |
