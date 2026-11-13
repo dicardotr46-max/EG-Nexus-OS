@@ -1,7 +1,7 @@
 {
   "name": "eg-nexus-os",
-  "version": "6.1.0",
-  "description": "EG Nexus OS v6.1 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
+  "version": "6.1.1",
+  "description": "EG Nexus OS v6.1.1 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
   "private": true,
   "engines": {
     "node": ">=18.20.0"
@@ -10,7 +10,7 @@
     "build": "node scripts/sync-www.js",
     "lint": "node scripts/lint.js",
     "test:syntax": "node scripts/check-syntax.js",
-    "test:mutation": "npx stryker run stryker.config.json",
+    "test:mutation": "node scripts/verify-mutations.js",
     "test": "jest",
     "audit:sync": "node scripts/sync-audit-report.js"
   },

@@ -77,6 +77,101 @@
     return _fallbackUiState;
   }
 
+  const _approvalTokenMap = (typeof globalThis !== 'undefined' && globalThis.__nexusApprovalTokens)
+    ? globalThis.__nexusApprovalTokens
+    : new Map();
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__nexusApprovalTokens = _approvalTokenMap;
+  }
+
+  function _generateTokenNonce() {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const arr = new Uint8Array(16);
+        crypto.getRandomValues(arr);
+        return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (_) {}
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  function _hashParams(params) {
+    if (!params) return '';
+    try {
+      const str = typeof params === 'string' ? params : JSON.stringify(params);
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return 'h_' + (hash >>> 0).toString(16);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function issueApprovalToken(spec = {}) {
+    const { providerId, action, params, paramsHash, nonce } = spec;
+    const token = 'appr_' + _generateTokenNonce() + '_' + Date.now().toString(36);
+    const computedParamsHash = paramsHash || (params ? _hashParams(params) : '');
+    const entry = {
+      token,
+      providerId: String(providerId || '').toLowerCase(),
+      action: String(action || '').toLowerCase(),
+      paramsHash: computedParamsHash,
+      nonce: nonce || _generateTokenNonce(),
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60000 // 60,000ms TTL
+    };
+    _approvalTokenMap.set(token, entry);
+    return token;
+  }
+
+  function consumeApprovalToken(token, context = {}) {
+    if (!token || typeof token !== 'string') return false;
+    const entry = _approvalTokenMap.get(token);
+    if (!entry) return false;
+
+    // Atomic consumption: delete immediately upon first use to prevent Replay and Prompt Injection
+    _approvalTokenMap.delete(token);
+
+    if (Date.now() > entry.expiresAt) {
+      return false; // Expired
+    }
+
+    if (context.providerId && entry.providerId && entry.providerId !== String(context.providerId).toLowerCase()) {
+      return false;
+    }
+    if (context.action && entry.action && entry.action !== String(context.action).toLowerCase()) {
+      return false;
+    }
+    if (context.paramsHash && entry.paramsHash && entry.paramsHash !== context.paramsHash) {
+      return false;
+    }
+    if (context.params && entry.paramsHash) {
+      const pHash = _hashParams(context.params);
+      if (pHash && entry.paramsHash !== pHash) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function verifyApprovalToken(token) {
+    if (!token || typeof token !== 'string') return false;
+    const entry = _approvalTokenMap.get(token);
+    if (!entry) return false;
+    if (Date.now() > entry.expiresAt) {
+      _approvalTokenMap.delete(token);
+      return false;
+    }
+    return true;
+  }
+
+  function clearApprovalTokens() {
+    _approvalTokenMap.clear();
+  }
+
   function triggerApprovalGate(reason, onApprove, onReject) {
     const ui = getUiState();
     if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
@@ -174,7 +269,8 @@
       }
 
       let executionPromise = null;
-      if (approved && item && typeof item.onApprove === 'function') {
+      let approvalToken = null;
+      if (approved && item) {
         // If orchestrator became busy just now, return item to queue head
         if (isOrchestratorBusy()) {
           ui.pendingApprovalQueue.unshift(item);
@@ -191,9 +287,25 @@
           return;
         }
 
-        const res = item.onApprove();
-        if (res && typeof res.then === 'function') {
-          executionPromise = res;
+        // Issue One-Time Capability Approval Token (TTL: 60,000ms)
+        approvalToken = issueApprovalToken({
+          providerId: item.providerId || item.id,
+          action: item.action,
+          params: item.params,
+          paramsHash: item.paramsHash,
+          nonce: item.nonce
+        });
+        try {
+          if (item && !Object.isFrozen(item)) {
+            item.approvalToken = approvalToken;
+          }
+        } catch (_) {}
+
+        if (typeof item.onApprove === 'function') {
+          const res = item.onApprove(approvalToken);
+          if (res && typeof res.then === 'function') {
+            executionPromise = res;
+          }
         }
       } else if (!approved) {
         if (item && typeof item.onReject === 'function') {
@@ -244,6 +356,10 @@
     STORAGE_KEY,
     getUiState,
     triggerApprovalGate,
-    resolveApprovalGate
+    resolveApprovalGate,
+    issueApprovalToken,
+    consumeApprovalToken,
+    verifyApprovalToken,
+    clearApprovalTokens
   };
 });

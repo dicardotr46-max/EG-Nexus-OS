@@ -1,7 +1,7 @@
 {
   "file": "index.html",
-  "lines": 32079,
-  "script_bytes": 1512872,
+  "lines": 32122,
+  "script_bytes": 1515459,
   "function_count": 813,
   "interactive_element_count": 58,
   "target_hits": {
@@ -55,6 +55,10 @@
     },
     {
       "function": "clearPhase2WebResearchCache",
+      "reason": "toast-heavy first 1200 chars; manual review required"
+    },
+    {
+      "function": "executeLocalTermuxCommand",
       "reason": "toast-heavy first 1200 chars; manual review required"
     },
     {

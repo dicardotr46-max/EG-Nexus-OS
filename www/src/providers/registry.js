@@ -453,24 +453,114 @@
     return aKey ? p[aKey] : null;
   }
 
+  const _approvalTokenMap = (typeof globalThis !== 'undefined' && globalThis.__nexusApprovalTokens)
+    ? globalThis.__nexusApprovalTokens
+    : new Map();
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__nexusApprovalTokens = _approvalTokenMap;
+  }
+
+  function _generateTokenNonce() {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const arr = new Uint8Array(16);
+        crypto.getRandomValues(arr);
+        return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (_) {}
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  function _hashParams(params) {
+    if (!params) return '';
+    try {
+      const str = typeof params === 'string' ? params : JSON.stringify(params);
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return 'h_' + (hash >>> 0).toString(16);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function issueApprovalToken(spec = {}) {
+    const { providerId, action, params, paramsHash, nonce } = spec;
+    const token = 'appr_' + _generateTokenNonce() + '_' + Date.now().toString(36);
+    const computedParamsHash = paramsHash || (params ? _hashParams(params) : '');
+    const entry = {
+      token,
+      providerId: String(providerId || '').toLowerCase(),
+      action: String(action || '').toLowerCase(),
+      paramsHash: computedParamsHash,
+      nonce: nonce || _generateTokenNonce(),
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60000 // 60,000ms TTL
+    };
+    _approvalTokenMap.set(token, entry);
+    return token;
+  }
+
+  function consumeApprovalToken(token, context = {}) {
+    if (!token || typeof token !== 'string') return false;
+    const entry = _approvalTokenMap.get(token);
+    if (!entry) return false;
+
+    // Atomic consumption: delete immediately upon first use to prevent Replay and Prompt Injection
+    _approvalTokenMap.delete(token);
+
+    if (Date.now() > entry.expiresAt) {
+      return false; // Expired
+    }
+
+    if (context.providerId && entry.providerId && entry.providerId !== String(context.providerId).toLowerCase()) {
+      return false;
+    }
+    if (context.action && entry.action && entry.action !== String(context.action).toLowerCase()) {
+      return false;
+    }
+    if (context.paramsHash && entry.paramsHash && entry.paramsHash !== context.paramsHash) {
+      return false;
+    }
+    if (context.params && entry.paramsHash) {
+      const pHash = _hashParams(context.params);
+      if (pHash && entry.paramsHash !== pHash) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function verifyApprovalToken(token) {
+    if (!token || typeof token !== 'string') return false;
+    const entry = _approvalTokenMap.get(token);
+    if (!entry) return false;
+    if (Date.now() > entry.expiresAt) {
+      _approvalTokenMap.delete(token);
+      return false;
+    }
+    return true;
+  }
+
+  function clearApprovalTokens() {
+    _approvalTokenMap.clear();
+  }
+
   function validateProviderScope(providerId, action, grantedScopes = null) {
     const pid = String(providerId || '').trim().toLowerCase();
     const act = String(action || '').trim().toLowerCase();
     if (!pid || !act) return false;
 
-    const pKey = Object.keys(PROVIDER_ACTION_SCOPES).find(k => k.toLowerCase() === pid);
-    const pScopes = pKey ? PROVIDER_ACTION_SCOPES[pKey] : null;
     const requiredScope = getRequiredScope(pid, act);
-
-    if (grantedScopes === null || grantedScopes === undefined) {
-      if (pScopes) {
-        return Boolean(requiredScope);
-      }
-      return true;
+    if (!requiredScope) {
+      // Default-Deny: If no specific scope is defined for providerId/action, deny.
+      return false;
     }
 
-    if (!requiredScope) {
-      return true;
+    if (grantedScopes === null || grantedScopes === undefined) {
+      return false;
     }
 
     let scopeList = [];
@@ -486,16 +576,17 @@
       return false;
     }
 
-    if (scopeList.includes('*') || scopeList.includes('all') || scopeList.includes('admin')) {
-      return true;
-    }
-
+    // Strictly Default-Deny: Wildcards (*, all, admin) are completely rejected.
     const normalizeScope = s => String(s || '').trim().toLowerCase().replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
     const canonicalRequired = normalizeScope(requiredScope);
 
     return scopeList.some(scope => {
-      if (scope === requiredScope) return true;
-      const canonicalScope = normalizeScope(scope);
+      const s = String(scope || '').trim();
+      if (!s || s === '*' || s.toLowerCase() === 'all' || s.toLowerCase() === 'admin') {
+        return false;
+      }
+      if (s === requiredScope) return true;
+      const canonicalScope = normalizeScope(s);
       return canonicalScope === canonicalRequired;
     });
   }
@@ -647,8 +738,10 @@
       token,
       grantedScopes,
       executeFn,
+      params = {},
       requireApproval = null,
       approved = false,
+      approvalToken = null,
       retryOptions = { maxRetries: 3, baseDelayMs: 100 },
       appConnections = null,
       approvalGateHandler = null
@@ -709,19 +802,37 @@
 
     // Step 3: Check Approval Queue requirement for mutating or sensitive actions
     const needsApproval = requireApproval === true || (requireApproval !== false && isSensitiveProviderAction(providerId, action));
-    if (needsApproval && !approved) {
-      const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
-      if (typeof approvalGateHandler === 'function') {
-        try {
-          approvalGateHandler({ reason, providerId: rawPid || providerId, action: rawAct || action });
-        } catch (_) {}
+    if (needsApproval) {
+      if (!approved && !approvalToken) {
+        const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
+        if (typeof approvalGateHandler === 'function') {
+          try {
+            approvalGateHandler({ reason, providerId: rawPid || providerId, action: rawAct || action, params });
+          } catch (_) {}
+        }
+        return {
+          status: 403,
+          error: 'APPROVAL_REQUIRED',
+          pendingApproval: true,
+          reason
+        };
       }
-      return {
-        status: 403,
-        error: 'APPROVAL_REQUIRED',
-        pendingApproval: true,
-        reason
-      };
+
+      // Enforce atomic verification and single-use consumption of One-Time Capability Approval Token
+      if (approvalToken) {
+        const valid = consumeApprovalToken(approvalToken, {
+          providerId,
+          action,
+          params
+        });
+        if (!valid) {
+          return {
+            status: 403,
+            error: 'INVALID_APPROVAL_TOKEN',
+            message: 'One-time capability approval token is invalid, expired, or has already been consumed (replay / prompt injection guard).'
+          };
+        }
+      }
     }
 
     // Step 4: Token presence validation based on provider authType !== 'none'
@@ -1212,6 +1323,10 @@
     resolveProviderModelId,
     recordModelTokenAndCostUsage,
     isAppGenuinelyConnected,
-    secureRandomId
+    secureRandomId,
+    issueApprovalToken,
+    consumeApprovalToken,
+    verifyApprovalToken,
+    clearApprovalTokens
   };
 });

@@ -50,24 +50,67 @@ describe('Coverage Boost Suite', () => {
       expect(res.retryable).toBe(true);
     });
 
-    test('validateProviderScope handles wildcard scopes, unknown providers, and invalid inputs', () => {
+    test('validateProviderScope enforces strict Default-Deny and rejects wildcard scopes', () => {
       expect(registry.validateProviderScope('', 'action')).toBe(false);
       expect(registry.validateProviderScope('github', '')).toBe(false);
       expect(registry.validateProviderScope(null, 'action')).toBe(false);
 
-      // Unknown provider with no explicit mapping
-      expect(registry.validateProviderScope('custom_unknown_provider', 'custom_action')).toBe(true);
+      // Unknown provider with no explicit mapping -> default deny
+      expect(registry.validateProviderScope('custom_unknown_provider', 'custom_action')).toBe(false);
 
-      // Wildcard / admin scopes
-      expect(registry.validateProviderScope('github', 'push', ['*'])).toBe(true);
+      // Wildcard / admin general scopes are rejected under strict Default-Deny
+      expect(registry.validateProviderScope('github', 'push', ['*'])).toBe(false);
+      expect(registry.validateProviderScope('github', 'push', ['all'])).toBe(false);
+      expect(registry.validateProviderScope('github', 'push', 'admin')).toBe(false);
+
+      // Explicit matching scope succeeds
       expect(registry.validateProviderScope('github', 'push', 'admin,repo')).toBe(true);
-      expect(registry.validateProviderScope('github', 'push', ['all'])).toBe(true);
+      expect(registry.validateProviderScope('github', 'push', ['repo'])).toBe(true);
 
       // Invalid grantedScopes type (e.g. number)
       expect(registry.validateProviderScope('github', 'push', 12345)).toBe(false);
 
-      // Provider action with no required scope
-      expect(registry.validateProviderScope('github', 'unmapped_action', ['some_scope'])).toBe(true);
+      // Provider action with no required scope -> default deny
+      expect(registry.validateProviderScope('github', 'unmapped_action', ['some_scope'])).toBe(false);
+    });
+
+    test('One-Time Capability Approval Token enforces single-use atomic consumption and replay prevention', async () => {
+      registry.clearApprovalTokens();
+
+      const token = registry.issueApprovalToken({
+        providerId: 'github',
+        action: 'push',
+        params: { branch: 'main' }
+      });
+
+      expect(typeof token).toBe('string');
+      expect(registry.verifyApprovalToken(token)).toBe(true);
+
+      // First execution with token succeeds and consumes token
+      const res1 = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'push',
+        token: 'ghp_dummy_token_123456789012345678901234567890',
+        grantedScopes: ['repo'],
+        approvalToken: token,
+        params: { branch: 'main' },
+        executeFn: async () => ({ pushed: true })
+      });
+      expect(res1.status).toBe(200);
+      expect(res1.data).toEqual({ pushed: true });
+
+      // Immediate Replay attack using the same token MUST be rejected
+      const res2 = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'push',
+        token: 'ghp_dummy_token_123456789012345678901234567890',
+        grantedScopes: ['repo'],
+        approvalToken: token,
+        params: { branch: 'main' },
+        executeFn: async () => ({ pushed: true })
+      });
+      expect(res2.status).toBe(403);
+      expect(res2.error).toBe('INVALID_APPROVAL_TOKEN');
     });
 
     test('getRequiredScope and getGoogleScopes handle unknown keys', () => {

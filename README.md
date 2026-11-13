@@ -1,43 +1,35 @@
-# 🚀 EG Nexus OS v6.1 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.1.1 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-562%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-570%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**EG Nexus OS v6.1.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با رفع شکست احراز هویت تگ‌های رهاسازی در پایپلاین CI/CD، پین کردن کامل اکشن‌های GitHub با SHA-40، افزودن درخت سورس بومی اندروید (`android/`) به همراه پلاگین سخت‌افزاری `AndroidKeyStore` (`NexusKeystorePlugin`) برای محافظت از کلیدها در سطح TEE/StrongBox، ایجاد پل‌های Re-export ریشه `src/` جهت حل کامل عدم تطابق موجودی، پیکربندی آزمون‌های جهش Stryker، انعطاف‌پذیری ۱۰۰٪ در برابر قطع شبکه و بارگذاری تنبل Google GIS و همچنین تاب‌آوری در برابر غیرفعال بودن ذخیره‌سازی محلی مرورگر (`storage-disabled`) با بیش از **۵۶۲ تست خودکار Jest در ۲۵ سوئیت** و پوشش بالای ۸۰٪ شاخه‌ها منتشر شده است.
+**EG Nexus OS v6.1.1** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با محافظت از کلیدها در سطح سخت‌افزار واقعی TEE/StrongBox به همراه AAD در اندروید (`NexusKeystorePlugin`)، موتور خط‌مشی محلی و توکن‌های تایید یکبارمصرف ضد Replay (`One-Time Capability Approval Token`)، سیاست Default-Deny مطلق برای ارائه‌دهندگان، لیست سفید ساختاریافته دستورات Termux Bridge (`TERMUX_ALLOWED_COMMANDS`) با آرگومان‌های مجزا (`spawn(cmd, args, { shell: false })`)، پین کردن کامل اکشن‌های GitHub با SHA-40، انتشار خودکار ریلیز و فایل APK امضاشده توسط پایپلاین CI/CD و بیش از **۵۷۰ تست خودکار Jest در ۲۶ سوئیت** و پوشش بالای ۸۰٪ شاخه‌ها منتشر شده است.
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v5.9.0
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.1.1
 
-### ۱. رفع قطعی سرریز پشته فاز ۴ و مهاجرت همگام وضعیت
-- **حذف حلقه بازگشتی بی‌نهایت (`RangeError: Maximum call stack size exceeded`):** بازطراحی کامل `writePhase4SessionSecrets` و `installPhase4SecretPersistenceBoundary` بدون وصله‌زدن بازگشتی متدهای سراسری ذخیره‌سازی سکرت‌ها.
-- **مهاجرت ۱۰۰٪ همگام در `loadState()`:** خواندن مستقیم وضعیت با `readSessionSecrets()` همگام و حذف وابستگی به مهاجرت‌های کلید نامعتبر `eg_nexus_phase4_session_secrets_v1`.
-- **حذف سایه‌زنی سراسری (Shadowing):** اتصال مستقیم به شیء هسته `window.NexusCore.API_KEY_NAMES` با پشتیبانی کامل از هر ۱۴ کلید رسمی هوش مصنوعی و اتصال بی‌واسطه به `window._nexusCoreSanitization`.
+### ۱. پشتیبانی کامل از StrongBox/TEE و اعتبارسنجی AAD در سخت‌افزار اندروید
+- **تشخیص بومی سطح امنیت سخت‌افزاری:** در پلاگین `NexusKeystorePlugin.java`، ساخت کلید در اندروید P به بالا ابتدا با `setIsStrongBoxBacked(true)` انجام شده و در صورت عدم پشتیبانی سخت‌افزار به صورت خودکار به TEE عقب‌نشینی می‌کند.
+- **گزارش دقیق `securityLevel`:** استعلام مشخصات کلید با `SecretKeyFactory` و `KeyInfo` در API 31+ مقادیر واقعی `strongbox`، `tee` یا `software` را استخراج کرده و مقدار `hardwareBacked` را منحصراً در صورت حضور واقعی در سخت‌افزار امن برمی‌گرداند.
+- **تطابق کامل AAD (داده‌های احراز هویت اضافی):** در متدهای `encrypt` و `decrypt`، پارامتر اختیاری `aad` به موتور بومی منتقل شده و با `cipher.updateAAD` اعمال می‌شود؛ به طوری که در صورت هرگونه تغییر در `aad`، فرآیند رمزگشایی بلافاصله Fail-Closed می‌شود.
 
-### ۲. پشتیبانی از پاک‌سازی کلیدهای تکی و ماندگاری OAuth `refreshToken`
-- **پاک‌سازی دقیق کلیدهای تکی در `_normalizeSecretsPayload`:** در صورت ارسال صریح رشته خالی `""`، کلید مورد نظر بدون اثر گذاشتن بر سایر کلیدهای `undefined` پاک می‌شود.
-- **ماندگاری کامل `accountRefreshTokens` در چرخه ریلود:** افزودن شِما و سازوکار ذخیره‌سازی سکرت اختصاصی برای توکن‌های بازنشانی حساب‌های متصل (`refreshToken`) و هیدراتاسیون خودکار آن‌ها روی `appConnections[id].accounts[i].refreshToken`.
-- **به‌روزرسانی همگام کش مرورگر در `writeSessionSecrets`:** ذخیره فوری اسنپ‌شات در `_cachedSessionSecrets` در محیط مرورگر بدون افزایش تکراری `writeRevision`.
+### ۲. موتور خط‌مشی محلی و توکن تایید یکبارمصرف (One-Time Capability Token)
+- **سیاست Default-Deny مطلق در ارائه‌دهندگان:** در `validateProviderScope`، پذیرش هرگونه وایلدکارد عمومی (`*`, `all`, `admin`) به طور کامل حذف شد. در صورت فقدان تعریف صریح اسکوپ یا عدم تطابق دقیق، دسترسی رد می‌شود.
+- **توکن تایید صلاحیت یکبارمصرف:** هنگام تایید عملیات توسط کاربر در `resolveApprovalGate(true)`، یک توکن یکبارمصرف زمان‌دار (TTL: 60s) مقید به `{ providerId, action, paramsHash, nonce }` صادر می‌شود. مصرف این توکن در `executeProviderRequest` به صورت اتمیک انجام شده و بلافاصله پس از اولین مصرف حذف می‌شود تا از حملات Replay و Prompt Injection جلوگیری شود.
 
-### ۳. بررسی شکست‌بسته حوزه‌ها (Scope Checking) و حذف روتین‌های زامبی
-- **اعتبارسنجی حوزه‌های دسترسی با `getRequiredScope`:** استعلام حوزه‌های الزامی در `executeProviderRequest` و بازگرداندن وضعیت `403 SCOPE_INSUFFICIENT` در صورت فقدان یا ناکافی بودن حوزه‌های اعطا شده (`grantedScopes`).
-- **سرکوب قطعی روتین‌های زامبی در `mergeStateWithRevision`:** ادغام دوطرفه `deletedRoutineIds` و `deletedRoutineMeta` و فیلتر کردن قطعی روتین‌های حذف‌شده در ادغام وضعیت ابری.
-- **بررسی نمادها علیه آلودگی پیش‌نمونه (Symbol Prototype Pollution):** بررسی عمیق تمام کلیدهای نمادین `Object.getOwnPropertySymbols(val)` در تابع `hasDangerousKeysDeep`.
-- **بازنشانی فوری گیت تایید کاربر:** تنظیم فوری `_isResolvingApproval = false` در صورت وجود موارد باقی‌مانده در صف تاییدات جهت جلوگیری از نادیده گرفته شدن کلیک‌های کاربر.
+### ۳. محدودسازی ساختاریافته دستورات Termux Bridge
+- **لیست سفید سخت‌گیرانه `TERMUX_ALLOWED_COMMANDS`:** دستورات خودکار ایجنت‌ها به ابزارهای استاندارد (`git`, `ls`, `node`, `npm`, `python3`, `ffmpeg` و ...) محدود شده است.
+- **اجرای مستقیم با `shell: false`:** اجرای دستورات با تفکیک ساختاریافته آرگومان‌ها انجام شده و کاراکترهای زنجیره‌سازی شل (`;`, `&&`, `||`, `|`, `` ` ``, `$()`) در فراخوانی‌های خودکار ایجنت مسدود می‌گردند.
 
-### ۴. مقاوم‌سازی لایه ضد SSRF و پاک‌سازی تزریق پرامپت تودرتو
-- **مقاوم‌سازی `sanitizeSafeUrl` و `sanitizeHttpUrl`:** مسدودسازی قطعی بک‌اسلش (`/\evil.com` و مسیرهای مشکوک)، مسدودسازی طرح‌های فاقد دو اسلش (`http:evil.com`)، نرمال‌سازی براکت‌های IPv6، مسدودسازی رنج‌های خصوصی RFC 1918، شبکه CGNAT، آدرس‌های محلی IPv6 و پسوندهای داخلی (`.local`, `.internal`, `.lan`).
-- **خنثی‌سازی تگ‌های تزریق پرامپت تودرتو و چندمرحله‌ای:** تبدیل براکت‌های تمام‌عرض یونیکد (`［ ］ ＜ ＞`) به اسکی و اجرای حلقه‌ای پاک‌سازی تا محو کامل تمامی برچسب‌های مخفی نظیر `[AUTO_BRAIN` و `[OPTIONS:`.
-
-### ۵. ارزیابی کامل هر ۵ اسکریپت در تست‌های DOM و بیلد CI/CD
-- **تست جامع ۵ بلوک اسکریپت در `runtime-dom-wiring.test.js`:** ارزیابی همزمان اسکریپت گارد اولیه، اسکریپت اصلی `nexus-main-script`، ماژول فاز ۳، ماژول فاز ۴ و فاز ۵ با شبیه‌سازی کامل Canvas 2D و ران‌تایم مرورگر بدون خطا.
-- **۲ سوئیت تست جدید و ۴۵۵ تست پاس‌شده Jest:** شامل `__tests__/v59_audit_hardening.spec.js` و `__tests__/v59_subagent3_hardening.spec.js` با پوشش فراتر از ۹۴٪ توابع و ۹۱٪ خطوط.
-- **به‌روزرسانی خط لوله CI/CD:** نام‌گذاری و تگ‌گذاری خودکار بسته اندروید به `EG-Nexus-OS-v5.9.apk` با امضای دیجیتال و تولید SBOM.
+### ۴. خط لوله ممیزی خودکار CI/CD و آزمون‌های جهش (Mutation Testing)
+- **اتصال رسمی Linter و آزمون جهش هسته:** در گردش‌کار GitHub Actions، مراحل رسمی `npm run lint` و آزمون سریع جهش ماژول‌های امنیتی اضافه شده است تا از کشته شدن ۱۰۰٪ جهش‌های امنیتی اطمینان حاصل شود.
+- **انتشار پایدار ریلیز و تگ اتمیک:** ایجاد ریلیز و آپلود APK امضاشده توسط `softprops/action-gh-release` به همراه تولید خودکار SBOM استاندارد CycloneDX v1.5 انجام می‌شود.
 
 ---
 
@@ -46,8 +38,8 @@
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v5.9 (تمام اکشن‌ها با SHA پین شده)
-├── __tests__/                      # مجموعه تست‌های ۴۵۵ تایی Jest (۲۱ سوئیت)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.1.1 (تمام اکشن‌ها با SHA پین شده)
+├── __tests__/                      # مجموعه تست‌های ۵۷۰+ تایی Jest (۲۶ سوئیت)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
 │   ├── generateUniqueId.spec.js   # تست‌های شناسه تصادفی و آزمون‌های یکتا
@@ -58,33 +50,27 @@ EG-Nexus-OS/
 │   ├── runtime-dom-wiring.test.js # تست‌های یکپارچگی ۵ بلوک اسکریپت DOM و اینترفیس
 │   ├── runtime-stress.test.js     # تست‌های هم‌زمانی و مقاومت در برابر بار بالا
 │   ├── sanitization.spec.js       # تست‌های تزریق اسکریپت، پاک‌سازی URL و ضد XSS
-│   ├── secrets-reload.test.js     # تست‌های ماندگاری رمزنگاری پس از ریلود در حافظه
-│   ├── security.spec.js           # تست‌های AES-GCM و امنیت سشن
-│   ├── subagent1-architecture.test.js # تست‌های معماری و تک‌منبعی STORAGE_KEYS
-│   ├── subagent2-coverage.test.js # تست‌های پوشش آزمون‌های مکمل کریپتوگرافی
-│   ├── sw.spec.js                 # تست‌های کش آفلاین Service Worker
-│   ├── v57_audit_sanitization_security.spec.js # تست‌های تخصصی ممیزی امنیتی v5.7
-│   ├── v58_audit_hardening.spec.js # تست‌های تخصصی ممیزی امنیتی و معماری v5.8
-│   ├── v58_coverage_booster.spec.js # تست‌های عمیق پوشش انشعاب‌های هسته
-│   ├── v59_audit_hardening.spec.js # تست‌های تخصصی ممیزی امنیتی، SSRF و توکن‌های v5.9
-│   ├── v59_subagent3_hardening.spec.js # تست‌های بررسی حوزه‌ها، روتین‌های زامبی و ضد تزریق
-│   └── worker_queue.spec.js       # تست‌های صف پردازش وظایف ورکر
+│   ├── v61_hardware_keystore.test.js # تست‌های Keystore سخت‌افزاری و پل‌های بشکه‌ای
+├── android/                       # سورس بومی Capacitor Android با پشتیبانی API 36
 ├── scripts/
-│   ├── sync-audit-report.js       # اسکریپت همگام‌ساز خودکار گزارش ممیزی با داده‌های واقعی Jest
-│   └── test-syntax.js             # اسکریپت ارزیابی AST سینتکس اسکریپت‌ها
-├── src/                            # معماری ماژولار تفکیک‌شده هسته (Non-Enumerable Exports)
+│   ├── check-syntax.js            # بررسی سینتکس فایل‌ها و جنریتورها
+│   ├── generate-cyclonedx-sbom.js # تولید SBOM رسمی CycloneDX v1.5
+│   ├── lint.js                    # بررسی قوانین امنیتی و نشت سکرت
+│   ├── sync-www.js                # همگام‌سازی ۱۰۰٪ بایت‌به‌بایت ریشه با www/
+│   └── verify-mutations.js        # آزمون جهش سریع ماژول‌های هسته امنیتی
+├── src/                           # معماری ماژولار تفکیک‌شده هسته (Non-Enumerable Exports)
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها و مدیریت حالت
 │   ├── providers/                 # رجیستری ارتباط با مدل‌های هوش مصنوعی
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی و تاییدات
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v5.9.0
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.1.1
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
 ├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA
 ├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی
-├── package.json                   # شناسه پکیج نسخه 5.9.0 و اسکریپت‌ها
+├── package.json                   # شناسه پکیج نسخه 6.1.1 و اسکریپت‌ها
 ├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v5.9.0
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.1.1
 ```
 
 ---
@@ -92,9 +78,9 @@ EG-Nexus-OS/
 ## 📱 راهنمای نصب و راه‌اندازی سریع با موبایل (بدون لپ‌تاپ)
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
-1. به تب [**Releases**](https://github.com/amirrezas/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v5.9.0` یا تگ متحرک `latest-apk`) را انتخاب کنید.
-3. فایل **`EG-Nexus-OS-v5.9.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
+1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
+2. آخرین نسخه منتشرشده (`v6.1.1`) را انتخاب کنید.
+3. فایل **`EG-Nexus-OS-v6.1.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است.
 
 ### روش دوم: نصب در قالب وب‌اپلیکیشن پیشرونده (PWA)

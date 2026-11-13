@@ -21,6 +21,12 @@
     if (typeof exports.getSecretVaultHealth === 'function') {
       target.getSecretVaultHealth = exports.getSecretVaultHealth;
     }
+    if (typeof exports.getKeySecurityInfo === 'function') {
+      target.getKeySecurityInfo = exports.getKeySecurityInfo;
+    }
+    if (typeof exports.isHardwareKeystoreAvailable === 'function') {
+      target.isHardwareKeystoreAvailable = exports.isHardwareKeystoreAvailable;
+    }
     if (typeof exports.exportEncryptedBackup === 'function') {
       target.exportEncryptedBackup = exports.exportEncryptedBackup;
       target.importEncryptedBackup = exports.importEncryptedBackup;
@@ -499,9 +505,51 @@
     if (!ks) return false;
     try {
       const res = await ks.isAvailable();
-      return Boolean(res && res.available);
+      if (!res || !res.available) return false;
+      if (res.hardwareBacked === false) return false;
+      return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  async function getKeySecurityInfo() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks) {
+      return {
+        available: false,
+        hardwareBacked: false,
+        securityLevel: 'software',
+        backend: getKeystoreBackend()
+      };
+    }
+    try {
+      if (typeof ks.getKeySecurityInfo === 'function') {
+        const res = await ks.getKeySecurityInfo();
+        return {
+          available: Boolean(res && res.available),
+          hardwareBacked: Boolean(res && res.hardwareBacked),
+          securityLevel: res?.securityLevel || (res?.hardwareBacked ? 'tee' : 'software'),
+          alias: res?.alias || 'eg_nexus_master_key_v1',
+          backend: 'AndroidKeyStore'
+        };
+      }
+      const res = await ks.isAvailable();
+      return {
+        available: Boolean(res && res.available),
+        hardwareBacked: Boolean(res && res.hardwareBacked),
+        securityLevel: res?.securityLevel || (res?.hardwareBacked ? 'tee' : 'software'),
+        alias: res?.alias || 'eg_nexus_master_key_v1',
+        backend: 'AndroidKeyStore'
+      };
+    } catch (err) {
+      return {
+        available: false,
+        hardwareBacked: false,
+        securityLevel: 'software',
+        error: err.message,
+        backend: 'AndroidKeyStore'
+      };
     }
   }
 
@@ -2316,9 +2364,10 @@
       if (nativeKs && typeof nativeKs.isAvailable === 'function') {
         try {
           const res = await nativeKs.isAvailable();
-          if (res && res.available) {
+          if (res && res.available && res.hardwareBacked !== false) {
             this.initialized = true;
-            this.hardwareBacked = true;
+            this.hardwareBacked = Boolean(res.hardwareBacked !== false);
+            this.securityLevel = res.securityLevel || (this.hardwareBacked ? 'tee' : 'software');
             return this;
           }
         } catch (_) {}
@@ -2442,13 +2491,16 @@
       const aadBytes = _toAadBytes(aad);
 
       const nativeKs = _getNativeAndroidKeystore();
-      if (nativeKs && typeof nativeKs.decrypt === 'function') {
+      if (nativeKs && typeof nativeKs.decrypt === 'function' && (this.hardwareBacked || !this.initialized)) {
         try {
           const res = await nativeKs.decrypt({ ciphertext, iv: ivHex, aad: aad ? String(aad) : '' });
           if (res && typeof res.data === 'string') {
             return res.data;
           }
-        } catch (_) {}
+          throw new Error('Native Keystore returned invalid data');
+        } catch (err) {
+          throw new Error('Hardware decryption failed: ' + (err.message || 'authentication failed'));
+        }
       }
 
       const nodeCrypto = _getNodeCrypto();
@@ -2544,6 +2596,7 @@
     getSessionWriteRevision,
     resetSessionWriteQueue,
     getSecretVaultHealth,
+    getKeySecurityInfo,
     isHardwareKeystoreAvailable,
     getKeystoreBackend,
     applySessionSecrets,

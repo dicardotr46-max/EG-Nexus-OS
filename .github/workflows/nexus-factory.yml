@@ -1,4 +1,4 @@
-name: EG Nexus OS v6.0 - Auto Audit & Signed APK Factory
+name: EG Nexus OS v6.1.1 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.0..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.1.1..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -60,18 +60,28 @@ jobs:
           npm ci
           npm run test:syntax
 
-      - name: 6. Automated Jest Suite & Coverage Gate
+      - name: 6. Automated Code Quality, Secret Leak & Policy Linting
+        run: |
+          echo "🔍 Running code quality, secret leak, and security policy linting..."
+          npm run lint
+
+      - name: 7. Automated Jest Suite & Coverage Gate
         run: |
           echo "🧪 Running full Jest test suite with coverage thresholds..."
           npm test -- --coverage --coverageReporters="json-summary" --coverageReporters="text"
 
-      - name: 7. Static Code Inventory & Architecture Audits
+      - name: 8. Fast Core Module Mutation Verification Harness
+        run: |
+          echo "🧬 Running core security mutation verification..."
+          npm run test:mutation
+
+      - name: 9. Static Code Inventory & Architecture Audits
         run: |
           echo "🔍 Running Python static audit and integration test harness..."
           python3 full_app_audit.py
           python3 test_full_app_audit.py
 
-      - name: 8. Supply Chain Dependency Security Audit
+      - name: 10. Supply Chain Dependency Security Audit
         run: |
           echo "🔒 Verifying zero supply chain vulnerabilities..."
           npm audit --audit-level=high
@@ -236,7 +246,7 @@ jobs:
           APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.1.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.1.0-${GITHUB_SHA}"
+          RELEASE_TAG="v6.1.1-${GITHUB_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -273,12 +283,12 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.1.0 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v6.1.1 (${{ env.SHORT_SHA }})"
           make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v6.1.0`
+            - **Release Version:** `v6.1.1`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**

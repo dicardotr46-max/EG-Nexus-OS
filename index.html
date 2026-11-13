@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.1.0 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.1.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -29894,6 +29894,15 @@ if (typeof document !== 'undefined') {
     }
 
 
+    const TERMUX_ALLOWED_COMMANDS = Object.freeze([
+      'git status', 'git log', 'git diff', 'git branch', 'git checkout', 'git pull', 'git add', 'git commit', 'git push',
+      'ls', 'dir', 'pwd', 'cat', 'head', 'tail', 'grep', 'stat', 'du', 'df', 'wc', 'file', 'tree',
+      'node --version', 'node -v', 'npm test', 'npm --version', 'npm run', 'npm test --', 'npm start', 'npm build',
+      'python3 --version', 'python --version', 'python3 -m unittest', 'python -m unittest', 'pytest',
+      'ffmpeg -version', 'ffprobe -version'
+    ]);
+    const SHELL_CHAINING_REGEX = /[;|\`$><]|&&|\|\||\$\(/;
+
     // پیش‌فرض Fail-Closed: isUserInitiated = false تا هیچ فراخوانی خودکاری بدون تأیید کاربر از سد if_requested عبور نکند!
     async function executeLocalTermuxCommand(cmdOverride, isUserInitiated = false) {
       ensurePhase5State();
@@ -29922,6 +29931,21 @@ if (typeof document !== 'undefined') {
       if (isDestructiveTermuxCommand(cmd)) {
         showToast('⛔ فرمان مخرب سیستمی (حذف پوشه/سیستم) توسط فایروال امنیتی EG Nexus مسدود شد!');
         return false;
+      }
+
+      if (!isUserInitiated) {
+        if (SHELL_CHAINING_REGEX.test(cmd)) {
+          showToast('⛔ کاراکترهای زنجیره‌سازی شل (;, &&, ||, |, `, $()) در فراخوانی‌های خودکار ایجنت مسدود است');
+          return false;
+        }
+        const cleanCmd = cmd.trim();
+        const isWhitelisted = TERMUX_ALLOWED_COMMANDS.some(allowed => {
+          return cleanCmd === allowed || cleanCmd.startsWith(allowed + ' ');
+        });
+        if (!isWhitelisted) {
+          showToast('⛔ دستور در لیست سفید خودکار ایجنت (TERMUX_ALLOWED_COMMANDS) نیست؛ اجرای خودکار مسدود شد');
+          return false;
+        }
       }
 
 
@@ -29997,6 +30021,7 @@ if (typeof document !== 'undefined') {
             command: cmd,
             cwd: primaryFolder,
             category: category.key,
+            isAutomatedAgent: !isUserInitiated,
             userConfirmed: explicitlyConfirmedByUser,
             confirmToken,
             ts: Number(reqTs),
@@ -30109,6 +30134,8 @@ const MAX_BODY_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const EXEC_TIMEOUT_MS = 120000;
 const MAX_CONCURRENT_JOBS = 2;
+const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'node', 'npm', 'python', 'python3', 'ffmpeg', 'ffprobe', 'cat', 'head', 'tail', 'grep', 'stat', 'du', 'df', 'wc', 'file', 'tree', 'pytest'];
+const SHELL_CHAINING_REGEX = /[;|\\\`$><]|&&|\\|\\||\\$\\(/;
 const BLOCKED_CMD_REGEX = /(?:\\b(?:busybox|toybox)\\s+)?\\brm\\b(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*r|\\s--recursive))(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*f|\\s--force))[^;&|\\r\\n]*\\s+(?:\\/|\\*|\\.\\.?\\/?\\*?|~|\\$HOME|\\$PREFIX|\\/sdcard|\\/storage|--no-preserve-root)(?:$|[\\s;&|><)'"])|\\brm\\b\\s+-[a-zA-Z]*(?:rf|fr)\\s+(?:\\.|\\.\\.)(?:$|[\\s/;&|><)'"])|\\bfind\\b.*\\s-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b|\\brg\\b.*--pre(?:-glob)?\\b|\\b(?:mkfs\\.[a-z0-9]+|wipefs|shred)\\b|\\bdd\\b\\s+.*\\bof=\\/dev\\/|\\btruncate\\b\\s+.*\\s+\\/(?:$|\\s)|\\bchmod\\b\\s+-R\\s+000\\s+(?:\\/|\\.|~)|\\bchown\\b\\s+-R\\s+.*\\s+\\/|\\b(?:shutil\\.rmtree|os\\.(?:remove|unlink|rmdir|removedirs|system|popen)|fs\\.(?:rmSync|rmdirSync|unlinkSync)|child_process)\\b|:(\\s*)\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:/i;
 const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env[a-zA-Z0-9_.*?-]*|id_rsa[a-zA-Z0-9_.*?-]*|id_ed25519[a-zA-Z0-9_.*?-]*|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
 const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|find|grep|rg|stat|du|df|pwd|wc|file|tree)\\b/i;
@@ -30521,6 +30548,12 @@ http.createServer((req, res) => {
         return res.end(JSON.stringify({ ok: false, error: 'Blocked destructive or workspace-escape command pattern' }));
       }
 
+      const isAutomatedAgent = parsed.isAutomatedAgent === true || (!parsed.userConfirmed && !isLoopbackIp);
+      if (isAutomatedAgent && SHELL_CHAINING_REGEX.test(command)) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: false, error: 'Shell chaining characters (;, &&, ||, |, backtick, $(...)) are strictly blocked in automated agent invocations' }));
+      }
+
 
       // تشخیص مستقل دسته دستور در سمت سرور (عدم اعتماد به category ارسالی کلاینت!)
       const serverCategory = classifyServerCommand(command);
@@ -30643,7 +30676,11 @@ http.createServer((req, res) => {
       // Direct array execution when no shell metacharacters are present (Fixes Reviewer #5)
       const hasShellMetachars = /[|;&\`\\$><(){}\\r\\n]/.test(command);
       let spawnBin, spawnArgs, spawnOpts;
-      if (!hasShellMetachars) {
+      if (!hasShellMetachars || isAutomatedAgent) {
+        if (isAutomatedAgent && hasShellMetachars) {
+          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+          return res.end(JSON.stringify({ ok: false, error: 'Automated agent commands cannot contain shell metacharacters' }));
+        }
         const tokens = command.trim().match(/(?:[^\\s"']+|"[^"]*"|'[^']*')+/g) || [];
         const cleanTokens = tokens.map(t => {
           if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
@@ -30653,6 +30690,12 @@ http.createServer((req, res) => {
         });
         spawnBin = cleanTokens[0] || 'echo';
         spawnArgs = cleanTokens.slice(1);
+
+        if (isAutomatedAgent && !TERMUX_ALLOWED_COMMANDS.includes(spawnBin.toLowerCase())) {
+          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+          return res.end(JSON.stringify({ ok: false, error: 'Command binary not in TERMUX_ALLOWED_COMMANDS whitelist: ' + spawnBin }));
+        }
+
         spawnOpts = {
           cwd: safeCwd,
           detached: true,
