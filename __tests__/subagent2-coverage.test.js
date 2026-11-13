@@ -253,7 +253,7 @@ describe('Subagent 2 - Core Coverage Boost', () => {
         removeItem: k => { delete data[k]; }
       };
       expect(persistence.migrateLegacyStorage(legacyStorage)).toBe(true);
-      expect(data['eg_nexus_os_v5_master_state']).toBe('{"migrated":true}');
+      expect(JSON.parse(data['eg_nexus_os_v5_master_state']).migrated).toBe(true);
       expect(data['eg_nexus_os_state_v5.1']).toBeUndefined();
 
       // Second migration does nothing

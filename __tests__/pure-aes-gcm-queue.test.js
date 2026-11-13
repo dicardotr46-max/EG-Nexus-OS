@@ -46,11 +46,11 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
     test('writeSessionSecrets writes AES-GCM-256 with NO syncCiphertext field in storage payload', () => {
       const payload = {
         apiKeys: {
-          gemini: 'AIzaSy-PureAesGcm-GeminiKey-2026',
-          deepseek: 'sk-dsk-PureAesGcm-DeepseekKey'
+          gemini: 'TEST_DUMMY_KEY_NOT_A_SECRET_01',
+          deepseek: 'TEST_DUMMY_KEY_NOT_A_SECRET_02'
         },
         connectionTokens: {
-          telegram: 'bot123456789:AAF-PureAesGcmTelegramToken'
+          telegram: 'TEST_DUMMY_KEY_NOT_A_SECRET_03'
         },
         bridgeToken: 'pure-bridge-token-xyz'
       };
@@ -81,9 +81,9 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
       // Read back synchronously
       const readSync = secrets.readSessionSecrets(mockStorage);
       expect(readSync.initialized).toBe(true);
-      expect(readSync.apiKeys.gemini).toBe('AIzaSy-PureAesGcm-GeminiKey-2026');
-      expect(readSync.apiKeys.deepseek).toBe('sk-dsk-PureAesGcm-DeepseekKey');
-      expect(readSync.connectionTokens.telegram).toBe('bot123456789:AAF-PureAesGcmTelegramToken');
+      expect(readSync.apiKeys.gemini).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_01');
+      expect(readSync.apiKeys.deepseek).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_02');
+      expect(readSync.connectionTokens.telegram).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_03');
       expect(readSync.bridgeToken).toBe('pure-bridge-token-xyz');
 
       // Wipe memory cache again
@@ -92,9 +92,9 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
       // Read back asynchronously
       return secrets.readSessionSecretsAsync(mockStorage).then(readAsync => {
         expect(readAsync.initialized).toBe(true);
-        expect(readAsync.apiKeys.gemini).toBe('AIzaSy-PureAesGcm-GeminiKey-2026');
-        expect(readAsync.apiKeys.deepseek).toBe('sk-dsk-PureAesGcm-DeepseekKey');
-        expect(readAsync.connectionTokens.telegram).toBe('bot123456789:AAF-PureAesGcmTelegramToken');
+        expect(readAsync.apiKeys.gemini).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_01');
+        expect(readAsync.apiKeys.deepseek).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_02');
+        expect(readAsync.connectionTokens.telegram).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_03');
         expect(readAsync.bridgeToken).toBe('pure-bridge-token-xyz');
       });
     });
@@ -102,11 +102,11 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
     test('writeSessionSecretsAsync writes standard AES-GCM-256 with NO syncCiphertext field', async () => {
       const payload = {
         apiKeys: {
-          openai: 'sk-proj-PureAsyncKey-112233',
-          anthropic: 'sk-ant-PureAsyncKey-445566'
+          openai: 'TEST_DUMMY_KEY_NOT_A_SECRET_04',
+          anthropic: 'TEST_DUMMY_KEY_NOT_A_SECRET_05'
         },
         connectionTokens: {
-          github: 'ghp_PureAsyncPatToken'
+          github: 'TEST_DUMMY_KEY_NOT_A_SECRET_06'
         },
         bridgeToken: 'bridge-async-pure-token'
       };
@@ -133,9 +133,9 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
       // Synchronous read of async-written AES-GCM-256 payload without syncCiphertext
       const syncRecovered = secrets.readSessionSecrets(mockStorage);
       expect(syncRecovered.initialized).toBe(true);
-      expect(syncRecovered.apiKeys.openai).toBe('sk-proj-PureAsyncKey-112233');
-      expect(syncRecovered.apiKeys.anthropic).toBe('sk-ant-PureAsyncKey-445566');
-      expect(syncRecovered.connectionTokens.github).toBe('ghp_PureAsyncPatToken');
+      expect(syncRecovered.apiKeys.openai).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_04');
+      expect(syncRecovered.apiKeys.anthropic).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_05');
+      expect(syncRecovered.connectionTokens.github).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_06');
       expect(syncRecovered.bridgeToken).toBe('bridge-async-pure-token');
 
       // Wipe RAM
@@ -144,9 +144,9 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
       // Async read of async-written AES-GCM-256 payload without syncCiphertext
       const asyncRecovered = await secrets.readSessionSecretsAsync(mockStorage);
       expect(asyncRecovered.initialized).toBe(true);
-      expect(asyncRecovered.apiKeys.openai).toBe('sk-proj-PureAsyncKey-112233');
-      expect(asyncRecovered.apiKeys.anthropic).toBe('sk-ant-PureAsyncKey-445566');
-      expect(asyncRecovered.connectionTokens.github).toBe('ghp_PureAsyncPatToken');
+      expect(asyncRecovered.apiKeys.openai).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_04');
+      expect(asyncRecovered.apiKeys.anthropic).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_05');
+      expect(asyncRecovered.connectionTokens.github).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_06');
       expect(asyncRecovered.bridgeToken).toBe('bridge-async-pure-token');
     });
 
@@ -343,7 +343,7 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
     });
 
     test('persistence.queueSessionSecretsWrite delegates directly to secrets.queueSessionSecretsWrite', async () => {
-      const payload = { apiKeys: { deepseek: 'sk-dsk-persistence-delegate' } };
+      const payload = { apiKeys: { deepseek: 'TEST_DUMMY_KEY_NOT_A_SECRET_07' } };
       const res = await persistence.queueSessionSecretsWrite(payload, mockStorage);
       expect(res).toBe(true);
       expect(persistence.getSessionWriteState()).toBe('success');
@@ -351,7 +351,7 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
 
       secrets._resetSessionCryptoState();
       const loaded = secrets.readSessionSecrets(mockStorage);
-      expect(loaded.apiKeys.deepseek).toBe('sk-dsk-persistence-delegate');
+      expect(loaded.apiKeys.deepseek).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_07');
     });
 
     test('queueSessionSecretsWrite handles empty or non-object payload gracefully without throwing', async () => {
@@ -402,15 +402,15 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
     test('writeSessionSecretsAsync and readSessionSecretsAsync roundtrip multi-provider keys faithfully', async () => {
       const multiKeys = {
         apiKeys: {
-          gemini: 'AIzaSyTestGemini',
-          deepseek: 'sk-dsk-test-deepseek',
-          openai: 'sk-proj-test-openai',
-          anthropic: 'sk-ant-test-anthropic',
-          groq: 'gsk_test_groq_key'
+          gemini: 'TEST_DUMMY_KEY_NOT_A_SECRET_08',
+          deepseek: 'TEST_DUMMY_KEY_NOT_A_SECRET_09',
+          openai: 'TEST_DUMMY_KEY_NOT_A_SECRET_10',
+          anthropic: 'TEST_DUMMY_KEY_NOT_A_SECRET_11',
+          groq: 'TEST_DUMMY_KEY_NOT_A_SECRET_12'
         },
         connectionTokens: {
-          gmail: 'ya29.gmail-sample-token',
-          github: 'ghp_samplegithubtoken'
+          gmail: 'TEST_DUMMY_KEY_NOT_A_SECRET_13',
+          github: 'TEST_DUMMY_KEY_NOT_A_SECRET_14'
         }
       };
 
@@ -419,13 +419,13 @@ describe('Pure AES-GCM-256 Cryptography & Sequential Write Queue (v5.6)', () => 
 
       secrets._resetSessionCryptoState();
       const restored = await secrets.readSessionSecretsAsync(mockStorage);
-      expect(restored.apiKeys.gemini).toBe('AIzaSyTestGemini');
-      expect(restored.apiKeys.deepseek).toBe('sk-dsk-test-deepseek');
-      expect(restored.apiKeys.openai).toBe('sk-proj-test-openai');
-      expect(restored.apiKeys.anthropic).toBe('sk-ant-test-anthropic');
-      expect(restored.apiKeys.groq).toBe('gsk_test_groq_key');
-      expect(restored.connectionTokens.gmail).toBe('ya29.gmail-sample-token');
-      expect(restored.connectionTokens.github).toBe('ghp_samplegithubtoken');
+      expect(restored.apiKeys.gemini).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_08');
+      expect(restored.apiKeys.deepseek).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_09');
+      expect(restored.apiKeys.openai).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_10');
+      expect(restored.apiKeys.anthropic).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_11');
+      expect(restored.apiKeys.groq).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_12');
+      expect(restored.connectionTokens.gmail).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_13');
+      expect(restored.connectionTokens.github).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_14');
     });
 
     test('AES-GCM-256 payload never exposes plaintext keys anywhere in sessionStorage JSON string', async () => {

@@ -190,6 +190,7 @@
 
   const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__']);
   const _proxyCache = new WeakMap();
+  const _rawTargetMap = new WeakMap();
 
   function hasDangerousKeysDeep(val, seen = new WeakSet()) {
     if (!val || typeof val !== 'object') return false;
@@ -259,7 +260,6 @@
     const handler = {
       get(obj, prop, receiver) {
         if (prop === '_isStateProxy') return true;
-        if (prop === '_rawTarget') return obj;
         const val = Reflect.get(obj, prop, receiver);
         const desc = Object.getOwnPropertyDescriptor(obj, prop);
         if (desc && !desc.configurable && !desc.writable) {
@@ -309,7 +309,71 @@
     const proxy = new Proxy(target, handler);
     _proxyCache.set(target, proxy);
     _proxyCache.set(proxy, proxy);
+    _rawTargetMap.set(proxy, target);
     return proxy;
+  }
+
+  function StateStore(initialState = createInitialAppState()) {
+    this._state = createProtectedStateProxy(initialState);
+  }
+
+  StateStore.prototype.getState = function() {
+    return this._state;
+  };
+
+  StateStore.prototype.clearSession = function() {
+    if (this._state) {
+      this._state.messages = [];
+      this._state.providerKeys = {};
+      this._state.consensusResult = null;
+      this._state.debateLog = [];
+      this._state.memorySummary = '';
+      this._state.pendingApprovals = [];
+    }
+    return this._state;
+  };
+
+  StateStore.prototype.appendMessage = function(message) {
+    if (!this._state) {
+      this._state = createProtectedStateProxy(createInitialAppState());
+    }
+    if (!Array.isArray(this._state.messages)) {
+      this._state.messages = [];
+    }
+    const msg = (message && typeof message === 'object') ? { ...message } : { text: String(message || '') };
+    if (!msg.id) {
+      msg.id = secureRandomId('msg');
+    }
+    if (!msg.timestamp) {
+      msg.timestamp = Date.now();
+    }
+    this._state.messages.push(msg);
+    return msg;
+  };
+
+  function appendMessage(stateOrStore, message) {
+    let store = stateOrStore;
+    let msg = message;
+    if (arguments.length === 1 && stateOrStore && !(stateOrStore instanceof StateStore) && (!stateOrStore || !stateOrStore._state)) {
+      msg = stateOrStore;
+      store = null;
+    }
+    if (store instanceof StateStore) {
+      return store.appendMessage(msg);
+    }
+    const target = (store && store._state) ? store._state : (store && typeof store === 'object' && ('messages' in store) ? store : appState);
+    if (!Array.isArray(target.messages)) {
+      target.messages = [];
+    }
+    const msgObj = (msg && typeof msg === 'object') ? { ...msg } : { text: String(msg || '') };
+    if (!msgObj.id) {
+      msgObj.id = secureRandomId('msg');
+    }
+    if (!msgObj.timestamp) {
+      msgObj.timestamp = Date.now();
+    }
+    target.messages.push(msgObj);
+    return msgObj;
   }
 
   const appState = createProtectedStateProxy(createInitialAppState());
@@ -326,6 +390,8 @@
     hasDangerousKeysDeep,
     secureRandomHex,
     secureRandomId,
+    StateStore,
+    appendMessage,
     appState,
     uiState
   };

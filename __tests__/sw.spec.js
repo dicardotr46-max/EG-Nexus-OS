@@ -31,7 +31,7 @@ beforeEach(() => {
 
     mockCaches = {
       open: jest.fn().mockResolvedValue(mockCache),
-      keys: jest.fn().mockResolvedValue(['eg-nexus-os-v5.0-old-cache', 'eg-nexus-os-v5.9.0-pwa-cache', 'other-origin-cache']),
+      keys: jest.fn().mockResolvedValue(['eg-nexus-os-v5.0-old-cache', 'eg-nexus-os-v6.0.0-pwa-cache', 'other-origin-cache']),
       delete: jest.fn().mockResolvedValue(true),
       match: jest.fn().mockResolvedValue(undefined)
     };
@@ -77,7 +77,7 @@ beforeEach(() => {
       // Wait for the promise passed to waitUntil to resolve
       await event.waitUntil.mock.calls[0][0];
 
-      expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v5.9.0-pwa-cache');
+      expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
       expect(mockCache.addAll).toHaveBeenCalledWith([
         './',
         './index.html',
@@ -105,7 +105,7 @@ beforeEach(() => {
       expect(mockCaches.keys).toHaveBeenCalled();
       expect(mockCaches.delete).toHaveBeenCalledWith('eg-nexus-os-v5.0-old-cache');
       expect(mockCaches.delete).not.toHaveBeenCalledWith('other-origin-cache');
-      expect(mockCaches.delete).not.toHaveBeenCalledWith('eg-nexus-os-v5.9.0-pwa-cache');
+      expect(mockCaches.delete).not.toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
       expect(mockSelf.clients.claim).toHaveBeenCalled();
     });
   });
@@ -157,7 +157,7 @@ beforeEach(() => {
         // Allow the async cache.put promise to resolve
         await new Promise(process.nextTick);
 
-        expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v5.9.0-pwa-cache');
+        expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
         expect(mockCache.put).toHaveBeenCalledWith('./index.html', 'cloned-response');
       });
 
@@ -206,7 +206,7 @@ beforeEach(() => {
         await new Promise(process.nextTick);
 
         expect(mockFetch).toHaveBeenCalledWith(event.request);
-        expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v5.9.0-pwa-cache');
+        expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
         expect(mockCache.put).toHaveBeenCalledWith(event.request, 'cloned-asset');
       });
 
@@ -293,6 +293,22 @@ beforeEach(() => {
 
         expect(res).toBeDefined();
         expect(res.status).toBe(503);
+      });
+
+      it('should serve cached SVG response for /favicon.ico without 404 or 503 (AUD-PWA-01)', async () => {
+        const respondWith = jest.fn();
+        const event = {
+          request: { method: 'GET', url: 'https://example.com/favicon.ico' },
+          respondWith
+        };
+
+        listeners.fetch(event);
+
+        expect(respondWith).toHaveBeenCalled();
+        const res = event.respondWith.mock.calls[0][0];
+        expect(res.status).toBe(200);
+        const ct = typeof res.headers.get === 'function' ? res.headers.get('Content-Type') : res.headers['Content-Type'];
+        expect(ct).toBe('image/svg+xml');
       });
     });
   });

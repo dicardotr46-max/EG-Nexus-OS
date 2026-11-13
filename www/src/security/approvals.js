@@ -81,22 +81,55 @@
     const ui = getUiState();
     if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
     let item;
-    if (typeof reason === 'object' && reason !== null && typeof reason.reason === 'string') {
-      item = {
-        reason: reason.reason,
-        onApprove: reason.onApprove,
-        onReject: reason.onReject
-      };
+    const approvalId = (typeof secureRandomId === 'function'
+      ? secureRandomId('appr')
+      : ('appr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)));
+
+    if (typeof reason === 'object' && reason !== null) {
+      const reasonText = String(reason.reason || reason.text || reason.message || '');
+      const actionName = String(reason.action || reason.target || reason.targetAction || '');
+      const id = String(reason.id || approvalId);
+      item = Object.freeze({
+        ...reason,
+        id,
+        reason: reasonText,
+        text: reasonText,
+        action: actionName,
+        target: actionName,
+        targetAction: actionName,
+        onApprove: reason.onApprove || onApprove,
+        onReject: reason.onReject || onReject
+      });
     } else {
-      item = { reason, onApprove, onReject };
+      const reasonText = String(reason || '');
+      item = Object.freeze({
+        id: approvalId,
+        reason: reasonText,
+        text: reasonText,
+        action: '',
+        target: '',
+        targetAction: '',
+        onApprove,
+        onReject
+      });
     }
     ui.pendingApprovalQueue.push(item);
     const current = ui.pendingApprovalQueue[0];
     if (typeof document !== 'undefined') {
       const txtEl = document.getElementById('approvalGateText');
-      if (txtEl && current) txtEl.innerText = current.reason;
+      if (txtEl && current) {
+        let display = current.reason || current.text || '';
+        if (current.action) {
+          display += ` [${current.action}]`;
+        }
+        if (current.id && current.action) {
+          display += ` (${current.id})`;
+        }
+        txtEl.innerText = display;
+      }
       document.getElementById('approvalGateBanner')?.classList.remove('hidden');
     }
+    return item;
   }
 
   async function resolveApprovalGate(approved, timeoutMs = 30000) {
@@ -104,17 +137,26 @@
     if (ui._isResolvingApproval) return;
     ui._isResolvingApproval = true;
 
-    let timer = null;
-    const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(`Approval gate execution timed out after ${timeoutMs}ms`));
-      }, Math.max(100, Number(timeoutMs) || 30000));
-      if (typeof timer.unref === 'function') timer.unref();
-    });
+    if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
+    if (ui.pendingApprovalQueue.length === 0) {
+      ui._isResolvingApproval = false;
+      return;
+    }
 
+    const isOrchestratorBusy = () => Boolean(
+      ui.isOrchestratorRunning ||
+      (typeof window !== 'undefined' && window.uiState && window.uiState.isOrchestratorRunning)
+    );
+
+    // If approving and orchestrator is currently busy, do not drop the item; leave it at queue head
+    if (approved && isOrchestratorBusy()) {
+      ui._isResolvingApproval = false;
+      return;
+    }
+
+    let item = null;
     try {
-      if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
-      const item = ui.pendingApprovalQueue.shift();
+      item = ui.pendingApprovalQueue.shift();
 
       if (typeof document !== 'undefined') {
         if (ui.pendingApprovalQueue.length === 0) {
@@ -122,12 +164,33 @@
         } else {
           const next = ui.pendingApprovalQueue[0];
           const txtEl = document.getElementById('approvalGateText');
-          if (txtEl && next) txtEl.innerText = next.reason;
+          if (txtEl && next) {
+            let display = next.reason || next.text || '';
+            if (next.action) display += ` [${next.action}]`;
+            if (next.id && next.action) display += ` (${next.id})`;
+            txtEl.innerText = display;
+          }
         }
       }
 
       let executionPromise = null;
       if (approved && item && typeof item.onApprove === 'function') {
+        // If orchestrator became busy just now, return item to queue head
+        if (isOrchestratorBusy()) {
+          ui.pendingApprovalQueue.unshift(item);
+          if (typeof document !== 'undefined') {
+            const txtEl = document.getElementById('approvalGateText');
+            if (txtEl) {
+              let display = item.reason || item.text || '';
+              if (item.action) display += ` [${item.action}]`;
+              if (item.id && item.action) display += ` (${item.id})`;
+              txtEl.innerText = display;
+            }
+            document.getElementById('approvalGateBanner')?.classList.remove('hidden');
+          }
+          return;
+        }
+
         const res = item.onApprove();
         if (res && typeof res.then === 'function') {
           executionPromise = res;
@@ -145,20 +208,33 @@
       }
 
       if (executionPromise) {
-        await Promise.race([executionPromise, timeoutPromise]);
+        let timer = null;
+        const timeoutPromise = new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Approval gate execution timed out after ${timeoutMs}ms`));
+          }, Math.max(100, Number(timeoutMs) || 30000));
+          if (timer && typeof timer.unref === 'function') timer.unref();
+        });
+        try {
+          await Promise.race([executionPromise, timeoutPromise]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       }
     } catch (err) {
       if (typeof console !== 'undefined' && typeof console.error === 'function') {
         console.error('Error in resolveApprovalGate:', err);
       }
     } finally {
-      if (timer) clearTimeout(timer);
       if (ui.pendingApprovalQueue && ui.pendingApprovalQueue.length > 0) {
         ui._isResolvingApproval = false;
       } else {
-        setTimeout(() => {
+        const cooldownTimer = setTimeout(() => {
           ui._isResolvingApproval = false;
         }, 320);
+        if (cooldownTimer && typeof cooldownTimer.unref === 'function') {
+          cooldownTimer.unref();
+        }
       }
     }
   }

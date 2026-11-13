@@ -75,25 +75,58 @@
       .replace(/'/g, '&#39;');
   }
 
+  function decodeUrlHtmlEntities(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/&colon;/gi, ':')
+      .replace(/&tab;/gi, '\t')
+      .replace(/&newline;/gi, '\n')
+      .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => {
+        try {
+          const cp = parseInt(hex, 16);
+          return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '';
+        } catch (e) {
+          return '';
+        }
+      })
+      .replace(/&#(\d+);?/g, (_, dec) => {
+        try {
+          const cp = parseInt(dec, 10);
+          return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '';
+        } catch (e) {
+          return '';
+        }
+      });
+  }
+
   function sanitizeSafeUrl(url, fallback = '#') {
     if (!url || typeof url !== 'string') return fallback;
-    const cleaned = url.replace(INVISIBLE_FORMAT_CHARS_RE, '').trim();
+    const normalized = url.normalize('NFKC');
+    const cleaned = normalized.replace(INVISIBLE_FORMAT_CHARS_RE, '').trim();
     if (!cleaned) return fallback;
 
-    // Block inputs containing backslash or multiple leading slashes/backslashes
-    if (cleaned.includes('\\') || /^[\/\\]{2,}/.test(cleaned)) {
+    // Block whitespace, quotes, angle brackets, backticks, or backslashes on all paths (relative and absolute)
+    if (/[\s"'<>`\\]/.test(cleaned)) {
       return fallback;
     }
 
-    // Block protocol-relative URLs
-    if (/^\/\//.test(cleaned)) return fallback;
+    // Block protocol-relative URLs or multiple leading slashes/backslashes
+    if (/^[\/\\]{2,}/.test(cleaned)) {
+      return fallback;
+    }
+
+    // Decode HTML entities before scheme check so e.g. javascript&colon;alert(1) is recognized and rejected
+    const decoded = decodeUrlHtmlEntities(cleaned);
+    if (/[\s"'<>`\\]/.test(decoded)) {
+      return fallback;
+    }
 
     // Allow safe relative paths, query strings, and fragments
     if (/^(?:#[^]*|\?[^]*|\/(?!\/)[^]*|\.\/[^]*|\.\.\/[^]*)$/.test(cleaned)) {
       return cleaned;
     }
 
-    const colonIdx = cleaned.indexOf(':');
+    const colonIdx = decoded.indexOf(':');
     if (colonIdx === -1) {
       if (!/[<>"'`\s]/.test(cleaned)) {
         return cleaned;
@@ -101,18 +134,18 @@
       return fallback;
     }
 
-    const scheme = cleaned.slice(0, colonIdx).trim().toLowerCase();
+    const scheme = decoded.slice(0, colonIdx).trim().toLowerCase();
     const ALLOWED_SCHEMES = new Set(['https', 'http', 'mailto', 'tel']);
     if (!ALLOWED_SCHEMES.has(scheme)) {
       return fallback;
     }
 
     // Block http or https URLs lacking double slashes (e.g. "http:evil.com")
-    if ((scheme === 'http' || scheme === 'https') && !/^https?:\/\//i.test(cleaned)) {
+    if ((scheme === 'http' || scheme === 'https') && !/^https?:\/\//i.test(decoded)) {
       return fallback;
     }
 
-    if (/[\u0000-\u001F"<>`\s]/.test(cleaned)) {
+    if (/[\u0000-\u001F"<>`\s]/.test(decoded)) {
       return fallback;
     }
 
@@ -149,6 +182,7 @@
     const allowLocalBridge = Boolean(options && (options.allowLocalBridge || options.allowLoopback));
     const blockPrivateIps = Boolean(options && options.blockPrivateIps);
     const raw = String(rawUrl || '').trim();
+    if (raw.length > 2048) return '#';
     if (!raw || /[\s"'<>\\\r\n\t]/.test(raw)) return '#';
     const u = raw.replace(INVISIBLE_FORMAT_CHARS_RE, '');
     if (!u) return '#';
@@ -157,9 +191,26 @@
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '#';
       if (parsed.username || parsed.password) return '#';
       const rawHost = parsed.hostname.toLowerCase();
-      const host = rawHost.replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+      if (rawHost.length > 253) return '#';
+
+      let h = rawHost.replace(/^\[|\]$/g, '');
+      let end = h.length;
+      let trailingDotCount = 0;
+      while (end > 0 && h.charCodeAt(end - 1) === 46) {
+        end--;
+        trailingDotCount++;
+      }
+      const host = h.slice(0, end);
+
       if (!host || (host !== 'localhost' && !host.includes('.') && !host.includes(':'))) {
         return '#';
+      }
+      if (trailingDotCount > 1) {
+        try {
+          parsed.hostname = rawHost.startsWith('[') ? `[${host}]` : host;
+        } catch (_) {
+          return '#';
+        }
       }
 
       // Block cloud metadata SSRF (IPv4 and IPv6)
@@ -235,11 +286,20 @@
       prev = text;
       text = text
         .replace(/<\/?untrusted_web_data[^<>]*>*/gi, '')
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+        .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+        .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
+        .replace(/<applet\b[^<]*(?:(?!<\/applet>)<[^<]*)*<\/applet>/gi, '')
+        .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+        .replace(/<math\b[^<]*(?:(?!<\/math>)<[^<]*)*<\/math>/gi, '')
+        .replace(/<\/?(?:script|style|iframe|object|embed|applet|svg|math|link|meta|base|form|input|button|textarea|select|option|img|video|audio|source|track|marquee|details|body|head|html|frame|frameset)\b[^>]*>/gi, '')
         .replace(/\[\s*AUTO_(?:BRAIN|SKILL)\b/gi, '[BLOCKED_WEB_TAG')
         .replace(/\[\s*OPTIONS\s*:/gi, '[BLOCKED_WEB_OPTIONS:');
     } while (text !== prev);
 
-    return text.trim();
+    return escapeHtml(text.trim());
   }
 
   function splitStringByCodePoints(str, maxCodePoints = 3800) {

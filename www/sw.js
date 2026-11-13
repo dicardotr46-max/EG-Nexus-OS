@@ -1,7 +1,8 @@
 // ============================================================================
-// EG NEXUS OS v5.9.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
+// EG NEXUS OS v6.0.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
 // ============================================================================
-const CACHE_NAME = 'eg-nexus-os-v5.9.0-pwa-cache';
+const CACHE_NAME = 'eg-nexus-os-v6.0.0-pwa-cache';
+const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">⚡</text></svg>';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -56,6 +57,21 @@ self.addEventListener('fetch', (event) => {
   // Bypass external API calls (Gemini, OpenRouter, Tavily, Telegram, Local Termux Bridge, Supabase)
   if (url.origin !== self.location.origin) return;
 
+  const pathname = url.pathname.toLowerCase();
+
+  // AUD-PWA-01: Serve cached SVG response for /favicon.ico so it never 404s/503s
+  if (pathname === '/favicon.ico' || pathname.endsWith('/favicon.ico')) {
+    event.respondWith(new Response(FAVICON_SVG, {
+      status: 200,
+      statusText: 'OK',
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        'Cache-Control': 'public, max-age=31536000, immutable'
+      }
+    }));
+    return;
+  }
+
   // Navigation requests: Network-first with instant fallback to cached index.html (Fixes Reviewer #20, #25 & #27)
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
@@ -88,7 +104,6 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Static same-origin assets check: Only cache static web assets, never arbitrary API/data GETs (Fixes Reviewer #26)
-  const pathname = url.pathname.toLowerCase();
   const isStaticAsset = pathname === '/' ||
     pathname.endsWith('.html') ||
     pathname.endsWith('.js') ||

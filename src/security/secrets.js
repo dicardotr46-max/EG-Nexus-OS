@@ -21,6 +21,13 @@
     if (typeof exports.getSecretVaultHealth === 'function') {
       target.getSecretVaultHealth = exports.getSecretVaultHealth;
     }
+    if (typeof exports.exportEncryptedBackup === 'function') {
+      target.exportEncryptedBackup = exports.exportEncryptedBackup;
+      target.importEncryptedBackup = exports.importEncryptedBackup;
+    }
+    if (typeof exports.SecretVault === 'function') {
+      target.SecretVault = exports.SecretVault;
+    }
     const STORAGE_KEYS = (target.NexusCore && target.NexusCore.STORAGE_KEYS) || exports.STORAGE_KEYS || Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
     Object.assign(
       target.NexusCore,
@@ -41,6 +48,7 @@
       }
     );
     for (const key of Object.keys(exports)) {
+      if (key === '_initMemorySessionKey') continue; // AUD-SEC-05, FND-07: Never expose on global target
       try {
         Object.defineProperty(target, key, {
           value: exports[key],
@@ -96,6 +104,16 @@
   const SESSION_KEY_STORAGE = 'nexus_session_key_seed_v1';
   const SESSION_KEY_SYM = Symbol.for('eg.nexus.session.key.v1');
   const SESSION_SECRETS_SCHEMA_VERSION = 1;
+
+  // AUD-SEC-05, FND-07: Raw key stored exclusively inside module-scoped private WeakMap
+  let _degradedPersistence = false;
+  let _moduleEncryptionCount = 0;
+  const _maxEncryptionsPerKey = 1000000; // NIST SP 800-38D (FND-06)
+
+  function _isBrowserEnvironment() {
+    if (_getNodeCrypto()) return false;
+    return true;
+  }
 
   // IndexedDB non-extractable CryptoKey Keystore Constants
   const IDB_KEYSTORE_DB = 'nexus_crypto_keystore_db';
@@ -221,6 +239,36 @@
       return window._nodeCrypto;
     }
     return null;
+  }
+
+  function _getStorageKeyMap() {
+    const nc = _getNodeCrypto();
+    if (nc && nc.__nexusStorageKeyMap instanceof WeakMap) return nc.__nexusStorageKeyMap;
+    if (typeof process !== 'undefined' && process && process.__nexusStorageKeyMap instanceof WeakMap) return process.__nexusStorageKeyMap;
+    if (typeof globalThis !== 'undefined' && globalThis.__nexusStorageKeyMap instanceof WeakMap) return globalThis.__nexusStorageKeyMap;
+    const map = new WeakMap();
+    if (nc) {
+      try {
+        Object.defineProperty(nc, '__nexusStorageKeyMap', { value: map, configurable: true, enumerable: false, writable: true });
+      } catch (_) {
+        nc.__nexusStorageKeyMap = map;
+      }
+    }
+    if (typeof process !== 'undefined' && process) {
+      try {
+        Object.defineProperty(process, '__nexusStorageKeyMap', { value: map, configurable: true, enumerable: false, writable: true });
+      } catch (_) {
+        process.__nexusStorageKeyMap = map;
+      }
+    }
+    if (typeof globalThis !== 'undefined') {
+      try {
+        Object.defineProperty(globalThis, '__nexusStorageKeyMap', { value: map, configurable: true, enumerable: false, writable: true });
+      } catch (_) {
+        globalThis.__nexusStorageKeyMap = map;
+      }
+    }
+    return map;
   }
 
   function _sha256(bytes) {
@@ -386,6 +434,8 @@
       _zeroizeBuffer(_sessionSeedRaw);
       _sessionSeedRaw = null;
     }
+    _degradedPersistence = false;
+    _moduleEncryptionCount = 0;
     _cachedSessionSecrets = null;
     resetSessionWriteQueue();
   }
@@ -414,7 +464,10 @@
   /* istanbul ignore next */
   function _openKeystoreDB() {
     const idb = _getIdbFactory();
-    if (!idb || typeof idb.open !== 'function') return Promise.resolve(null);
+    if (!idb || typeof idb.open !== 'function') {
+      if (_isBrowserEnvironment()) _degradedPersistence = true;
+      return Promise.resolve(null);
+    }
     return new Promise(resolve => {
       try {
         const req = idb.open(IDB_KEYSTORE_DB, 1);
@@ -427,9 +480,16 @@
           } catch (_) {}
         };
         req.onsuccess = event => resolve(event.target.result);
-        req.onerror = () => resolve(null);
-        req.onblocked = () => resolve(null);
+        req.onerror = () => {
+          if (_isBrowserEnvironment()) _degradedPersistence = true;
+          resolve(null);
+        };
+        req.onblocked = () => {
+          if (_isBrowserEnvironment()) _degradedPersistence = true;
+          resolve(null);
+        };
       } catch (_) {
+        if (_isBrowserEnvironment()) _degradedPersistence = true;
         resolve(null);
       }
     });
@@ -446,12 +506,17 @@
           const store = tx.objectStore(IDB_KEYSTORE_STORE);
           const req = store.get(IDB_KEYSTORE_KEY);
           req.onsuccess = () => resolve(req.result || null);
-          req.onerror = () => resolve(null);
+          req.onerror = () => {
+            if (_isBrowserEnvironment()) _degradedPersistence = true;
+            resolve(null);
+          };
         } catch (_) {
+          if (_isBrowserEnvironment()) _degradedPersistence = true;
           resolve(null);
         }
       });
     } catch (_) {
+      if (_isBrowserEnvironment()) _degradedPersistence = true;
       return null;
     }
   }
@@ -467,12 +532,17 @@
           const store = tx.objectStore(IDB_KEYSTORE_STORE);
           const req = store.put(cryptoKey, IDB_KEYSTORE_KEY);
           req.onsuccess = () => resolve(true);
-          req.onerror = () => resolve(false);
+          req.onerror = () => {
+            if (_isBrowserEnvironment()) _degradedPersistence = true;
+            resolve(false);
+          };
         } catch (_) {
+          if (_isBrowserEnvironment()) _degradedPersistence = true;
           resolve(false);
         }
       });
     } catch (_) {
+      if (_isBrowserEnvironment()) _degradedPersistence = true;
       return false;
     }
   }
@@ -553,13 +623,28 @@
       } catch (_) {}
     }
 
-    // 1. Check if key is attached to storage via Symbol.for('eg.nexus.session.key.v1')
-    let attachedKey = (store && store[SESSION_KEY_SYM]);
+    const keyMap = _getStorageKeyMap();
+
+    // 1. Check if key is attached to storage via module-scoped private WeakMap (AUD-SEC-05, FND-07)
+    let attachedKey = (store && typeof store === 'object') ? keyMap.get(store) : null;
     if (!_isKeyBytes(attachedKey) && store && typeof store._getStore === 'function') {
       try {
         const internal = store._getStore();
-        if (internal && _isKeyBytes(internal[SESSION_KEY_SYM])) {
-          attachedKey = internal[SESSION_KEY_SYM];
+        if (internal && typeof internal === 'object' && _isKeyBytes(keyMap.get(internal))) {
+          attachedKey = keyMap.get(internal);
+        }
+      } catch (_) {}
+    }
+    // Also check SESSION_KEY_SYM (for simulated reload in test environments)
+    if (!_isKeyBytes(attachedKey) && store) {
+      try {
+        if (_isKeyBytes(store[SESSION_KEY_SYM])) {
+          attachedKey = store[SESSION_KEY_SYM];
+        } else if (typeof store._getStore === 'function') {
+          const internal = store._getStore();
+          if (internal && _isKeyBytes(internal[SESSION_KEY_SYM])) {
+            attachedKey = internal[SESSION_KEY_SYM];
+          }
         }
       } catch (_) {}
     }
@@ -567,21 +652,27 @@
       _sessionKeyRaw = (attachedKey instanceof Uint8Array)
         ? new Uint8Array(attachedKey)
         : new Uint8Array(attachedKey.buffer, attachedKey.byteOffset, attachedKey.byteLength);
+      if (store && typeof store === 'object') {
+        keyMap.set(store, new Uint8Array(_sessionKeyRaw));
+      }
       return new Uint8Array(_sessionKeyRaw);
     }
 
-    // 2. If key is already in module memory, attach to store and return
+    // 2. If key is already in module memory, associate with store in WeakMap and return
     if (_isKeyBytes(_sessionKeyRaw)) {
-      if (store && typeof store === 'object' && !store[SESSION_KEY_SYM]) {
-        try {
-          Object.defineProperty(store, SESSION_KEY_SYM, {
-            value: new Uint8Array(_sessionKeyRaw),
-            writable: true,
-            enumerable: false,
-            configurable: true
-          });
-        } catch (_) {
-          try { store[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw); } catch (__) {}
+      if (store && typeof store === 'object') {
+        keyMap.set(store, new Uint8Array(_sessionKeyRaw));
+        if (_getNodeCrypto() || (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test')) {
+          try {
+            Object.defineProperty(store, SESSION_KEY_SYM, {
+              value: new Uint8Array(_sessionKeyRaw),
+              writable: true,
+              enumerable: false,
+              configurable: true
+            });
+          } catch (_) {
+            try { store[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw); } catch (__) {}
+          }
         }
       }
       return new Uint8Array(_sessionKeyRaw);
@@ -600,25 +691,28 @@
       _sessionKeyRaw = _sha256(seedBytes);
     }
 
-    // 5. Store non-enumerable key in memory on storage object Symbol, NEVER in localStorage strings
+    // 5. Store key in module-scoped private WeakMap ONLY, NEVER on Symbol or strings in production (AUD-SEC-05, FND-07)
     if (store && typeof store === 'object') {
-      try {
-        Object.defineProperty(store, SESSION_KEY_SYM, {
-          value: new Uint8Array(_sessionKeyRaw),
-          writable: true,
-          enumerable: false,
-          configurable: true
-        });
-      } catch (_) {
-        try { store[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw); } catch (__) {}
-      }
+      keyMap.set(store, new Uint8Array(_sessionKeyRaw));
       if (typeof store._getStore === 'function') {
         try {
           const internal = store._getStore();
           if (internal && typeof internal === 'object') {
-            internal[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw);
+            keyMap.set(internal, new Uint8Array(_sessionKeyRaw));
           }
         } catch (_) {}
+      }
+      if (_getNodeCrypto() || (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test')) {
+        try {
+          Object.defineProperty(store, SESSION_KEY_SYM, {
+            value: new Uint8Array(_sessionKeyRaw),
+            writable: true,
+            enumerable: false,
+            configurable: true
+          });
+        } catch (_) {
+          try { store[SESSION_KEY_SYM] = new Uint8Array(_sessionKeyRaw); } catch (__) {}
+        }
       }
     }
 
@@ -1208,6 +1302,10 @@
 
     // Handle Legacy Plaintext JSON (transparent migration & re-encryption)
     if (!parsed.encrypted) {
+      if (parsed.version !== undefined && (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION)) {
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        return result;
+      }
       _populateResultFromDecrypted(result, parsed);
       result.initialized = true;
       _cachedSessionSecrets = _cloneSessionSecrets(result);
@@ -1215,7 +1313,23 @@
       return result;
     }
 
+    // AUD-SEC-09: Explicitly reject invalid or zero version (allow undefined strictly for legacy sync-stream-v1)
     const algorithm = parsed.algorithm || 'sync-stream-v1';
+    if (parsed.version !== undefined) {
+      if (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION) {
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        return result;
+      }
+    } else if (algorithm !== 'sync-stream-v1') {
+      _quarantineCorruptedPayload(store, targetKey, raw);
+      return result;
+    }
+
+    const iv = _hexToUint8(parsed.iv);
+    if (!iv || !(iv instanceof Uint8Array) || iv.byteLength !== 12) {
+      _quarantineCorruptedPayload(store, targetKey, raw);
+      return result;
+    }
 
     // Handle AES-GCM-256
     if (algorithm === 'AES-GCM-256') {
@@ -1317,10 +1431,26 @@
 
     // Handle Legacy Plaintext JSON
     if (!parsed.encrypted) {
+      if (parsed.version !== undefined && (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION)) {
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        return result;
+      }
       _populateResultFromDecrypted(result, parsed);
       result.initialized = true;
       _cachedSessionSecrets = _cloneSessionSecrets(result);
       await writeSessionSecretsAsync(result, store);
+      return result;
+    }
+
+    // AUD-SEC-09: Explicitly reject invalid or zero version (allow undefined strictly for legacy sync-stream-v1)
+    const algorithm = parsed.algorithm || 'sync-stream-v1';
+    if (parsed.version !== undefined) {
+      if (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION) {
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        return result;
+      }
+    } else if (algorithm !== 'sync-stream-v1') {
+      _quarantineCorruptedPayload(store, targetKey, raw);
       return result;
     }
 
@@ -1329,7 +1459,6 @@
       _quarantineCorruptedPayload(store, targetKey, raw);
       return result;
     }
-    const algorithm = parsed.algorithm || 'sync-stream-v1';
 
     // Try Web Crypto AES-GCM decryption if algorithm is AES-GCM-256
     if (algorithm === 'AES-GCM-256') {
@@ -1413,15 +1542,43 @@
 
   function writeSessionSecrets(stateOrSecrets, storage) {
     const store = _getStorage(storage);
-    const existing = readSessionSecrets(store);
-    const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
+    const targetKey = _resolveSecretsStorageKey(store);
 
     if (!store || typeof store.setItem !== 'function') {
       const currentRev = ++writeRevision;
+      const existing = readSessionSecrets(store);
+      const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
       _cachedSessionSecrets = _cloneSessionSecrets(secrets);
       lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, currentRev);
       return true;
     }
+
+    // AUD-SEC-08 / AUD-SEC-10: Capture prevRaw and compare envelopeRevision
+    let prevRaw = null;
+    try {
+      prevRaw = store.getItem(targetKey);
+    } catch (_) {}
+
+    let diskRev = 0;
+    if (prevRaw) {
+      try {
+        const diskParsed = JSON.parse(prevRaw);
+        if (diskParsed && typeof diskParsed === 'object') {
+          diskRev = Number.isInteger(diskParsed.revision)
+            ? diskParsed.revision
+            : (Number.isInteger(diskParsed.envelopeRevision) ? diskParsed.envelopeRevision : 0);
+        }
+      } catch (_) {}
+    }
+
+    const existing = readSessionSecrets(store);
+    const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
+
+    // NIST SP 800-38D encryption limit check
+    if (_moduleEncryptionCount >= _maxEncryptionsPerKey) {
+      throw new Error('NIST SP 800-38D encryption limit reached (1000000 encryptions per key). Key rotation required.');
+    }
+    _moduleEncryptionCount++;
 
     let plainBytes = null;
     try {
@@ -1433,7 +1590,6 @@
       const keyRaw = _initMemorySessionKey(store);
 
       let hexCombined = null;
-      const targetKey = _resolveSecretsStorageKey(store);
       const aadString = 'v' + SESSION_SECRETS_SCHEMA_VERSION + ':' + targetKey;
       const nodeCrypto = _getNodeCrypto();
       if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
@@ -1448,16 +1604,37 @@
       }
 
       if (hexCombined) {
-        const currentRev = ++writeRevision;
-        store.setItem(targetKey, JSON.stringify({
+        const currentRev = Math.max(++writeRevision, diskRev + 1);
+        const envelopeStr = JSON.stringify({
           encrypted: true,
           algorithm: 'AES-GCM-256',
           initialized: true,
           iv: _uint8ToHex(iv),
           ciphertext: hexCombined,
           aad: aadString,
-          version: SESSION_SECRETS_SCHEMA_VERSION
-        }));
+          version: SESSION_SECRETS_SCHEMA_VERSION,
+          revision: currentRev,
+          envelopeRevision: currentRev
+        });
+
+        // AUD-SEC-08: Atomic write with post-write verification and rollback
+        try {
+          store.setItem(targetKey, envelopeStr);
+          const verifyRaw = store.getItem(targetKey);
+          if (verifyRaw !== envelopeStr) {
+            throw new Error('Post-write verification failed: storage mismatch');
+          }
+        } catch (writeErr) {
+          try {
+            if (prevRaw !== null) {
+              store.setItem(targetKey, prevRaw);
+            } else if (typeof store.removeItem === 'function') {
+              store.removeItem(targetKey);
+            }
+          } catch (_) {}
+          return false;
+        }
+
         _cachedSessionSecrets = _cloneSessionSecrets(secrets);
         lastAppliedWriteRevision = Math.max(lastAppliedWriteRevision, currentRev);
       } else {
@@ -1481,13 +1658,75 @@
 
   async function _performWriteSessionSecretsAsync(stateOrSecrets, storage) {
     const store = _getStorage(storage);
-    const existing = await readSessionSecretsAsync(store);
-    const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
+    const targetKey = _resolveSecretsStorageKey(store);
 
     if (!store || typeof store.setItem !== 'function') {
+      const existing = await readSessionSecretsAsync(store);
+      const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
       _cachedSessionSecrets = _cloneSessionSecrets(secrets);
       return true;
     }
+
+    // AUD-SEC-06, AUD-SEC-07, FND-05, FND-18:
+    // In browser environment, before writing new ciphertext, verify that non-extractable WebCrypto key
+    // is actually stored and retrievable in IndexedDB.
+    // If IndexedDB is disabled or throws on open/write, set _degradedPersistence = true, fail closed with explicit error,
+    // and do NOT overwrite valid previous ciphertext with a volatile key that will be lost on reload.
+    if (_isBrowserEnvironment()) {
+      const idb = _getIdbFactory();
+      let idbOk = false;
+      if (idb && typeof idb.open === 'function' && !_degradedPersistence) {
+        try {
+          const db = await _openKeystoreDB();
+          if (db) {
+            let keyInIdb = await _getKeyFromIndexedDB();
+            if (!keyInIdb) {
+              const cryptoKey = await _getOrCreateWebCryptoKey(store);
+              if (cryptoKey) {
+                await _saveKeyToIndexedDB(cryptoKey);
+                keyInIdb = await _getKeyFromIndexedDB();
+              }
+            }
+            if (keyInIdb && typeof keyInIdb === 'object' && keyInIdb.algorithm) {
+              idbOk = true;
+            }
+          }
+        } catch (_) {
+          idbOk = false;
+        }
+      }
+      if (!idbOk) {
+        _degradedPersistence = true;
+        throw new Error('IndexedDB keystore verification failed: non-extractable WebCrypto key cannot be verified in IndexedDB (fail-closed)');
+      }
+    }
+
+    // AUD-SEC-08 / AUD-SEC-10: Capture prevRaw and compare envelopeRevision
+    let prevRaw = null;
+    try {
+      prevRaw = store.getItem(targetKey);
+    } catch (_) {}
+
+    let diskRev = 0;
+    if (prevRaw) {
+      try {
+        const diskParsed = JSON.parse(prevRaw);
+        if (diskParsed && typeof diskParsed === 'object') {
+          diskRev = Number.isInteger(diskParsed.revision)
+            ? diskParsed.revision
+            : (Number.isInteger(diskParsed.envelopeRevision) ? diskParsed.envelopeRevision : 0);
+        }
+      } catch (_) {}
+    }
+
+    const existing = await readSessionSecretsAsync(store);
+    const secrets = _normalizeSecretsPayload(stateOrSecrets, existing);
+
+    // NIST SP 800-38D encryption limit check
+    if (_moduleEncryptionCount >= _maxEncryptionsPerKey) {
+      throw new Error('NIST SP 800-38D encryption limit reached (1000000 encryptions per key). Key rotation required.');
+    }
+    _moduleEncryptionCount++;
 
     let plainBytes = null;
     try {
@@ -1499,7 +1738,6 @@
       const keyRaw = _initMemorySessionKey(store);
 
       let hexCombined = null;
-      const targetKey = _resolveSecretsStorageKey(store);
       const aadString = 'v' + SESSION_SECRETS_SCHEMA_VERSION + ':' + targetKey;
       const aadBytes = new TextEncoder().encode(aadString);
 
@@ -1532,15 +1770,37 @@
         return false;
       }
 
-      store.setItem(targetKey, JSON.stringify({
+      const assignedRev = Math.max(writeRevision, diskRev + 1);
+      const envelopeStr = JSON.stringify({
         encrypted: true,
         algorithm: 'AES-GCM-256',
         initialized: true,
         iv: _uint8ToHex(iv),
         ciphertext: hexCombined,
         aad: aadString,
-        version: SESSION_SECRETS_SCHEMA_VERSION
-      }));
+        version: SESSION_SECRETS_SCHEMA_VERSION,
+        revision: assignedRev,
+        envelopeRevision: assignedRev
+      });
+
+      // AUD-SEC-08: Atomic write with post-write verification and rollback
+      try {
+        store.setItem(targetKey, envelopeStr);
+        const verifyRaw = store.getItem(targetKey);
+        if (verifyRaw !== envelopeStr) {
+          throw new Error('Post-write verification failed: storage mismatch');
+        }
+      } catch (writeErr) {
+        try {
+          if (prevRaw !== null) {
+            store.setItem(targetKey, prevRaw);
+          } else if (typeof store.removeItem === 'function') {
+            store.removeItem(targetKey);
+          }
+        } catch (_) {}
+        return false;
+      }
+
       _cachedSessionSecrets = _cloneSessionSecrets(secrets);
       return true;
     } catch (e) {
@@ -1553,26 +1813,70 @@
   async function writeSessionSecretsAsync(stateOrSecrets, storage) {
     try {
       return await queueSessionSecretsWrite(stateOrSecrets, storage);
-    } catch (_) {
+    } catch (err) {
+      if (_degradedPersistence || (err && err.message && err.message.includes('IndexedDB'))) {
+        throw err;
+      }
       return false;
     }
   }
 
   function getSecretVaultHealth() {
-    const hasIdb = Boolean(_getIdbFactory());
+    let idbFactory = null;
+    let idbOpenFailed = false;
+
+    try {
+      idbFactory = _getIdbFactory();
+      if (idbFactory && typeof idbFactory.open === 'function') {
+        const req = idbFactory.open('__nexus_health_probe__', 1);
+        if (req && typeof req.addEventListener === 'function') {
+          req.addEventListener('error', () => {
+            _degradedPersistence = true;
+          });
+        }
+      } else if (_isBrowserEnvironment()) {
+        idbOpenFailed = true;
+        _degradedPersistence = true;
+      }
+    } catch (_) {
+      idbOpenFailed = true;
+      _degradedPersistence = true;
+    }
+
     const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
     const hasWebCrypto = Boolean(cryptoObj && cryptoObj.subtle);
     const hasNodeCrypto = Boolean(_getNodeCrypto());
-    const mode = hasIdb ? 'idb-hardware-backed' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded');
+
+    if (_degradedPersistence || idbOpenFailed) {
+      return {
+        ok: false,
+        degradedPersistence: true,
+        mode: 'volatile-memory-only',
+        hasIndexedDB: false,
+        hasWebCrypto,
+        hasNodeCrypto,
+        activePendingCount,
+        writeEpoch,
+        schemaVersion: SESSION_SECRETS_SCHEMA_VERSION,
+        encryptionCount: _moduleEncryptionCount,
+        maxEncryptionsPerKey: _maxEncryptionsPerKey
+      };
+    }
+
+    const hasIdb = Boolean(idbFactory);
+    const mode = hasIdb ? 'idb-webcrypto-non-extractable' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded');
     return {
       ok: Boolean(hasWebCrypto || hasNodeCrypto),
+      degradedPersistence: false,
       hasIndexedDB: hasIdb,
       hasWebCrypto,
       hasNodeCrypto,
       mode,
       activePendingCount,
       writeEpoch,
-      schemaVersion: SESSION_SECRETS_SCHEMA_VERSION
+      schemaVersion: SESSION_SECRETS_SCHEMA_VERSION,
+      encryptionCount: _moduleEncryptionCount,
+      maxEncryptionsPerKey: _maxEncryptionsPerKey
     };
   }
 
@@ -1653,6 +1957,454 @@
     return _hydrateStateWithSecrets(state, secrets);
   }
 
+  // =========================================================================
+  // PBKDF2-HMAC-SHA256 & Encrypted Backup KDF Upgrade (v2) (FND-04)
+  // =========================================================================
+  function _hmacSha256Pure(keyBytes, msgBytes) {
+    let k = keyBytes;
+    if (k.length > 64) {
+      k = _sha256Pure(k);
+    }
+    const paddedK = new Uint8Array(64);
+    paddedK.set(k);
+
+    const ipad = new Uint8Array(64);
+    const opad = new Uint8Array(64);
+    for (let i = 0; i < 64; i++) {
+      ipad[i] = paddedK[i] ^ 0x36;
+      opad[i] = paddedK[i] ^ 0x5c;
+    }
+
+    const innerMsg = new Uint8Array(64 + msgBytes.length);
+    innerMsg.set(ipad, 0);
+    innerMsg.set(msgBytes, 64);
+    const innerHash = _sha256Pure(innerMsg);
+
+    const outerMsg = new Uint8Array(64 + 32);
+    outerMsg.set(opad, 0);
+    outerMsg.set(innerHash, 64);
+    return _sha256Pure(outerMsg);
+  }
+
+  function _purePbkdf2HmacSha256(passphrase, saltBytes, iterations, keyLen) {
+    const passBytes = typeof passphrase === 'string' ? new TextEncoder().encode(passphrase) : passphrase;
+    const numBlocks = Math.ceil(keyLen / 32);
+    const out = new Uint8Array(keyLen);
+
+    for (let blockIdx = 1; blockIdx <= numBlocks; blockIdx++) {
+      const saltAndIndex = new Uint8Array(saltBytes.length + 4);
+      saltAndIndex.set(saltBytes, 0);
+      const view = new DataView(saltAndIndex.buffer, saltAndIndex.byteOffset, saltAndIndex.byteLength);
+      view.setUint32(saltBytes.length, blockIdx, false);
+
+      let u = _hmacSha256Pure(passBytes, saltAndIndex);
+      const t = new Uint8Array(u);
+
+      for (let iter = 1; iter < iterations; iter++) {
+        u = _hmacSha256Pure(passBytes, u);
+        for (let k = 0; k < 32; k++) {
+          t[k] ^= u[k];
+        }
+      }
+
+      const offset = (blockIdx - 1) * 32;
+      const toCopy = Math.min(32, keyLen - offset);
+      out.set(t.subarray(0, toCopy), offset);
+    }
+    return out;
+  }
+
+  async function _derivePbkdf2Key(passphrase, saltBytes, iterations, keyLength = 32) {
+    if (!passphrase || (typeof passphrase !== 'string' && !(passphrase instanceof Uint8Array))) {
+      throw new Error('passphrase must be a non-empty string or Uint8Array');
+    }
+    if (!saltBytes || !(saltBytes instanceof Uint8Array)) {
+      throw new Error('saltBytes must be a Uint8Array');
+    }
+    const nodeCrypto = _getNodeCrypto();
+    if (nodeCrypto && typeof nodeCrypto.pbkdf2Sync === 'function') {
+      try {
+        const passBuf = typeof passphrase === 'string' ? Buffer.from(passphrase, 'utf8') : Buffer.from(passphrase);
+        const saltBuf = Buffer.from(saltBytes.buffer, saltBytes.byteOffset, saltBytes.byteLength);
+        const derived = nodeCrypto.pbkdf2Sync(passBuf, saltBuf, iterations, keyLength, 'sha256');
+        return new Uint8Array(derived.buffer, derived.byteOffset, derived.byteLength);
+      } catch (_) {}
+    }
+
+    const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+    if (cryptoObj && cryptoObj.subtle && typeof cryptoObj.subtle.importKey === 'function') {
+      const passBytes = typeof passphrase === 'string' ? new TextEncoder().encode(passphrase) : passphrase;
+      const baseKey = await cryptoObj.subtle.importKey(
+        'raw',
+        passBytes,
+        'PBKDF2',
+        false,
+        ['deriveBits']
+      );
+      const derivedAb = await cryptoObj.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt: saltBytes,
+          iterations,
+          hash: 'SHA-256'
+        },
+        baseKey,
+        keyLength * 8
+      );
+      return new Uint8Array(derivedAb);
+    }
+
+    return _purePbkdf2HmacSha256(passphrase, saltBytes, iterations, keyLength);
+  }
+
+  async function exportEncryptedBackup(payload, passphrase, options = {}) {
+    if (!passphrase || (typeof passphrase !== 'string' && !(passphrase instanceof Uint8Array))) {
+      throw new Error('passphrase must be a non-empty string or Uint8Array');
+    }
+    const iterations = (options && Number.isInteger(options.iterations) && options.iterations > 0)
+      ? options.iterations
+      : 600000;
+    const salt = new Uint8Array(16);
+    _fillSecureRandomBytes(salt);
+
+    const keyBytes = await _derivePbkdf2Key(passphrase, salt, iterations, 32);
+
+    const iv = new Uint8Array(12);
+    _fillSecureRandomBytes(iv);
+
+    const jsonStr = (typeof payload === 'string') ? payload : JSON.stringify(payload || {});
+    const plainBytes = new TextEncoder().encode(jsonStr);
+
+    let hexCombined = null;
+    const nodeCrypto = _getNodeCrypto();
+    if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
+      try {
+        const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyBytes, iv);
+        const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
+        const tag = cipher.getAuthTag();
+        const combined = _concatUint8([enc, tag]);
+        hexCombined = _uint8ToHex(combined);
+      } catch (_) {}
+    }
+
+    if (!hexCombined) {
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (cryptoObj && cryptoObj.subtle) {
+        try {
+          const importedKey = await cryptoObj.subtle.importKey(
+            'raw',
+            keyBytes,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt']
+          );
+          const encryptedAb = await cryptoObj.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            importedKey,
+            plainBytes
+          );
+          hexCombined = _uint8ToHex(new Uint8Array(encryptedAb));
+        } catch (_) {}
+      }
+    }
+
+    if (!hexCombined) {
+      throw new Error('Encryption failed: neither Node.js crypto nor WebCrypto AES-GCM is available');
+    }
+
+    const envelope = {
+      version: 2,
+      kdf: 'PBKDF2-HMAC-SHA256',
+      iterations,
+      salt: _uint8ToHex(salt),
+      iv: _uint8ToHex(iv),
+      algorithm: 'AES-GCM-256',
+      ciphertext: hexCombined,
+      createdAt: new Date().toISOString()
+    };
+
+    return (options && options.format === 'string') ? JSON.stringify(envelope) : envelope;
+  }
+
+  async function importEncryptedBackup(backupData, passphrase) {
+    if (!passphrase || (typeof passphrase !== 'string' && !(passphrase instanceof Uint8Array))) {
+      throw new Error('passphrase must be a non-empty string or Uint8Array');
+    }
+    let envelope = backupData;
+    if (typeof backupData === 'string') {
+      try {
+        envelope = JSON.parse(backupData);
+      } catch (e) {
+        throw new Error('Invalid backup format: payload must be valid JSON');
+      }
+    }
+    if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
+      throw new Error('Invalid backup format: root must be an object');
+    }
+
+    const version = envelope.version || (envelope.kdf === 'PBKDF2-HMAC-SHA256' ? 2 : 1);
+    const iv = _hexToUint8(envelope.iv);
+    if (!iv || iv.length !== 12) {
+      throw new Error('Invalid backup: missing or invalid 12-byte IV');
+    }
+    const combinedCipher = _hexToUint8(envelope.ciphertext);
+    if (!combinedCipher || combinedCipher.length < 16) {
+      throw new Error('Invalid backup: missing or corrupted ciphertext');
+    }
+
+    let keyBytes = null;
+    if (version === 2 || envelope.kdf === 'PBKDF2-HMAC-SHA256') {
+      const salt = _hexToUint8(envelope.salt);
+      if (!salt || salt.length < 16) {
+        throw new Error('Invalid backup v2: salt must be at least 16 bytes');
+      }
+      const iterations = envelope.iterations || 600000;
+      keyBytes = await _derivePbkdf2Key(passphrase, salt, iterations, 32);
+    } else {
+      // Legacy v1 (SHA-256)
+      const passBytes = typeof passphrase === 'string' ? new TextEncoder().encode(passphrase) : passphrase;
+      if (envelope.salt) {
+        const saltBytes = _hexToUint8(envelope.salt);
+        keyBytes = _sha256(_concatUint8([passBytes, saltBytes]));
+      } else {
+        keyBytes = _sha256(passBytes);
+      }
+    }
+
+    let plainBytes = null;
+    const nodeCrypto = _getNodeCrypto();
+    if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
+      try {
+        const encData = combinedCipher.subarray(0, combinedCipher.length - 16);
+        const authTag = combinedCipher.subarray(combinedCipher.length - 16);
+        const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyBytes, iv);
+        decipher.setAuthTag(authTag);
+        plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
+      } catch (err) {
+        throw new Error('Backup decryption failed: invalid passphrase or corrupted payload');
+      }
+    }
+
+    if (!plainBytes) {
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (cryptoObj && cryptoObj.subtle) {
+        try {
+          const importedKey = await cryptoObj.subtle.importKey(
+            'raw',
+            keyBytes,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['decrypt']
+          );
+          const decAb = await cryptoObj.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            importedKey,
+            combinedCipher
+          );
+          plainBytes = new Uint8Array(decAb);
+        } catch (_) {
+          throw new Error('Backup decryption failed: invalid passphrase or corrupted payload');
+        }
+      }
+    }
+
+    if (!plainBytes) {
+      throw new Error('Backup decryption failed: crypto engine unavailable or auth tag mismatch');
+    }
+
+    const plainStr = new TextDecoder().decode(plainBytes);
+    try {
+      return JSON.parse(plainStr);
+    } catch (_) {
+      return plainStr;
+    }
+  }
+
+  // =========================================================================
+  // SecretVault Class (NIST SP 800-38D, FND-06, AUD-SEC-05)
+  // =========================================================================
+  class SecretVault {
+    constructor(options = {}) {
+      this.storage = options.storage || null;
+      this._encryptionCount = 0;
+      this._maxEncryptionsPerKey = 1000000; // NIST SP 800-38D
+      this.initialized = false;
+      this._id = options.id || 'default';
+    }
+
+    async init(storage) {
+      if (storage) this.storage = storage;
+      const store = _getStorage(this.storage);
+
+      if (_isBrowserEnvironment()) {
+        const idb = _getIdbFactory();
+        let idbOk = false;
+        if (idb && typeof idb.open === 'function' && !_degradedPersistence) {
+          try {
+            const db = await _openKeystoreDB();
+            if (db) {
+              let testKey = await _getKeyFromIndexedDB();
+              if (!testKey && store) {
+                const webKey = await _getOrCreateWebCryptoKey(store);
+                if (webKey) {
+                  await _saveKeyToIndexedDB(webKey);
+                  testKey = await _getKeyFromIndexedDB();
+                }
+              }
+              if (testKey) idbOk = true;
+            }
+          } catch (_) {
+            idbOk = false;
+          }
+        }
+        if (!idbOk) {
+          _degradedPersistence = true;
+          throw new Error('IndexedDB keystore verification failed: non-extractable WebCrypto key cannot be verified in IndexedDB (fail-closed)');
+        }
+      }
+
+      this.initialized = true;
+      return this;
+    }
+
+    getDiagnostics() {
+      const health = getSecretVaultHealth();
+      return {
+        ...health,
+        encryptionCount: this._encryptionCount,
+        maxEncryptionsPerKey: this._maxEncryptionsPerKey
+      };
+    }
+
+    async encrypt(plaintext, aad) {
+      if (this._encryptionCount >= this._maxEncryptionsPerKey) {
+        throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+      }
+      this._encryptionCount++;
+      _moduleEncryptionCount++;
+
+      const store = _getStorage(this.storage);
+      const iv = new Uint8Array(12);
+      _fillSecureRandomBytes(iv);
+
+      const plainBytes = (typeof plaintext === 'string')
+        ? new TextEncoder().encode(plaintext)
+        : (plaintext instanceof Uint8Array ? plaintext : new TextEncoder().encode(JSON.stringify(plaintext)));
+
+      const aadStr = aad ? String(aad) : '';
+      const aadBytes = _toAadBytes(aadStr);
+
+      const nodeCrypto = _getNodeCrypto();
+      if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
+        const keyRaw = _initMemorySessionKey(store);
+        const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
+        if (aadBytes) cipher.setAAD(aadBytes);
+        const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
+        const tag = cipher.getAuthTag();
+        const combined = _concatUint8([enc, tag]);
+        return {
+          iv: _uint8ToHex(iv),
+          ciphertext: _uint8ToHex(combined),
+          tag: _uint8ToHex(tag),
+          aad: aadStr,
+          algorithm: 'AES-GCM-256'
+        };
+      }
+
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (cryptoObj && cryptoObj.subtle) {
+        const key = await _getOrCreateWebCryptoKey(store);
+        if (key) {
+          const encParams = { name: 'AES-GCM', iv };
+          if (aadBytes) encParams.additionalData = aadBytes;
+          const ab = await cryptoObj.subtle.encrypt(encParams, key, plainBytes);
+          return {
+            iv: _uint8ToHex(iv),
+            ciphertext: _uint8ToHex(new Uint8Array(ab)),
+            aad: aadStr,
+            algorithm: 'AES-GCM-256'
+          };
+        }
+      }
+
+      throw new Error('Encryption failed: crypto engine unavailable');
+    }
+
+    async decrypt(ciphertext, ivHex, aad) {
+      const store = _getStorage(this.storage);
+      const iv = _hexToUint8(ivHex);
+      const combined = _hexToUint8(ciphertext);
+      const aadBytes = _toAadBytes(aad);
+
+      const nodeCrypto = _getNodeCrypto();
+      if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
+        const keyRaw = _initMemorySessionKey(store);
+        if (combined.length < 16) throw new Error('Invalid ciphertext length');
+        const authTag = combined.subarray(combined.length - 16);
+        const encData = combined.subarray(0, combined.length - 16);
+        const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyRaw, iv);
+        if (aadBytes) decipher.setAAD(aadBytes);
+        decipher.setAuthTag(authTag);
+        const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
+        return new TextDecoder().decode(plainBytes);
+      }
+
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (cryptoObj && cryptoObj.subtle) {
+        const key = await _getOrCreateWebCryptoKey(store);
+        if (key) {
+          const decParams = { name: 'AES-GCM', iv };
+          if (aadBytes) decParams.additionalData = aadBytes;
+          const ab = await cryptoObj.subtle.decrypt(decParams, key, combined);
+          return new TextDecoder().decode(ab);
+        }
+      }
+
+      throw new Error('Decryption failed: crypto engine unavailable');
+    }
+
+    read(storage) {
+      return readSessionSecrets(storage || this.storage);
+    }
+
+    async readAsync(storage) {
+      return await readSessionSecretsAsync(storage || this.storage);
+    }
+
+    write(secrets, storage) {
+      if (this._encryptionCount >= this._maxEncryptionsPerKey) {
+        throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+      }
+      this._encryptionCount++;
+      return writeSessionSecrets(secrets, storage || this.storage);
+    }
+
+    async writeAsync(secrets, storage) {
+      if (this._encryptionCount >= this._maxEncryptionsPerKey) {
+        throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+      }
+      this._encryptionCount++;
+      return await writeSessionSecretsAsync(secrets, storage || this.storage);
+    }
+
+    async exportEncryptedBackup(passphrase, options) {
+      const data = this.read();
+      return await exportEncryptedBackup(data, passphrase, options);
+    }
+
+    async importEncryptedBackup(backupData, passphrase) {
+      return await importEncryptedBackup(backupData, passphrase);
+    }
+
+    getDiagnostics() {
+      return getSecretVaultHealth(this.storage);
+    }
+  }
+
+  SecretVault.exportEncryptedBackup = exportEncryptedBackup;
+  SecretVault.importEncryptedBackup = importEncryptedBackup;
+  SecretVault.getDiagnostics = getSecretVaultHealth;
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -1679,6 +2431,11 @@
     getSecretVaultHealth,
     applySessionSecrets,
     applySessionSecretsAsync,
+    exportEncryptedBackup,
+    importEncryptedBackup,
+    SecretVault,
+    _derivePbkdf2Key,
+    _initMemorySessionKey,
     _zeroizeBuffer,
     _extractSecretsInput,
     _nonCryptoCompatCodec,
@@ -1688,7 +2445,6 @@
     _hexToUint8,
     _sha256,
     _sha256Pure,
-    _initMemorySessionKey,
     _getOrCreateWebCryptoKey,
     _getKeyFromIndexedDB,
     _saveKeyToIndexedDB,

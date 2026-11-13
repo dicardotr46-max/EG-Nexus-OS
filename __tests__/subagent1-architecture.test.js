@@ -122,12 +122,12 @@ describe('Subagent 1: Architecture & State Management (v5.7.0)', () => {
 
       state.profileName = 'Ali Reza';
       state.chats.push({ id: 'chat_new', title: 'New Chat' });
-      state.apiKeys.gemini = 'valid_key_123';
+      state.apiKeys.gemini = 'TEST_DUMMY_KEY_NOT_A_SECRET_01';
 
       expect(state.profileName).toBe('Ali Reza');
       expect(state.chats).toHaveLength(1);
       expect(state.chats[0].title).toBe('New Chat');
-      expect(state.apiKeys.gemini).toBe('valid_key_123');
+      expect(state.apiKeys.gemini).toBe('TEST_DUMMY_KEY_NOT_A_SECRET_01');
 
       const json = JSON.stringify(state);
       const parsed = JSON.parse(json);

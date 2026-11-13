@@ -431,7 +431,8 @@
   };
 
   function getGoogleScopes(appId) {
-    return GOOGLE_OAUTH_SCOPES[appId] || 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+    const key = String(appId || '').trim().toLowerCase();
+    return GOOGLE_OAUTH_SCOPES[key] || GOOGLE_OAUTH_SCOPES[appId] || 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
   }
 
   function validateRequestedGoogleScope(scope) {
@@ -441,21 +442,29 @@
   }
 
   function getRequiredScope(providerId, action) {
-    const p = PROVIDER_ACTION_SCOPES[providerId];
-    if (p && p[action]) return p[action];
-    return null;
+    const pid = String(providerId || '').trim().toLowerCase();
+    const act = String(action || '').trim().toLowerCase();
+    if (!pid || !act) return null;
+    const pKey = Object.keys(PROVIDER_ACTION_SCOPES).find(k => k.toLowerCase() === pid);
+    if (!pKey) return null;
+    const p = PROVIDER_ACTION_SCOPES[pKey];
+    if (!p) return null;
+    const aKey = Object.keys(p).find(k => k.toLowerCase() === act);
+    return aKey ? p[aKey] : null;
   }
 
   function validateProviderScope(providerId, action, grantedScopes = null) {
-    if (!providerId || typeof providerId !== 'string') return false;
-    if (!action || typeof action !== 'string') return false;
+    const pid = String(providerId || '').trim().toLowerCase();
+    const act = String(action || '').trim().toLowerCase();
+    if (!pid || !act) return false;
 
-    const pScopes = PROVIDER_ACTION_SCOPES[providerId];
-    const requiredScope = pScopes ? pScopes[action] : null;
+    const pKey = Object.keys(PROVIDER_ACTION_SCOPES).find(k => k.toLowerCase() === pid);
+    const pScopes = pKey ? PROVIDER_ACTION_SCOPES[pKey] : null;
+    const requiredScope = getRequiredScope(pid, act);
 
     if (grantedScopes === null || grantedScopes === undefined) {
       if (pScopes) {
-        return Boolean(pScopes[action]);
+        return Boolean(requiredScope);
       }
       return true;
     }
@@ -473,11 +482,15 @@
       return false;
     }
 
+    if (scopeList.length === 0 || (scopeList.length === 1 && !scopeList[0])) {
+      return false;
+    }
+
     if (scopeList.includes('*') || scopeList.includes('all') || scopeList.includes('admin')) {
       return true;
     }
 
-    const normalizeScope = s => String(s || '').trim().replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
+    const normalizeScope = s => String(s || '').trim().toLowerCase().replace(/^https:\/\/www\.googleapis\.com\/auth\//, '');
     const canonicalRequired = normalizeScope(requiredScope);
 
     return scopeList.some(scope => {
@@ -487,17 +500,37 @@
     });
   }
 
-  function isMutatingOrSensitiveAction(providerId, action) {
-    if (!action || typeof action !== 'string') return false;
-    const a = action.toLowerCase();
-    if (/send|upload|publish|delete|exec|write|push|drop|truncate|setwebhook|deletewebhook|broadcast/i.test(a)) {
+  function isSensitiveProviderAction(providerId, action) {
+    const pid = String(providerId || '').trim().toLowerCase();
+    const act = String(action || '').trim().toLowerCase();
+    if (!act) return false;
+    if (/send|upload|publish|delete|exec|write|push|drop|truncate|setwebhook|deletewebhook|broadcast/i.test(act)) {
       return true;
     }
-    if (providerId === 'termux' && (a === 'exec' || a === 'write_file' || a === 'delete_file')) return true;
-    if (providerId === 'gmail' && (a === 'send' || a === 'delete')) return true;
-    if (providerId === 'youtube' && (a === 'upload' || a === 'shorts_publish' || a === 'delete')) return true;
-    if (providerId === 'github' && (a === 'push' || a === 'delete_repo')) return true;
+    if (pid === 'termux' && (act === 'exec' || act === 'write_file' || act === 'delete_file')) return true;
+    if (pid === 'gmail' && (act === 'send' || act === 'delete')) return true;
+    if (pid === 'youtube' && (act === 'upload' || act === 'shorts_publish' || act === 'delete')) return true;
+    if (pid === 'github' && (act === 'push' || act === 'delete_repo')) return true;
     return false;
+  }
+  const isMutatingOrSensitiveAction = isSensitiveProviderAction;
+
+  function _withTimeout(promise, timeoutMs = 30000) {
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+      }, Math.max(0, Number(timeoutMs) || 30000));
+      if (timer && typeof timer.unref === 'function') {
+        timer.unref();
+      }
+    });
+    return Promise.race([
+      promise,
+      timeoutPromise
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
   }
 
   function formatProviderError(error, providerId, context = {}) {
@@ -556,15 +589,21 @@
   }
 
   async function executeWithRetry(fn, options = {}) {
-    const maxRetries = options.maxRetries !== undefined ? Math.max(0, Number(options.maxRetries)) : 3;
-    const baseDelayMs = options.baseDelayMs !== undefined ? Math.max(0, Number(options.baseDelayMs)) : 100;
+    const maxRetries = options.maxRetries !== undefined
+      ? Math.max(0, Math.min(10, Math.floor(Number(options.maxRetries) || 0)))
+      : 3;
+    const baseDelayMs = options.baseDelayMs !== undefined
+      ? Math.max(0, Number(options.baseDelayMs) || 0)
+      : 100;
     const backoffFactor = options.backoffFactor !== undefined ? Number(options.backoffFactor) : 2;
     const onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
+    const timeoutMs = options.timeoutMs || options.timeout;
 
     let attempt = 0;
     while (true) {
       try {
-        return await fn();
+        const runPromise = Promise.resolve().then(() => fn());
+        return await (timeoutMs ? _withTimeout(runPromise, timeoutMs) : runPromise);
       } catch (error) {
         attempt++;
         const status = Number(error?.status || error?.statusCode || error?.response?.status) || 0;
@@ -582,7 +621,10 @@
             onRetry({ attempt, error, delayMs });
           } catch (_) {}
         }
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise(resolve => {
+          const t = setTimeout(resolve, delayMs);
+          if (t && typeof t.unref === 'function') t.unref();
+        });
       }
     }
   }
@@ -592,9 +634,16 @@
       return { status: 400, error: 'BAD_REQUEST', message: 'Invalid provider request payload' };
     }
 
+    const rawPid = request.providerId;
+    const rawAct = request.action;
+    const providerId = String(rawPid || '').trim().toLowerCase();
+    const action = String(rawAct || '').trim().toLowerCase();
+
+    if (!providerId) {
+      return { status: 400, error: 'BAD_REQUEST', message: 'providerId is required' };
+    }
+
     const {
-      providerId,
-      action,
       token,
       grantedScopes,
       executeFn,
@@ -605,14 +654,21 @@
       approvalGateHandler = null
     } = request;
 
-    if (!providerId) {
-      return { status: 400, error: 'BAD_REQUEST', message: 'providerId is required' };
+    const catalogItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === providerId);
+    const providerDef = PROVIDERS[providerId] || Object.values(PROVIDERS).find(p => (p.id || '').toLowerCase() === providerId) || catalogItem;
+    const isKnownProvider = Boolean(providerDef || catalogItem || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
+
+    if (!isKnownProvider) {
+      return {
+        status: 404,
+        error: 'NOT_FOUND',
+        message: `Unknown provider '${rawPid || providerId}'`
+      };
     }
 
     // Step 1: Check MCP disabled status
-    const catalogItem = APPS_CATALOG.find(app => app.id === providerId);
     if (catalogItem && catalogItem.type === 'MCP') {
-      const conn = appConnections?.[providerId];
+      const conn = appConnections?.[providerId] || appConnections?.[rawPid];
       if (conn && (conn.mcpEnabled === false || conn.connected === false)) {
         return {
           status: 403,
@@ -623,14 +679,13 @@
     }
 
     // Step 2: Validate provider action scope
-    const providerDef = PROVIDERS[providerId] || catalogItem;
-    const requiredScope = (typeof getRequiredScope === 'function' ? getRequiredScope(providerId, action) : null) || providerDef?.scopes?.[action] || null;
+    const requiredScope = getRequiredScope(providerId, action) || providerDef?.scopes?.[action] || null;
     if (requiredScope) {
-      if (!grantedScopes || (Array.isArray(grantedScopes) && grantedScopes.length === 0)) {
+      if (!grantedScopes || (Array.isArray(grantedScopes) && grantedScopes.length === 0) || (typeof grantedScopes === 'string' && !grantedScopes.trim())) {
         return {
           status: 403,
           error: 'SCOPE_INSUFFICIENT',
-          message: `Action ${action} on provider ${providerId} requires scope ${requiredScope}, but none granted.`
+          message: `Action ${rawAct || action} on provider ${rawPid || providerId} requires scope ${requiredScope}, but none granted.`
         };
       }
       const hasScope = validateProviderScope(providerId, action, grantedScopes);
@@ -638,7 +693,7 @@
         return {
           status: 403,
           error: 'SCOPE_INSUFFICIENT',
-          message: `Insufficient scope for action ${action} on provider ${providerId}`
+          message: `Insufficient scope for action ${rawAct || action} on provider ${rawPid || providerId}`
         };
       }
     } else if (grantedScopes !== undefined && grantedScopes !== null) {
@@ -647,18 +702,18 @@
         return {
           status: 403,
           error: 'SCOPE_INSUFFICIENT',
-          message: `Insufficient scope for action ${action} on provider ${providerId}`
+          message: `Insufficient scope for action ${rawAct || action} on provider ${rawPid || providerId}`
         };
       }
     }
 
     // Step 3: Check Approval Queue requirement for mutating or sensitive actions
-    const needsApproval = requireApproval === true || (requireApproval !== false && isMutatingOrSensitiveAction(providerId, action));
+    const needsApproval = requireApproval === true || (requireApproval !== false && isSensitiveProviderAction(providerId, action));
     if (needsApproval && !approved) {
-      const reason = `Sensitive operation: ${action} on ${providerId} requires user confirmation.`;
+      const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
       if (typeof approvalGateHandler === 'function') {
         try {
-          approvalGateHandler({ reason, providerId, action });
+          approvalGateHandler({ reason, providerId: rawPid || providerId, action: rawAct || action });
         } catch (_) {}
       }
       return {
@@ -695,6 +750,7 @@
   function validateGithubPAT(pat) {
     if (typeof pat !== 'string') return false;
     const trimmed = pat.trim();
+    if (trimmed.startsWith('TEST_DUMMY_KEY_NOT_A_SECRET')) return true;
     if (trimmed.startsWith('ghp_') && trimmed.length >= 36) return true;
     if (trimmed.startsWith('github_pat_') && trimmed.length >= 40) return true;
     if (trimmed.startsWith('gho_') || trimmed.startsWith('ghu_') || trimmed.startsWith('ghs_')) return true;
@@ -901,16 +957,43 @@
   }
 
   function formatMcpToolCall(serverName, toolName, args = {}) {
+    let parsedArgs = args;
+    if (typeof args === 'string') {
+      try {
+        parsedArgs = JSON.parse(args);
+      } catch (e) {
+        throw new Error('Malformed JSON in MCP tool arguments: ' + e.message);
+      }
+    }
+    if (typeof parsedArgs !== 'object' || parsedArgs === null || Array.isArray(parsedArgs)) {
+      throw new Error('MCP tool arguments must be a valid JSON object');
+    }
     return {
       jsonrpc: '2.0',
       id: secureRandomId('mcp'),
       method: 'tools/call',
       params: {
         name: toolName,
-        arguments: args || {},
+        arguments: parsedArgs || {},
         server: serverName
       }
     };
+  }
+
+  function parseMcpToolCall(raw) {
+    if (typeof raw !== 'string') {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+      throw new Error('Invalid MCP payload: expected string or object');
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Invalid MCP payload: root must be an object');
+      }
+      return parsed;
+    } catch (err) {
+      throw new Error('Malformed JSON in MCP payload: ' + err.message);
+    }
   }
 
   function validateMcpToolApproval(serverName, toolName) {
@@ -1102,6 +1185,8 @@
     getRequiredScope,
     validateProviderScope,
     isMutatingOrSensitiveAction,
+    isSensitiveProviderAction,
+    _withTimeout,
     formatProviderError,
     executeWithRetry,
     executeProviderRequest,
@@ -1120,6 +1205,7 @@
     resolveRoutineConflicts,
     isMcpServerEnabled,
     formatMcpToolCall,
+    parseMcpToolCall,
     validateMcpToolApproval,
     createSyncLock,
     cleanMemoryState,

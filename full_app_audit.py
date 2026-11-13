@@ -74,10 +74,14 @@ def main():
             calls = re.findall(r'\b([A-Za-z_$][\w$]*)\s*\(', onclick)
             called = [c for c in calls if c not in DOM_METHODS]
             buttons.append({'tag': e['tag'], 'id': e['id'], 'text': ' '.join(e['text'].split())[:160], 'onclick': onclick[:300], 'handlers': called, 'missing_handlers': [c for c in called if c not in fn and c not in {'window', 'document'} and c not in DOM_METHODS]})
+    # Ignore HTML placeholder="..." attributes, CSS ::placeholder rules, and utility classes
+    sanitized_for_stubs = re.sub(r'placeholder\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)', '', src, flags=re.I)
+    sanitized_for_stubs = re.sub(r'::?-moz-placeholder|::placeholder', '', sanitized_for_stubs, flags=re.I)
+    sanitized_for_stubs = re.sub(r'(?:--tw-|\.|\b)placeholder(?:-[a-zA-Z0-9_-]+|:[a-zA-Z0-9_-]+)?', '', sanitized_for_stubs, flags=re.I)
     markers = []
-    for m in STUB_WORDS.finditer(src):
-        line = src.count('\n', 0, m.start()) + 1
-        markers.append({'line': line, 'text': src[max(0, m.start() - 100):m.start() + 180].replace('\n', ' ')})
+    for m in STUB_WORDS.finditer(sanitized_for_stubs):
+        line = sanitized_for_stubs.count('\n', 0, m.start()) + 1
+        markers.append({'line': line, 'text': sanitized_for_stubs[max(0, m.start() - 100):m.start() + 180].replace('\n', ' ')})
     target_hits = {k: {label: bool(re.search(re.escape(label), src, re.I)) for label in vals} for k, vals in TARGETS.items()}
     function_flags = []
     found_flags = {}

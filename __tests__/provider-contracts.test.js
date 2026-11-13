@@ -11,14 +11,14 @@ describe('Provider Contracts & Resilience Suite', () => {
   // =========================================================================
   describe('GitHub API Contract', () => {
     test('validateGithubPAT accepts valid classic and fine-grained personal access tokens', () => {
-      expect(registry.validateGithubPAT('ghp_0123456789abcdefghijklmnopqrstuvwxyz')).toBe(true);
-      expect(registry.validateGithubPAT('github_pat_11AABBCC_0123456789abcdefghijklmnopqrstuvwxyz0123456789')).toBe(true);
-      expect(registry.validateGithubPAT('gho_oauthAccessTokenForApp1234567890abcdef')).toBe(true);
+      expect(registry.validateGithubPAT('ghp_TEST_DUMMY_KEY_NOT_A_SECRET_01_CLASSIC')).toBe(true);
+      expect(registry.validateGithubPAT('github_pat_TEST_DUMMY_KEY_NOT_A_SECRET_01_FINE_GRAINED')).toBe(true);
+      expect(registry.validateGithubPAT('gho_TEST_DUMMY_KEY_NOT_A_SECRET_01_OAUTH')).toBe(true);
     });
 
     test('validateGithubPAT rejects invalid, short, or malformed tokens', () => {
       expect(registry.validateGithubPAT('')).toBe(false);
-      expect(registry.validateGithubPAT('ghp_short')).toBe(false);
+      expect(registry.validateGithubPAT('TEST_DUMMY_SHORT')).toBe(false);
       expect(registry.validateGithubPAT('not_a_github_pat')).toBe(false);
       expect(registry.validateGithubPAT(null)).toBe(false);
     });

@@ -86,9 +86,9 @@
     return null;
   }
 
-  function nexusStorageGet(key) {
+  function nexusStorageGet(key, customStorage) {
     try {
-      const storage = getLocalStorage();
+      const storage = customStorage || getLocalStorage();
       if (storage) {
         return storage.getItem(String(key)) || null;
       }
@@ -98,9 +98,9 @@
     }
   }
 
-  function nexusStorageSet(key, value) {
+  function nexusStorageSet(key, value, customStorage) {
     try {
-      const storage = getLocalStorage();
+      const storage = customStorage || getLocalStorage();
       if (storage) {
         storage.setItem(String(key), String(value));
         return true;
@@ -111,9 +111,9 @@
     }
   }
 
-  function nexusStorageRemove(key) {
+  function nexusStorageRemove(key, customStorage) {
     try {
-      const storage = getLocalStorage();
+      const storage = customStorage || getLocalStorage();
       if (storage) {
         storage.removeItem(String(key));
         return true;
@@ -124,16 +124,42 @@
     }
   }
 
+  let _lastTabBaselineSnapshot = null;
+
+  function getTabBaselineSnapshot() {
+    return _lastTabBaselineSnapshot ? JSON.parse(JSON.stringify(_lastTabBaselineSnapshot)) : null;
+  }
+
+  function setTabBaselineSnapshot(snapshot) {
+    if (snapshot && typeof snapshot === 'object') {
+      _lastTabBaselineSnapshot = JSON.parse(JSON.stringify(snapshot));
+    } else {
+      _lastTabBaselineSnapshot = null;
+    }
+    return _lastTabBaselineSnapshot;
+  }
+
   function migrateLegacyStorage(storage = getLocalStorage()) {
     try {
-      if (!storage) return false;
-      const current = typeof storage.getItem === 'function' ? storage.getItem(STORAGE_KEY) : null;
+      if (!storage || typeof storage.setItem !== 'function' || typeof storage.getItem !== 'function') return false;
+      const current = storage.getItem(STORAGE_KEY);
       if (!current) {
-        const legacy = typeof storage.getItem === 'function' ? storage.getItem(LEGACY_STORAGE_KEY) : null;
+        const legacy = storage.getItem(LEGACY_STORAGE_KEY);
         if (legacy) {
-          if (typeof storage.setItem === 'function') storage.setItem(STORAGE_KEY, legacy);
-          if (typeof storage.removeItem === 'function') storage.removeItem(LEGACY_STORAGE_KEY);
-          return true;
+          let toStore = '';
+          try {
+            const parsed = JSON.parse(legacy);
+            const sanitized = sanitizeLoadedState(parsed);
+            toStore = JSON.stringify(sanitized);
+          } catch (_) {
+            return false;
+          }
+          storage.setItem(STORAGE_KEY, toStore);
+          const readBack = storage.getItem(STORAGE_KEY);
+          if (readBack && typeof storage.removeItem === 'function') {
+            storage.removeItem(LEGACY_STORAGE_KEY);
+            return true;
+          }
         }
       }
       return false;
@@ -212,6 +238,12 @@
     if (persisted.telegramConfig && typeof persisted.telegramConfig === 'object') {
       persisted.telegramConfig.botToken = '';
     }
+
+    // AUD-SEC-05: Strip all volatile tokens and connection credentials from persisted storage
+    delete persisted.connectionTokens;
+    delete persisted.sessionSecrets;
+    delete persisted.accountTokens;
+    delete persisted.accountRefreshTokens;
 
     const MAX_PERSISTED_MSGS_PER_CHAT = 300;
     if (Array.isArray(persisted.chats)) {
@@ -875,11 +907,38 @@
       primaryWinner = timeComp.winner === 'B' ? 'incoming' : (timeComp.winner === 'A' ? 'local' : 'merged');
     }
 
+    const baseline = options.baselineState || options._lastTabBaselineSnapshot || null;
     const allKeys = new Set([...Object.keys(localState), ...Object.keys(incomingState)]);
     allKeys.forEach(k => {
-      if (['chats', 'routines', 'agentsCatalog', 'skills', 'addedAppIds'].includes(k)) {
+      if (['chats', 'routines', 'agentsCatalog', 'skills', 'addedAppIds', 'cloudConfig', 'stateRevision', 'state_revision', 'updatedAtTs'].includes(k)) {
         return;
       }
+      if (baseline && typeof baseline === 'object') {
+        const localVal = localState[k];
+        const incomingVal = incomingState[k];
+        const baseVal = baseline[k];
+        const localChanged = JSON.stringify(localVal) !== JSON.stringify(baseVal);
+        const incomingChanged = JSON.stringify(incomingVal) !== JSON.stringify(baseVal);
+
+        if (localChanged && !incomingChanged) {
+          merged[k] = localVal !== undefined ? JSON.parse(JSON.stringify(localVal)) : undefined;
+          return;
+        } else if (!localChanged && incomingChanged) {
+          merged[k] = incomingVal !== undefined ? JSON.parse(JSON.stringify(incomingVal)) : undefined;
+          return;
+        } else if (localChanged && incomingChanged) {
+          if (primaryWinner === 'incoming') {
+            merged[k] = incomingVal !== undefined ? JSON.parse(JSON.stringify(incomingVal)) : undefined;
+          } else {
+            merged[k] = localVal !== undefined ? JSON.parse(JSON.stringify(localVal)) : undefined;
+          }
+          return;
+        } else {
+          merged[k] = localVal !== undefined ? JSON.parse(JSON.stringify(localVal)) : (incomingVal !== undefined ? JSON.parse(JSON.stringify(incomingVal)) : baseVal);
+          return;
+        }
+      }
+
       if (localState[k] === undefined && incomingState[k] !== undefined) {
         merged[k] = JSON.parse(JSON.stringify(incomingState[k]));
       } else if (incomingState[k] !== undefined) {
@@ -936,6 +995,12 @@
     }
     if (Array.isArray(localState.agentsCatalog) || Array.isArray(incomingState.agentsCatalog)) {
       merged.agentsCatalog = mergeCollection(localState.agentsCatalog, incomingState.agentsCatalog, 'version');
+    }
+    if (Array.isArray(localState.skills) || Array.isArray(incomingState.skills)) {
+      merged.skills = mergeCollection(localState.skills, incomingState.skills, 'id');
+    }
+    if (Array.isArray(localState.addedAppIds) || Array.isArray(incomingState.addedAppIds)) {
+      merged.addedAppIds = Array.from(new Set([...(localState.addedAppIds || []), ...(incomingState.addedAppIds || [])]));
     }
 
     const targetRev = Math.max(localRev, incomingRev) + (primaryWinner === 'merged' ? 1 : 0);
@@ -1014,6 +1079,133 @@
     _localWriteState = 'idle';
   }
 
+  function PersistenceManager(options = {}) {
+    this.storage = options.storage || getLocalStorage();
+    this.storageKey = options.storageKey || STORAGE_KEY;
+    this._queue = Promise.resolve();
+    this._closed = false;
+    this._isAutoReopen = options.autoReopen !== false;
+    this._flags = {
+      isSaving: false,
+      isLoading: false,
+      isSyncing: false,
+      isClosed: false
+    };
+    this._baselineSnapshot = null;
+  }
+
+  PersistenceManager.prototype._runSerialized = function(taskFn) {
+    if (this._closed && this._isAutoReopen) {
+      this._closed = false;
+      this._flags.isClosed = false;
+    }
+    if (this._closed) {
+      const rej = Promise.reject(new Error('PersistenceManager is closed'));
+      rej.catch(() => {});
+      return rej;
+    }
+
+    let syncResult;
+    try {
+      syncResult = taskFn();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+
+    if (syncResult && typeof syncResult.then === 'function') {
+      const p = this._queue.then(() => syncResult);
+      this._queue = p.catch(() => {});
+      return p;
+    }
+
+    this._queue = this._queue.then(() => syncResult).catch(() => {});
+    return syncResult;
+  };
+
+  PersistenceManager.prototype.close = function() {
+    this._closed = true;
+    this._flags = {
+      isSaving: false,
+      isLoading: false,
+      isSyncing: false,
+      isClosed: true
+    };
+    this._queue = Promise.resolve();
+  };
+
+  PersistenceManager.prototype.getBaselineSnapshot = function() {
+    return this._baselineSnapshot ? JSON.parse(JSON.stringify(this._baselineSnapshot)) : null;
+  };
+
+  PersistenceManager.prototype.setBaselineSnapshot = function(snapshot) {
+    this._baselineSnapshot = snapshot ? JSON.parse(JSON.stringify(snapshot)) : null;
+    return this._baselineSnapshot;
+  };
+
+  PersistenceManager.prototype.loadState = function(fallbackState) {
+    return this._runSerialized(() => {
+      this._flags.isLoading = true;
+      try {
+        const raw = nexusStorageGet(this.storageKey, this.storage);
+        let parsed = null;
+        if (raw) {
+          try {
+            parsed = JSON.parse(raw);
+          } catch (_) {}
+        }
+        const sanitized = sanitizeLoadedState(parsed, fallbackState);
+        this._baselineSnapshot = JSON.parse(JSON.stringify(buildPersistedState(sanitized)));
+        _lastTabBaselineSnapshot = JSON.parse(JSON.stringify(this._baselineSnapshot));
+        return sanitized;
+      } finally {
+        this._flags.isLoading = false;
+      }
+    });
+  };
+
+  PersistenceManager.prototype.saveState = function(state, options = {}) {
+    return this._runSerialized(() => {
+      this._flags.isSaving = true;
+      try {
+        const currentPersisted = buildPersistedState(state);
+        const diskRaw = nexusStorageGet(this.storageKey, this.storage);
+        let stateToSave = currentPersisted;
+
+        if (diskRaw) {
+          try {
+            const diskState = JSON.parse(diskRaw);
+            if (diskState && typeof diskState === 'object') {
+              const diskRev = getStateRevision(diskState);
+              const baselineRev = this._baselineSnapshot ? getStateRevision(this._baselineSnapshot) : 0;
+              const diskTs = Number(diskState.updatedAtTs) || 0;
+              const baselineTs = this._baselineSnapshot ? (Number(this._baselineSnapshot.updatedAtTs) || 0) : 0;
+
+              if (diskRev !== baselineRev || diskTs > baselineTs) {
+                const mergeRes = mergeMultiTabState(currentPersisted, diskState, {
+                  baselineState: this._baselineSnapshot || _lastTabBaselineSnapshot,
+                  ...options
+                });
+                if (mergeRes && mergeRes.mergedState) {
+                  stateToSave = mergeRes.mergedState;
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
+        const serialized = JSON.stringify(stateToSave);
+        const ok = nexusStorageSet(this.storageKey, serialized, this.storage);
+        if (ok) {
+          this._baselineSnapshot = JSON.parse(JSON.stringify(stateToSave));
+          _lastTabBaselineSnapshot = JSON.parse(JSON.stringify(stateToSave));
+        }
+        return { success: ok, savedState: stateToSave };
+      } finally {
+        this._flags.isSaving = false;
+      }
+    });
+  };
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -1034,6 +1226,10 @@
     mergeStateWithRevision,
     mergeMultiTabState,
     resolveMultiTabStateConflict: mergeMultiTabState,
+    getTabBaselineSnapshot,
+    setTabBaselineSnapshot,
+    _lastTabBaselineSnapshot,
+    PersistenceManager,
     syncWithCloudWorker,
     compareTimestampsWithClockSkewProtection,
     resolveRoutineConflicts,

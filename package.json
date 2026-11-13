@@ -1,8 +1,11 @@
 {
   "name": "eg-nexus-os",
-  "version": "5.9.0",
-  "description": "EG Nexus OS v5.9 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
+  "version": "6.0.0",
+  "description": "EG Nexus OS v6.0 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
   "private": true,
+  "engines": {
+    "node": ">=18.20.0"
+  },
   "scripts": {
     "test:syntax": "node scripts/test-syntax.js",
     "test": "jest",

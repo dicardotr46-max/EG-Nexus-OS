@@ -421,7 +421,7 @@ describe('v5.8.0 Deep Coverage Booster', () => {
       const s1 = createMockStorage({ [persistence.LEGACY_STORAGE_KEY]: '{"migrated": true}' });
       const r1 = persistence.migrateLegacyStorage(s1);
       expect(r1).toBe(true);
-      expect(s1.getItem(persistence.STORAGE_KEY)).toBe('{"migrated": true}');
+      expect(JSON.parse(s1.getItem(persistence.STORAGE_KEY)).migrated).toBe(true);
 
       // Case 2: Current already exists -> does not overwrite
       const s2 = createMockStorage({
@@ -484,7 +484,7 @@ describe('v5.8.0 Deep Coverage Booster', () => {
       expect(p3).toBe(p1); // re-wrapping returns existing proxy
 
       expect(p1._isStateProxy).toBe(true);
-      expect(p1._rawTarget).toBe(obj);
+      expect(p1._rawTarget).toBeUndefined();
     });
 
     test('proxy setPrototypeOf returns false', () => {
@@ -507,7 +507,7 @@ describe('v5.8.0 Deep Coverage Booster', () => {
 
       // Dangerous property name neutralized
       Object.defineProperty(p, '__proto__', { value: { evil: true } });
-      expect(Object.getPrototypeOf(p._rawTarget)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(p)).toBe(Object.prototype);
 
       // Dangerous nested value neutralized
       const evilObj = {};
