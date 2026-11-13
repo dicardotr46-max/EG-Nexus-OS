@@ -79,6 +79,63 @@
   const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
 
+  function createMemoryStorage() {
+    const mem = new Map();
+    return {
+      getItem: (k) => mem.has(String(k)) ? mem.get(String(k)) : null,
+      setItem: (k, v) => { mem.set(String(k), String(v)); },
+      removeItem: (k) => { mem.delete(String(k)); },
+      clear: () => { mem.clear(); },
+      key: (i) => Array.from(mem.keys())[i] || null,
+      get length() { return mem.size; },
+      _isMemoryFallback: true
+    };
+  }
+
+  function installStorageGuard(target) {
+    const win = target || (typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null));
+    if (!win) return false;
+    let restricted = false;
+    try {
+      if (!win.localStorage) throw new Error('Missing localStorage');
+      const testK = '__sg_test__';
+      win.localStorage.setItem(testK, '1');
+      win.localStorage.removeItem(testK);
+    } catch (_) {
+      restricted = true;
+      try {
+        const mem = createMemoryStorage();
+        Object.defineProperty(win, 'localStorage', {
+          value: mem,
+          configurable: true,
+          writable: true
+        });
+      } catch (_) {
+        try { win.localStorage = createMemoryStorage(); } catch (_) {}
+      }
+    }
+
+    try {
+      if (!win.sessionStorage) throw new Error('Missing sessionStorage');
+      const testK2 = '__sg_test2__';
+      win.sessionStorage.setItem(testK2, '1');
+      win.sessionStorage.removeItem(testK2);
+    } catch (_) {
+      restricted = true;
+      try {
+        const mem2 = createMemoryStorage();
+        Object.defineProperty(win, 'sessionStorage', {
+          value: mem2,
+          configurable: true,
+          writable: true
+        });
+      } catch (_) {
+        try { win.sessionStorage = createMemoryStorage(); } catch (_) {}
+      }
+    }
+    return restricted;
+  }
+
   function getLocalStorage() {
     if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
     if (typeof globalThis !== 'undefined' && globalThis.localStorage) return globalThis.localStorage;
@@ -1240,6 +1297,8 @@
     queueSessionSecretsWrite,
     getSessionWriteState,
     getSessionWriteRevision,
-    resetSessionWriteQueue
+    resetSessionWriteQueue,
+    createMemoryStorage,
+    installStorageGuard
   };
 });

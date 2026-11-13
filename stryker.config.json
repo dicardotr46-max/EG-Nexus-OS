@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-schema.json",
+  "packageManager": "npm",
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress"
+  ],
+  "testRunner": "jest",
+  "coverageAnalysis": "perTest",
+  "concurrency": 2,
+  "maxConcurrentTestRunners": 2,
+  "maxTestRunnerReuse": 15,
+  "timeoutMS": 10000,
+  "mutate": [
+    "src/core/*.js",
+    "src/security/*.js",
+    "src/providers/*.js"
+  ],
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.stryker.config.js",
+    "enableFindRelatedTests": true
+  },
+  "thresholds": {
+    "high": 85,
+    "low": 75,
+    "break": 70
+  }
+}

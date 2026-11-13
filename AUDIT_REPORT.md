@@ -1,9 +1,9 @@
-# EG Nexus OS v5.8 — Engineering Verification, Security Architecture & Quality Audit Report
+# EG Nexus OS v6.1 — Engineering Verification, Security Architecture & Quality Audit Report
 
 **Target Repository:** `dicardotr46-max/EG-Nexus-OS`  
-**Target Version:** `5.8.0`  
+**Target Version:** `6.1.0`  
 **Target Branch:** `main`  
-**Execution Context:** Linux / Node.js 22 / Temurin JDK 21 / Android SDK Build-Tools  
+**Execution Context:** Linux / Node.js 24 / Temurin JDK 21 / Android SDK Build-Tools  
 **Audit Viewport:** Strict Mobile Viewport (390 × 844 CSS pixels, `viewport-fit=cover`)  
 **Audit Date:** 2026-11-13  
 
@@ -11,11 +11,11 @@
 
 ## Executive Summary
 
-EG Nexus OS v5.8 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
+EG Nexus OS v6.1 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
 
 This report documents verifiable, reproducible engineering evidence across three distinct architectural levels:
-1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across all 395 resolved packages, exact dependency pinning of all `@capacitor/*` libraries, and static event handler verification (`missing_handlers: 0` across 808 functions).
-2. **Level 2 (Unit, Contract & Coverage Testing):** 562 automated Jest tests across 25 test suites with a 100% pass rate, high coverage (92.6% function coverage, 89.76% line coverage, 88.26% statement coverage, 80.65% branch coverage) on decoupled `src/` modules loaded directly into `index.html`, proven `AES-GCM-256` reload persistence across isolated VM contexts, non-extractable WebCrypto key management in IndexedDB, and exhaustive provider resilience contracts (GitHub, Google, Telegram 429 backoff retry, Cloudflare KV LWW conflict resolution, MCP tool approval barriers).
+1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across all 395 resolved packages, exact dependency pinning of all `@capacitor/*` libraries, and static event handler verification (`missing_handlers: 0` across 812 functions).
+2. **Level 2 (Unit, Contract & Coverage Testing):** 569 automated Jest tests across 26 test suites with a 100% pass rate, high coverage (91.18% function coverage, 89.29% line coverage, 87.8% statement coverage, 80.27% branch coverage) on decoupled `src/` modules loaded directly into `index.html`, proven `AES-GCM-256` reload persistence across isolated VM contexts, non-extractable WebCrypto key management in IndexedDB, and exhaustive provider resilience contracts (GitHub, Google, Telegram 429 backoff retry, Cloudflare KV LWW conflict resolution, MCP tool approval barriers).
 3. **Level 3 (Runtime & CI Build Boundaries):** Full runtime DOM wiring and concurrency stress verification (rapid click debounce, mid-sync offline rollback, multi-tab LWW concurrency, 500+ message chat truncation to `MAX_PERSISTED_MSGS_PER_CHAT = 300`), ephemeral session key derivation in browser sandboxes versus native hardware Keystores, persistent release keystore registered in GitHub Secrets with strict CI gate validation, automated Release APK signing and verification with `apksigner` (v1/v2/v3 schemes), and PR-gated continuous integration.
 
 ```mermaid
@@ -30,8 +30,8 @@ flowchart TD
     end
 
     subgraph LEVEL_2["Level 2: Unit & Contract Testing"]
-        JEST["562 Jest Tests (25 Suites, 100% Passing)"]
-        COV["92.6% Funcs / 89.76% Lines Coverage on src/"]
+        JEST["569 Jest Tests (26 Suites, 100% Passing)"]
+        COV["91.18% Funcs / 89.29% Lines Coverage on src/"]
         RELOAD["AES-GCM-256 Reload Persistence (2 VM Contexts)"]
         IDB_KEY["IndexedDB Non-Extractable CryptoKey Keystore"]
         PROVIDER["Provider Contracts (401 Quarantine, 429 Retry Backoff)"]
@@ -60,8 +60,8 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `c6397bd17406e99694107b3a98f378f42c54d9835e6cc9ac9b5d97a713b0c338` | MATCH |
-| `sw.js` | `www/sw.js` | `4a78043aedc1ccc854cc03b3a11744fe5eea32f8decc6c9e5959649e12a587c6` | MATCH |
+| `index.html` | `www/index.html` | `a79ec18ae0f87df5c27d1ee1e8348650b8e1484352f434b715da8f2aeb585345` | MATCH |
+| `sw.js` | `www/sw.js` | `09ee1a64e56b8c02779a2db58cc134ebd1f22f85fb8f7527752538bfc1acd99e` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/providers/*` | `www/src/providers/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -128,8 +128,8 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 31,920 lines | PASS |
-| Extracted Global & Named Functions | 808 functions | PASS |
+| Total Source Lines (`index.html`) | 32,037 lines | PASS |
+| Extracted Global & Named Functions | 812 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
 | Stub / Placeholder Review Items | 0 unhandled fatal blocks | PASS |
@@ -139,7 +139,7 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 ## Level 2: Unit, Contract & Coverage Testing
 
 ### 2.1 Automated Test Execution Summary
-The test suite consists of **562 automated Jest tests across 25 test suites**, executing with a 100% pass rate:
+The test suite consists of **569 automated Jest tests across 26 test suites**, executing with a 100% pass rate:
 
 ```text
 PASS __tests__/approvals.spec.js
@@ -166,10 +166,11 @@ PASS __tests__/v60_audit_hardening.spec.js
 PASS __tests__/v60_comprehensive_audit_fixes.spec.js
 PASS __tests__/v60_coverage_booster.spec.js
 PASS __tests__/v60_cross_tab_and_audit_fixes.spec.js
+PASS __tests__/v61_hardware_keystore.test.js
 PASS __tests__/worker_queue.spec.js
 
-Test Suites: 25 passed, 25 total
-Tests:       562 passed, 562 total
+Test Suites: 26 passed, 26 total
+Tests:       569 passed, 569 total
 Snapshots:   0 total
 Time:        5.000 s
 ```
@@ -193,7 +194,7 @@ Time:        5.000 s
 | `__tests__/sw.spec.js` | 13 | Service Worker cache lifecycle, atomic pre-caching of core assets and `src/` modules, network-first API fallbacks. |
 | `__tests__/approvals.spec.js` | 10 | Human-in-the-loop modal consent barriers, queueing of sensitive tool execution, rapid click debounce guards. |
 | `__tests__/generateUniqueId.spec.js` | 6 | Entropy checks, collision resistance across 10,000 iterations, format conforming to prefix rules. |
-| **Total** | **562** | **Complete Behavioral & Contract Verification** |
+| **Total** | **569** | **Complete Behavioral & Contract Verification** |
 
 ### 2.3 Code Coverage on Modular `src/` Modules
 Modules located in `src/` are loaded directly into `index.html` and tested under Jest with Node.js / JSDOM coverage collectors:
@@ -202,22 +203,22 @@ Modules located in `src/` are loaded directly into `index.html` and tested under
 ------------------|---------|----------|---------|---------|--------------------
 File              | % Stmts | % Branch | % Funcs | % Lines | Status / Highlights
 ------------------|---------|----------|---------|---------|--------------------
-All files         |   88.26 |    80.65 |    92.6 |   89.76 | Verified Target Met
- core             |   88.39 |    82.81 |    87.4 |   90.44 | High Line & Func Cov
-  persistence.js  |   85.47 |    81.12 |   82.97 |   87.82 | Complete Persistence
+All files         |    87.8 |    80.27 |   91.18 |   89.29 | Verified Target Met
+ core             |   87.91 |    82.32 |   88.15 |   90.34 | High Line & Func Cov
+  persistence.js  |   84.96 |    80.49 |   84.31 |   87.81 | Complete Persistence
   sanitization.js |   93.28 |    88.64 |     100 |   95.08 | Comprehensive XSS
   state.js        |   97.81 |    86.23 |     100 |   98.43 | 100% Lines & Funcs
  providers        |   94.76 |    83.78 |     100 |   96.03 | Exhaustive Contracts
   registry.js     |   94.75 |    83.77 |     100 |   96.03 | Full Provider APIs
- security         |   86.07 |    77.53 |   94.02 |   87.51 | Verified Vault & IDB
+ security         |   85.58 |    77.22 |   89.76 |   86.76 | Verified Vault & IDB
   approvals.js    |   95.45 |    82.69 |     100 |     100 | 100% Lines & Funcs
-  secrets.js      |   85.27 |    76.92 |   93.51 |    86.5 | AES-GCM + IDB Keystore
+  secrets.js      |   84.77 |    76.61 |   88.98 |   85.74 | AES-GCM + IDB Keystore
 ------------------|---------|----------|---------|---------|--------------------
 ```
-- **Overall Function Coverage:** **92.6%** (exceeds 85% requirement).
-- **Overall Line Coverage:** **89.76%** (exceeds 85% requirement).
-- **Overall Statement Coverage:** **88.26%** (exceeds 85% requirement).
-- **Overall Branch Coverage:** **80.65%** (satisfies 80% requirement).
+- **Overall Function Coverage:** **91.18%** (exceeds 85% requirement).
+- **Overall Line Coverage:** **89.29%** (exceeds 85% requirement).
+- **Overall Statement Coverage:** **87.8%** (exceeds 85% requirement).
+- **Overall Branch Coverage:** **80.27%** (satisfies 80% requirement).
 
 ### 2.4 Proven `AES-GCM-256` Reload Persistence & IndexedDB Non-Extractable CryptoKey
 To verify that session encryption keys and credentials survive real page reloads without relying on memory leaks, the test harness exercises two isolated execution contexts:
@@ -386,9 +387,9 @@ When a push to `main` occurs or a `workflow_dispatch` is triggered:
 | **Worker / Termux Syntax** | Termux bridge template | `node --check` OK | PASS |
 | **Supply Chain** | `npm audit` across 395 packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
 | **Capacitor Pinning** | Exact version pins in `package.json` | 7 packages locked (no `^`) | PASS |
-| **Static Handler Wiring** | `missing_handlers` in 808 functions | Exactly 0 missing handlers | PASS |
-| **Automated Tests** | Jest test suite execution | 562 passed, 0 failed, 25 suites | PASS |
-| **Test Coverage** | Code coverage on `src/` modules | 92.6% funcs, 89.76% lines, 88.26% stmts | PASS |
+| **Static Handler Wiring** | `missing_handlers` in 812 functions | Exactly 0 missing handlers | PASS |
+| **Automated Tests** | Jest test suite execution | 569 passed, 0 failed, 26 suites | PASS |
+| **Test Coverage** | Code coverage on `src/` modules | 91.18% funcs, 89.29% lines, 87.8% stmts | PASS |
 | **Crypto Persistence** | AES-GCM-256 reload across 2 contexts | 100% secrets restored, tampered quarantined | PASS |
 | **IndexedDB Keystore** | Non-extractable CryptoKey management | Keystore DB & store verified | PASS |
 | **Provider Contracts** | Scope validation, 401 quarantine, 429 backoff | All contracts verified in 40 unit tests | PASS |

@@ -440,12 +440,77 @@
     resetSessionWriteQueue();
   }
 
+  const _memorySessionStore = (function createMemStore() {
+    const mem = new Map();
+    return {
+      getItem: (k) => mem.has(String(k)) ? mem.get(String(k)) : null,
+      setItem: (k, v) => { mem.set(String(k), String(v)); },
+      removeItem: (k) => { mem.delete(String(k)); },
+      clear: () => { mem.clear(); },
+      key: (i) => Array.from(mem.keys())[i] || null,
+      get length() { return mem.size; },
+      _isMemoryFallback: true
+    };
+  })();
+
   function _getStorage(storage) {
     if (storage && typeof storage.getItem === 'function') return storage;
-    if (typeof sessionStorage !== 'undefined') return sessionStorage;
-    if (typeof window !== 'undefined' && window.sessionStorage) return window.sessionStorage;
-    if (typeof globalThis !== 'undefined' && globalThis.sessionStorage) return globalThis.sessionStorage;
+    try {
+      if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+        sessionStorage.getItem('__probe__');
+        return sessionStorage;
+      }
+    } catch (_) {}
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.getItem('__probe__');
+        return window.sessionStorage;
+      }
+    } catch (_) {}
+    try {
+      if (typeof globalThis !== 'undefined' && globalThis.sessionStorage) {
+        globalThis.sessionStorage.getItem('__probe__');
+        return globalThis.sessionStorage;
+      }
+    } catch (_) {}
+    return _memorySessionStore;
+  }
+
+  function _getNativeAndroidKeystore() {
+    try {
+      if (typeof window !== 'undefined' && window.Capacitor?.Plugins?.NexusKeystore) {
+        return window.Capacitor.Plugins.NexusKeystore;
+      }
+      if (typeof globalThis !== 'undefined' && globalThis.Capacitor?.Plugins?.NexusKeystore) {
+        return globalThis.Capacitor.Plugins.NexusKeystore;
+      }
+      if (typeof window !== 'undefined' && window.NexusKeystoreNative) {
+        return window.NexusKeystoreNative;
+      }
+      if (typeof globalThis !== 'undefined' && globalThis.NexusKeystoreNative) {
+        return globalThis.NexusKeystoreNative;
+      }
+    } catch (_) {}
     return null;
+  }
+
+  async function isHardwareKeystoreAvailable() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks) return false;
+    try {
+      const res = await ks.isAvailable();
+      return Boolean(res && res.available);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getKeystoreBackend() {
+    if (_getNativeAndroidKeystore()) return 'AndroidKeyStore';
+    if (_getNodeCrypto()) return 'NodeCrypto';
+    const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+    if (cryptoObj && cryptoObj.subtle) return 'IndexedDB-WebCrypto';
+    return 'Memory-Fallback';
   }
 
   // =========================================================================
@@ -1846,6 +1911,9 @@
     const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
     const hasWebCrypto = Boolean(cryptoObj && cryptoObj.subtle);
     const hasNodeCrypto = Boolean(_getNodeCrypto());
+    const nativeKs = _getNativeAndroidKeystore();
+    const isNativeAndroid = Boolean(nativeKs);
+    const backend = getKeystoreBackend();
 
     if (_degradedPersistence || idbOpenFailed) {
       return {
@@ -1855,6 +1923,10 @@
         hasIndexedDB: false,
         hasWebCrypto,
         hasNodeCrypto,
+        isNativeAndroid,
+        hardwareBacked: isNativeAndroid,
+        hardwareKeystoreAvailable: isNativeAndroid,
+        keystoreBackend: backend,
         activePendingCount,
         writeEpoch,
         schemaVersion: SESSION_SECRETS_SCHEMA_VERSION,
@@ -1864,13 +1936,17 @@
     }
 
     const hasIdb = Boolean(idbFactory);
-    const mode = hasIdb ? 'idb-webcrypto-non-extractable' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded');
+    const mode = isNativeAndroid ? 'android-keystore-hardware' : (hasIdb ? 'idb-webcrypto-non-extractable' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded'));
     return {
-      ok: Boolean(hasWebCrypto || hasNodeCrypto),
+      ok: Boolean(hasWebCrypto || hasNodeCrypto || isNativeAndroid),
       degradedPersistence: false,
       hasIndexedDB: hasIdb,
       hasWebCrypto,
       hasNodeCrypto,
+      isNativeAndroid,
+      hardwareBacked: isNativeAndroid,
+      hardwareKeystoreAvailable: isNativeAndroid,
+      keystoreBackend: backend,
       mode,
       activePendingCount,
       writeEpoch,
@@ -2236,6 +2312,18 @@
       if (storage) this.storage = storage;
       const store = _getStorage(this.storage);
 
+      const nativeKs = _getNativeAndroidKeystore();
+      if (nativeKs && typeof nativeKs.isAvailable === 'function') {
+        try {
+          const res = await nativeKs.isAvailable();
+          if (res && res.available) {
+            this.initialized = true;
+            this.hardwareBacked = true;
+            return this;
+          }
+        } catch (_) {}
+      }
+
       if (_isBrowserEnvironment()) {
         const idb = _getIdbFactory();
         let idbOk = false;
@@ -2294,6 +2382,23 @@
       const aadStr = aad ? String(aad) : '';
       const aadBytes = _toAadBytes(aadStr);
 
+      const nativeKs = _getNativeAndroidKeystore();
+      if (nativeKs && typeof nativeKs.encrypt === 'function') {
+        const plainStr = (typeof plaintext === 'string')
+          ? plaintext
+          : (plaintext instanceof Uint8Array ? new TextDecoder().decode(plaintext) : JSON.stringify(plaintext));
+        const res = await nativeKs.encrypt({ data: plainStr, aad: aadStr });
+        if (res && res.ciphertext && res.iv) {
+          return {
+            iv: res.iv,
+            ciphertext: res.ciphertext,
+            aad: aadStr,
+            algorithm: 'AES-GCM-256',
+            keySource: 'AndroidKeyStore'
+          };
+        }
+      }
+
       const nodeCrypto = _getNodeCrypto();
       if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
         const keyRaw = _initMemorySessionKey(store);
@@ -2335,6 +2440,16 @@
       const iv = _hexToUint8(ivHex);
       const combined = _hexToUint8(ciphertext);
       const aadBytes = _toAadBytes(aad);
+
+      const nativeKs = _getNativeAndroidKeystore();
+      if (nativeKs && typeof nativeKs.decrypt === 'function') {
+        try {
+          const res = await nativeKs.decrypt({ ciphertext, iv: ivHex, aad: aad ? String(aad) : '' });
+          if (res && typeof res.data === 'string') {
+            return res.data;
+          }
+        } catch (_) {}
+      }
 
       const nodeCrypto = _getNodeCrypto();
       if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
@@ -2429,6 +2544,8 @@
     getSessionWriteRevision,
     resetSessionWriteQueue,
     getSecretVaultHealth,
+    isHardwareKeystoreAvailable,
+    getKeystoreBackend,
     applySessionSecrets,
     applySessionSecretsAsync,
     exportEncryptedBackup,

@@ -1,14 +1,14 @@
-# 🚀 EG Nexus OS v5.9 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.1 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
-[![CI/CD Auto Audit & Signed APK Factory](https://github.com/amirrezas/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/amirrezas/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
-[![Node.js Version](https://img.shields.io/badge/node-22.x-brightgreen.svg)](https://nodejs.org/)
+[![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
+[![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-455%20passing-success.svg)](https://github.com/amirrezas/EG-Nexus-OS)
-[![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/amirrezas/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-562%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**EG Nexus OS v5.9.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با رفع قطعی حلقه بازگشتی بی‌نهایت در فاز ۴، مهاجرت کاملاً همگام وضعیت در `loadState`، حذف سایه‌زنی متغیرها و اتصال به ۱۴ کلید سراسری `API_KEY_NAMES`، پشتیبانی از پاک‌سازی کلیدهای تکی با رشته خالی `""` ضمن حفظ به‌روزرسانی‌های جزئی (Partial Updates)، ماندگاری توکن‌های نوسازی OAuth (`refreshToken`) پس از ریلود صفحه، اعتبارسنجی شکست‌بسته (Fail-Closed) حوزه‌های دسترسی در `executeProviderRequest`، پاک‌سازی و سرکوب قطعی روتین‌های زامبی در `mergeStateWithRevision`، مقاوم‌سازی چندلایه در برابر SSRF (مسدودسازی `/\evil.com`، `http:evil.com`، رنج‌های RFC 1918، CGNAT و متادیتای ابری IPv4/IPv6)، خنثی‌سازی چندمرحله‌ای تزریق پرامپت تودرتو و براکت‌های تمام‌عرض، ارزیابی کامل هر ۵ بلوک `<script>` داخل تست‌های DOM و بیش از **۴۵۵ تست خودکار Jest در ۲۱ سوئیت** با آستانه پوشش بالا منتشر شده است.
+**EG Nexus OS v6.1.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با رفع شکست احراز هویت تگ‌های رهاسازی در پایپلاین CI/CD، پین کردن کامل اکشن‌های GitHub با SHA-40، افزودن درخت سورس بومی اندروید (`android/`) به همراه پلاگین سخت‌افزاری `AndroidKeyStore` (`NexusKeystorePlugin`) برای محافظت از کلیدها در سطح TEE/StrongBox، ایجاد پل‌های Re-export ریشه `src/` جهت حل کامل عدم تطابق موجودی، پیکربندی آزمون‌های جهش Stryker، انعطاف‌پذیری ۱۰۰٪ در برابر قطع شبکه و بارگذاری تنبل Google GIS و همچنین تاب‌آوری در برابر غیرفعال بودن ذخیره‌سازی محلی مرورگر (`storage-disabled`) با بیش از **۵۶۲ تست خودکار Jest در ۲۵ سوئیت** و پوشش بالای ۸۰٪ شاخه‌ها منتشر شده است.
 
 ---
 

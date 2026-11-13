@@ -1,7 +1,7 @@
 // ============================================================================
-// EG NEXUS OS v6.0.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
+// EG NEXUS OS v6.1.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
 // ============================================================================
-const CACHE_NAME = 'eg-nexus-os-v6.0.0-pwa-cache';
+const CACHE_NAME = 'eg-nexus-os-v6.1.0-pwa-cache';
 const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">⚡</text></svg>';
 const CORE_ASSETS = [
   './',
@@ -12,7 +12,13 @@ const CORE_ASSETS = [
   './src/security/approvals.js',
   './src/core/state.js',
   './src/core/persistence.js',
-  './src/providers/registry.js'
+  './src/providers/registry.js',
+  './src/sanitization.js',
+  './src/secrets.js',
+  './src/approvals.js',
+  './src/state.js',
+  './src/persistence.js',
+  './src/registry.js'
 ];
 
 self.addEventListener('install', (event) => {
@@ -54,6 +60,42 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
+
+  // Handle external Google Identity Services (GIS) gracefully in offline mode
+  if (url.hostname === 'accounts.google.com' && url.pathname.includes('/gsi/client')) {
+    event.respondWith((async () => {
+      try {
+        return await fetch(req);
+      } catch (_) {
+        return new Response(
+          '/* Google GIS Offline Fallback */ window.google = window.google || {}; window.google.accounts = window.google.accounts || { id: { initialize: function(){}, prompt: function(){}, renderButton: function(){} }, oauth2: { initTokenClient: function(){ return { requestAccessToken: function(){} }; } } };',
+          {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
+          }
+        );
+      }
+    })());
+    return;
+  }
+
+  // Handle external fonts and CDNs gracefully in offline mode
+  if (url.hostname.includes('fonts.googleapis.com') || url.hostname.includes('fonts.gstatic.com')) {
+    event.respondWith((async () => {
+      try {
+        return await fetch(req);
+      } catch (_) {
+        return new Response('', {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'Content-Type': url.pathname.endsWith('.css') ? 'text/css' : 'text/plain' }
+        });
+      }
+    })());
+    return;
+  }
+
   // Bypass external API calls (Gemini, OpenRouter, Tavily, Telegram, Local Termux Bridge, Supabase)
   if (url.origin !== self.location.origin) return;
 

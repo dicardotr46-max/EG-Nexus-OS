@@ -18,9 +18,21 @@ const stateModule = require('../src/core/state');
 const persistenceModule = require('../src/core/persistence');
 const providersModule = require('../src/providers/registry');
 
+const { getIndexHtml } = require('./test_helpers');
+
+let _cachedDomIndexHtml = null;
+function getCachedDomIndexHtml() {
+  if (!_cachedDomIndexHtml) {
+    _cachedDomIndexHtml = (typeof getIndexHtml === 'function')
+      ? getIndexHtml()
+      : fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  }
+  return _cachedDomIndexHtml;
+}
+
 describe('EG-Nexus-OS Real Runtime DOM Wiring Tests', () => {
   const indexHtmlPath = path.join(__dirname, '../index.html');
-  const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+  const indexHtml = getCachedDomIndexHtml();
 
   const modFilePaths = [
     path.join(__dirname, '../src/core/sanitization.js'),

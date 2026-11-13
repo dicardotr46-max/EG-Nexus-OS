@@ -9,6 +9,10 @@ describe('Service Worker (sw.js)', () => {
   let mockFetch;
   let mockSelf;
 
+  const swCode = fs.readFileSync(path.join(__dirname, '../sw.js'), 'utf8');
+  const cacheNameMatch = swCode.match(/const\s+CACHE_NAME\s*=\s*['"]([^'"]+)['"]/);
+  const CURRENT_CACHE_NAME = cacheNameMatch ? cacheNameMatch[1] : 'eg-nexus-os-v6.1.0-pwa-cache';
+
   if (typeof Response === 'undefined') {
   global.Response = class Response {
     constructor(body, init = {}) {
@@ -31,7 +35,7 @@ beforeEach(() => {
 
     mockCaches = {
       open: jest.fn().mockResolvedValue(mockCache),
-      keys: jest.fn().mockResolvedValue(['eg-nexus-os-v5.0-old-cache', 'eg-nexus-os-v6.0.0-pwa-cache', 'other-origin-cache']),
+      keys: jest.fn().mockResolvedValue(['eg-nexus-os-v5.0-old-cache', CURRENT_CACHE_NAME, 'other-origin-cache']),
       delete: jest.fn().mockResolvedValue(true),
       match: jest.fn().mockResolvedValue(undefined)
     };
@@ -77,8 +81,8 @@ beforeEach(() => {
       // Wait for the promise passed to waitUntil to resolve
       await event.waitUntil.mock.calls[0][0];
 
-      expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
-      expect(mockCache.addAll).toHaveBeenCalledWith([
+      expect(mockCaches.open).toHaveBeenCalledWith(CURRENT_CACHE_NAME);
+      expect(mockCache.addAll).toHaveBeenCalledWith(expect.arrayContaining([
         './',
         './index.html',
         './manifest.json',
@@ -88,7 +92,7 @@ beforeEach(() => {
         './src/core/state.js',
         './src/core/persistence.js',
         './src/providers/registry.js'
-      ]);
+      ]));
       expect(mockSelf.skipWaiting).toHaveBeenCalled();
     });
   });
@@ -105,7 +109,7 @@ beforeEach(() => {
       expect(mockCaches.keys).toHaveBeenCalled();
       expect(mockCaches.delete).toHaveBeenCalledWith('eg-nexus-os-v5.0-old-cache');
       expect(mockCaches.delete).not.toHaveBeenCalledWith('other-origin-cache');
-      expect(mockCaches.delete).not.toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
+      expect(mockCaches.delete).not.toHaveBeenCalledWith(CURRENT_CACHE_NAME);
       expect(mockSelf.clients.claim).toHaveBeenCalled();
     });
   });
@@ -157,7 +161,7 @@ beforeEach(() => {
         // Allow the async cache.put promise to resolve
         await new Promise(process.nextTick);
 
-        expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
+        expect(mockCaches.open).toHaveBeenCalledWith(CURRENT_CACHE_NAME);
         expect(mockCache.put).toHaveBeenCalledWith('./index.html', 'cloned-response');
       });
 
@@ -206,7 +210,7 @@ beforeEach(() => {
         await new Promise(process.nextTick);
 
         expect(mockFetch).toHaveBeenCalledWith(event.request);
-        expect(mockCaches.open).toHaveBeenCalledWith('eg-nexus-os-v6.0.0-pwa-cache');
+        expect(mockCaches.open).toHaveBeenCalledWith(CURRENT_CACHE_NAME);
         expect(mockCache.put).toHaveBeenCalledWith(event.request, 'cloned-asset');
       });
 

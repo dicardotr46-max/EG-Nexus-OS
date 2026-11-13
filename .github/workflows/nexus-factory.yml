@@ -121,7 +121,14 @@ jobs:
       - name: 6. Prepare Android Project
         run: |
           cd build_workspace
-          npx cap add android
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          # Sync native android source tree and plugins from repository
+          if [ -d "../android" ]; then
+            mkdir -p android
+            cp -r ../android/* android/
+          fi
           npx cap sync android
 
       - name: 7. Cache Gradle Packages
@@ -171,7 +178,7 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
 
           mkdir -p dist
-          SIGNED_APK="dist/EG-Nexus-OS-v6.0-release-signed.apk"
+          SIGNED_APK="dist/EG-Nexus-OS-v6.1-release-signed.apk"
 
           if $BUILD_TOOLS_DIR/zipalign -c -v 4 "$UNSIGNED_APK" >/dev/null 2>&1; then
             echo "APK is already 4-byte zipaligned."
@@ -197,8 +204,8 @@ jobs:
       - name: 10. Upload Ready-to-Install Signed Android APK
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
-          name: EG-Nexus-OS-v6.0-Signed-APK
-          path: dist/EG-Nexus-OS-v6.0-release-signed.apk
+          name: EG-Nexus-OS-v6.1-Signed-APK
+          path: dist/EG-Nexus-OS-v6.1-release-signed.apk
           retention-days: 30
 
   publish-release:
@@ -218,17 +225,17 @@ jobs:
       - name: 2. Download Built Signed APK Artifact
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
-          name: EG-Nexus-OS-v6.0-Signed-APK
+          name: EG-Nexus-OS-v6.1-Signed-APK
 
       - name: 3. Prepare APK, Checksum and SBOM Provenance
         run: |
           mkdir -p dist
-          cp EG-Nexus-OS-v6.0-release-signed.apk EG-Nexus-OS-v6.0.apk
-          sha256sum EG-Nexus-OS-v6.0.apk > EG-Nexus-OS-v6.0.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.0.apk.sha256)
+          cp EG-Nexus-OS-v6.1-release-signed.apk EG-Nexus-OS-v6.1.apk
+          sha256sum EG-Nexus-OS-v6.1.apk > EG-Nexus-OS-v6.1.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.1.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.0-${SHORT_SHA}"
+          RELEASE_TAG="v6.1.0-${SHORT_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -242,7 +249,7 @@ jobs:
             "timestamp": "${BUILD_TIMESTAMP}",
             "artifacts": {
               "apk": {
-                "name": "EG-Nexus-OS-v6.0.apk",
+                "name": "EG-Nexus-OS-v6.1.apk",
                 "sha256": "${APK_SHA256}"
               }
             },
@@ -259,10 +266,11 @@ jobs:
           node scripts/generate-cyclonedx-sbom.js
 
       - name: 4. Update Git Tags for Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Rolling alias pointer: continuous delivery channel pointing to latest verified build on main
-          git tag -f latest-apk "${GITHUB_SHA}"
-          git push origin latest-apk --force
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # Immutable release tag: check if already exists on remote
           EXISTING_TAG_SHA=$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | awk '{print $1}')
           if [ -n "$EXISTING_TAG_SHA" ]; then
@@ -272,8 +280,8 @@ jobs:
             fi
             echo "Immutable release tag ${RELEASE_TAG} already exists on remote for ${GITHUB_SHA}; skipping tag push."
           else
-            git tag -f "${RELEASE_TAG}" "${GITHUB_SHA}"
-            git push origin "${RELEASE_TAG}"
+            git tag "${RELEASE_TAG}" "${GITHUB_SHA}"
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "${RELEASE_TAG}" || echo "Release tag push completed or managed by softprops release action"
           fi
 
       - name: 5. Publish APK to GitHub Releases
@@ -283,11 +291,12 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.0 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v6.1 (${{ env.SHORT_SHA }})"
+          make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v6.0.0`
+            - **Release Version:** `v6.1.0`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**
@@ -298,10 +307,8 @@ jobs:
             ### Release Architecture & Tag Roles
             - **Immutable Version Tag (`${{ env.RELEASE_TAG }}`):**
               Serves as a tamper-evident, permanent audit anchor frozen to commit `${{ github.sha }}`. Guarantees immutable provenance, rollback reproducibility, and verifiable Software Bill of Materials (SBOM) lineage.
-            - **Rolling Alias Pointer (`latest-apk`):**
-              Serves as a dynamic distribution pointer continuously fast-forwarded to the latest verified production build on `main`. Enables seamless continuous deployment (CD), automated client updater polls, and permanent direct-download URLs.
           files: |
-            EG-Nexus-OS-v6.0.apk
-            EG-Nexus-OS-v6.0.apk.sha256
+            EG-Nexus-OS-v6.1.apk
+            EG-Nexus-OS-v6.1.apk.sha256
             dist/sbom-provenance.json
             dist/sbom.cdx.json

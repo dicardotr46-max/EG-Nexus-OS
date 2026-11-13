@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.0.0 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.1.0 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -108,8 +108,7 @@ body > header,
   #phase2ModePillsSlot > * { flex: 0 0 auto; }
 }
 </style>
-<!-- Google Identity Services (GIS) for real OAuth 2.0 -->
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- Google Identity Services (GIS) loaded lazily on demand in loadGoogleGisSdk() -->
 </head>
 <body class="bg-cue-bg text-slate-100 min-h-screen flex flex-col select-none">
   <!-- Toast Notification -->
@@ -642,6 +641,114 @@ body > header,
   
 <!-- EG NEXUS PHASE 3 early preview guard -->
 <script>
+    // =========================================================================
+    // STORAGE RESTRICTION & IN-MEMORY SHIM LAYER (Chromium storage-disabled)
+    // =========================================================================
+    (function installStorageGuard() {
+      function createMemoryStorage() {
+        var mem = new Map();
+        return {
+          getItem: function(k) { return mem.has(String(k)) ? mem.get(String(k)) : null; },
+          setItem: function(k, v) { mem.set(String(k), String(v)); },
+          removeItem: function(k) { mem.delete(String(k)); },
+          clear: function() { mem.clear(); },
+          key: function(i) { return Array.from(mem.keys())[i] || null; },
+          get length() { return mem.size; },
+          _isMemoryFallback: true
+        };
+      }
+
+      var storageRestricted = false;
+      try {
+        var testKey = '__storage_probe__';
+        window.localStorage.setItem(testKey, '1');
+        window.localStorage.removeItem(testKey);
+      } catch (_) {
+        storageRestricted = true;
+        try {
+          var memLs = createMemoryStorage();
+          Object.defineProperty(window, 'localStorage', {
+            value: memLs,
+            configurable: true,
+            writable: true
+          });
+        } catch (_) {}
+      }
+
+      try {
+        var testKeyS = '__session_probe__';
+        window.sessionStorage.setItem(testKeyS, '1');
+        window.sessionStorage.removeItem(testKeyS);
+      } catch (_) {
+        storageRestricted = true;
+        try {
+          var memSs = createMemoryStorage();
+          Object.defineProperty(window, 'sessionStorage', {
+            value: memSs,
+            configurable: true,
+            writable: true
+          });
+        } catch (_) {}
+      }
+
+      try {
+        if (!window.indexedDB) {
+          storageRestricted = true;
+        }
+      } catch (_) {
+        storageRestricted = true;
+      }
+
+      if (storageRestricted) {
+        window.__STORAGE_RESTRICTED__ = true;
+        window.addEventListener('DOMContentLoaded', function() {
+          var banner = document.getElementById('storageRestrictedBanner');
+          if (!banner && document.body) {
+            banner = document.createElement('div');
+            banner.id = 'storageRestrictedBanner';
+            banner.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-[110] bg-amber-500/90 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs shadow-2xl flex items-center gap-2 backdrop-blur';
+            banner.setAttribute('role', 'status');
+            banner.setAttribute('aria-live', 'polite');
+            banner.innerHTML = '<span>⚠️ Session-Only / Storage Restricted Mode</span>';
+            document.body.appendChild(banner);
+          }
+        });
+      }
+    })();
+
+    // =========================================================================
+    // LAZY GOOGLE GIS LOADER (Offline / Network-Resilient)
+    // =========================================================================
+    window.loadGoogleGisSdk = function() {
+      if (typeof window === 'undefined') return Promise.resolve(false);
+      if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+        return Promise.resolve(true);
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return Promise.resolve(false);
+      }
+      return new Promise(function(resolve) {
+        try {
+          var existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+          if (existing) {
+            if (window.google && window.google.accounts && window.google.accounts.oauth2) return resolve(true);
+            existing.addEventListener('load', function() { resolve(true); }, { once: true });
+            existing.addEventListener('error', function() { resolve(false); }, { once: true });
+            return;
+          }
+          var s = document.createElement('script');
+          s.src = 'https://accounts.google.com/gsi/client';
+          s.async = true;
+          s.defer = true;
+          s.onload = function() { resolve(true); };
+          s.onerror = function() { resolve(false); };
+          document.head.appendChild(s);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    };
+
     // BEGIN PHASE 3 EARLY PREVIEW GUARD
     // integrate.py also inserts this idempotent block before the baseline scripts.
     // Window-targeted message events require earlier registration: capture alone
@@ -9855,8 +9962,18 @@ body > header,
       showToast(`حساب ${email} به ${providerLabel(appId)} متصل شد ✓`);
     }
 
-    function startGoogleOAuthFlow(appId) {
+    async function startGoogleOAuthFlow(appId) {
       setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID });
+      if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+        showToast('⏳ در حال آماده‌سازی ارتباط با گوگل...');
+        if (typeof window.loadGoogleGisSdk === 'function') {
+          await window.loadGoogleGisSdk();
+        }
+        if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+          showToast('⚠️ سرویس ورود گوگل در دسترس نیست یا در حالت آفلاین هستید.');
+          return;
+        }
+      }
       const client = initGisTokenClient(appId, (tokenResponse) => {
         if (tokenResponse.error) {
           showToast('❌ Google authorization denied or failed');
