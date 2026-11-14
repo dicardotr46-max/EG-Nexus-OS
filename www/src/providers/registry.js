@@ -506,25 +506,32 @@
     return aKey ? p[aKey] : null;
   }
 
-  // Capability handshake symbol for isolated in-memory token store & lifecycle audit trail
-  const APPROVAL_HANDSHAKE_SYM = Symbol.for('eg.nexus.security.approvals.handshake.v2');
-
-  // Authoritative internal storage: private closure Map
-  let _internalTokenStore = null;
-  let _lifecycleAuditTrail = null;
-
-  // Check if peer module (approvals.js) already registered the authoritative handshake
-  const _existingHandshake = (typeof globalThis !== 'undefined' && globalThis[APPROVAL_HANDSHAKE_SYM])
-    ? globalThis[APPROVAL_HANDSHAKE_SYM]
-    : null;
-
-  if (_existingHandshake && _existingHandshake.store instanceof Map) {
-    _internalTokenStore = _existingHandshake.store;
-    _lifecycleAuditTrail = (_existingHandshake.lifecycle instanceof Map) ? _existingHandshake.lifecycle : new Map();
-  } else {
-    _internalTokenStore = new Map();
-    _lifecycleAuditTrail = new Map();
+  // One-Time Internal Approval Verifier Registrar
+  let _approvalVerifier = null;
+  let _verifierLocked = false;
+  function registerInternalApprovalVerifier(fn) {
+    if (_verifierLocked) throw new Error('Approval verifier already locked');
+    _approvalVerifier = fn;
+    _verifierLocked = true;
   }
+
+  // Internal fallback token store if approvals.js is not loaded
+  const _internalTokenStore = (typeof globalThis !== 'undefined' && globalThis.__nexusInternalTokenStoreInstance)
+    ? globalThis.__nexusInternalTokenStoreInstance
+    : new Map();
+  if (typeof globalThis !== 'undefined' && !globalThis.__nexusInternalTokenStoreInstance) {
+    try {
+      Object.defineProperty(globalThis, '__nexusInternalTokenStoreInstance', {
+        value: _internalTokenStore,
+        writable: true,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {
+      globalThis.__nexusInternalTokenStoreInstance = _internalTokenStore;
+    }
+  }
+  const _lifecycleAuditTrail = new Map();
 
   // Pure-JS SHA-256 for deterministic params hash in all environments
   function _sha256Pure(bytes) {
@@ -666,8 +673,15 @@
     }
   }
 
-  function _getApprovalTokenStoreInternal() {
+  function _getTokenStore() {
+    if (typeof globalThis !== 'undefined' && globalThis.__nexusApprovalTokens) {
+      return globalThis.__nexusApprovalTokens;
+    }
     return _internalTokenStore;
+  }
+
+  function _getApprovalTokenStoreInternal() {
+    return _getTokenStore();
   }
 
   function issueApprovalTokenInternal(spec = {}) {
@@ -682,18 +696,27 @@
       paramsHash: computedParamsHash,
       nonce: nonce || _generateTokenNonce(),
       createdAt: Date.now(),
-      expiresAt: Date.now() + 60000 // 60,000ms TTL
+      expiresAt: Date.now() + (typeof spec.ttlMs === 'number' ? spec.ttlMs : 60000)
     };
-    _internalTokenStore.set(token, entry);
+    const store = _getTokenStore();
+    store.set(token, entry);
+    if (store !== _internalTokenStore) {
+      _internalTokenStore.set(token, entry);
+    }
     return token;
   }
 
   function consumeApprovalTokenInternal(token, context = {}) {
     if (!token || typeof token !== 'string') return false;
-    const entry = _internalTokenStore.get(token);
+    const store = _getTokenStore();
+    let entry = store.get(token);
+    if (!entry && store !== _internalTokenStore) {
+      entry = _internalTokenStore.get(token);
+    }
     if (!entry) return false;
 
     // Atomic consumption: delete immediately upon first use to prevent Replay and Prompt Injection
+    store.delete(token);
     _internalTokenStore.delete(token);
 
     if (Date.now() > entry.expiresAt) {
@@ -720,9 +743,14 @@
 
   function verifyApprovalTokenInternal(token) {
     if (!token || typeof token !== 'string') return false;
-    const entry = _internalTokenStore.get(token);
+    const store = _getTokenStore();
+    let entry = store.get(token);
+    if (!entry && store !== _internalTokenStore) {
+      entry = _internalTokenStore.get(token);
+    }
     if (!entry) return false;
     if (Date.now() > entry.expiresAt) {
+      store.delete(token);
       _internalTokenStore.delete(token);
       return false;
     }
@@ -730,6 +758,7 @@
   }
 
   function clearApprovalTokensInternal() {
+    _getTokenStore().clear();
     _internalTokenStore.clear();
   }
 
@@ -749,19 +778,59 @@
     clearApprovalTokensInternal();
   }
 
-  // OWASP Agent Control Standard (ACS 2026) Request Lifecycle Tracking
+  // Pure-JS SHA-256 for deterministic hex strings in all environments
+  function _sha256Hex(str) {
+    if (str === null || str === undefined) return '';
+    const input = String(str);
+    try {
+      if (typeof require === 'function') {
+        const nodeCrypto = require('crypto');
+        if (nodeCrypto && typeof nodeCrypto.createHash === 'function') {
+          return nodeCrypto.createHash('sha256').update(input, 'utf8').digest('hex');
+        }
+      }
+    } catch (_) {}
+    try {
+      const bytes = (typeof TextEncoder !== 'undefined')
+        ? new TextEncoder().encode(input)
+        : Buffer.from(input, 'utf8');
+      const hashBytes = _sha256Pure(bytes);
+      return Array.from(hashBytes, b => b.toString(16).padStart(2, '0')).join('');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  // Deep-freeze helper to prevent audit trail mutation
+  function deepFreeze(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    Object.freeze(obj);
+    for (const key of Object.getOwnPropertyNames(obj)) {
+      const val = obj[key];
+      if (val !== null && typeof val === 'object' && !Object.isFrozen(val)) {
+        deepFreeze(val);
+      }
+    }
+    return obj;
+  }
+
+  // OWASP Agent Control Standard (ACS 2026) Request Lifecycle Tracking with Cryptographic Hash Chain
   const MAX_LIFECYCLE_ENTRIES = 500;
 
-  function recordLifecycleEvent(requestId, state, metadata = {}) {
+  function recordLifecycleEvent(requestId, state, data = {}) {
     if (!requestId || typeof requestId !== 'string') {
       requestId = String(requestId || secureRandomId('req'));
     }
     const normState = String(state || '').trim().toLowerCase();
-    const event = {
-      state: normState,
-      timestamp: Date.now(),
-      metadata: (metadata && typeof metadata === 'object') ? { ...metadata } : {}
-    };
+
+    // Redact raw approvalToken and store short token fingerprint (first 16 hex chars)
+    const sanitizedData = (data && typeof data === 'object') ? { ...data } : {};
+    if ('approvalToken' in sanitizedData) {
+      if (sanitizedData.approvalToken) {
+        sanitizedData.tokenFingerprint = _sha256Hex(String(sanitizedData.approvalToken)).slice(0, 16);
+      }
+      delete sanitizedData.approvalToken;
+    }
 
     let record = _lifecycleAuditTrail.get(requestId);
     if (!record) {
@@ -780,6 +849,19 @@
       _lifecycleAuditTrail.set(requestId, record);
     }
 
+    // Cryptographic Hash Chain: prevHash -> entryHash
+    const lastEntry = record.history.length > 0 ? record.history[record.history.length - 1] : null;
+    const prevHash = lastEntry ? lastEntry.entryHash : 'GENESIS';
+    const entryHash = _sha256Hex(prevHash + '|' + JSON.stringify(sanitizedData));
+
+    const event = {
+      state: normState,
+      timestamp: Date.now(),
+      metadata: sanitizedData,
+      prevHash,
+      entryHash
+    };
+
     record.state = normState;
     record.currentState = normState;
     record.updatedAt = Date.now();
@@ -790,35 +872,15 @@
 
   function getRequestLifecycle(requestId) {
     if (!requestId || typeof requestId !== 'string') return null;
-    return _lifecycleAuditTrail.get(requestId) || null;
+    const record = _lifecycleAuditTrail.get(requestId);
+    if (!record) return null;
+    const clone = JSON.parse(JSON.stringify(record));
+    return deepFreeze(clone);
   }
 
-  // Capability handshake registration
-  const _capabilityHandshake = Object.freeze({
-    store: _internalTokenStore,
-    lifecycle: _lifecycleAuditTrail,
-    getStore: _getApprovalTokenStoreInternal,
-    issue: issueApprovalTokenInternal,
-    verify: verifyApprovalTokenInternal,
-    consume: consumeApprovalTokenInternal,
-    clear: clearApprovalTokensInternal,
-    recordLifecycleEvent,
-    getRequestLifecycle
-  });
-
+  /* istanbul ignore next */
   if (typeof globalThis !== 'undefined') {
-    try {
-      Object.defineProperty(globalThis, APPROVAL_HANDSHAKE_SYM, {
-        value: _capabilityHandshake,
-        writable: false,
-        configurable: true,
-        enumerable: false
-      });
-    } catch (_) {
-      globalThis[APPROVAL_HANDSHAKE_SYM] = _capabilityHandshake;
-    }
-
-    // Replace direct storage on globalThis.__nexusApprovalTokens with backward-compatible non-enumerable accessor
+    // Backwards-compatibility for existing tests inspecting globalThis.__nexusApprovalTokens
     try {
       Object.defineProperty(globalThis, '__nexusApprovalTokens', {
         get() {
@@ -903,6 +965,7 @@
       read: 'read_only',
       read_events: 'read_only',
       list_events: 'read_only',
+      list_calendars: 'read_only',
       get_event: 'read_only',
       create: 'mutating',
       update: 'mutating',
@@ -918,6 +981,23 @@
       read: 'read_only',
       read_events: 'read_only',
       list_events: 'read_only',
+      list_calendars: 'read_only',
+      get_event: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      delete: 'high_risk',
+      remove: 'high_risk'
+    }),
+    google_calendar: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      view: 'read_only',
+      read: 'read_only',
+      read_events: 'read_only',
+      list_events: 'read_only',
+      list_calendars: 'read_only',
       get_event: 'read_only',
       create: 'mutating',
       update: 'mutating',
@@ -954,6 +1034,15 @@
       branches: 'read_only',
       issues: 'read_only',
       pull_requests: 'read_only',
+      read_repo: 'read_only',
+      read_issues: 'read_only',
+      read_pull_requests: 'read_only',
+      read_branches: 'read_only',
+      read_files: 'read_only',
+      get_file: 'read_only',
+      get_user: 'read_only',
+      list_repos: 'read_only',
+      list_issues: 'read_only',
       create_issue: 'mutating',
       update: 'mutating',
       comment: 'mutating',
@@ -972,6 +1061,7 @@
       fetch: 'read_only',
       sync: 'read_only',
       sync_data: 'read_only',
+      read_records: 'read_only',
       insert: 'mutating',
       update: 'mutating',
       upsert: 'mutating',
@@ -986,6 +1076,7 @@
       getupdates: 'read_only',
       get_chat: 'read_only',
       getchat: 'read_only',
+      read_messages: 'read_only',
       send_message: 'mutating',
       sendmessage: 'mutating',
       edit_message: 'mutating',
@@ -1073,6 +1164,11 @@
       search: 'read_only',
       read: 'read_only',
       view: 'read_only',
+      read_files: 'read_only',
+      search_files: 'read_only',
+      get_metadata: 'read_only',
+      list_files: 'read_only',
+      download: 'read_only',
       create: 'mutating',
       update: 'mutating',
       patch: 'mutating',
@@ -1087,6 +1183,11 @@
       search: 'read_only',
       read: 'read_only',
       view: 'read_only',
+      read_files: 'read_only',
+      search_files: 'read_only',
+      get_metadata: 'read_only',
+      list_files: 'read_only',
+      download: 'read_only',
       create: 'mutating',
       update: 'mutating',
       patch: 'mutating',
@@ -1158,18 +1259,53 @@
       update: 'mutating',
       log: 'mutating',
       delete: 'high_risk'
+    }),
+    notion: Object.freeze({
+      read_pages: 'read_only',
+      read_databases: 'read_only',
+      search: 'read_only',
+      query_database: 'read_only'
+    }),
+    mcp: Object.freeze({
+      'tools/list': 'read_only',
+      list_tools: 'read_only',
+      'resources/list': 'read_only',
+      list_resources: 'read_only',
+      'resources/read': 'read_only',
+      read_resource: 'read_only',
+      'tools/call': 'mutating',
+      call_tool: 'mutating',
+      execute: 'mutating'
+    }),
+    system: Object.freeze({
+      read_info: 'read_only',
+      status: 'read_only',
+      health: 'read_only',
+      metrics: 'read_only'
     })
   });
 
-  function isSensitiveProviderAction(providerId, action) {
+  function getActionPolicyCategory(providerId, action) {
     const pid = String(providerId || '').trim().toLowerCase();
     const act = String(action || '').trim().toLowerCase();
     if (!pid || !act) {
-      return true; // Fail-closed / default-deny
+      return null;
     }
 
-    const providerManifest = ACTION_POLICY_MANIFEST[pid];
-    let tier = providerManifest ? providerManifest[act] : undefined;
+    let providerManifest = ACTION_POLICY_MANIFEST[pid];
+    if (!providerManifest) {
+      if (pid === 'google_calendar') providerManifest = ACTION_POLICY_MANIFEST.gcal;
+      else if (pid === 'gcal' || pid === 'calendar') providerManifest = ACTION_POLICY_MANIFEST.google_calendar || ACTION_POLICY_MANIFEST.gcal;
+      else if (pid === 'drive') providerManifest = ACTION_POLICY_MANIFEST.google_drive;
+      else if (pid === 'cloudflare_worker') providerManifest = ACTION_POLICY_MANIFEST.cloudflare;
+      else if (pid === 'clash') providerManifest = ACTION_POLICY_MANIFEST.clash_royale;
+      else {
+        const catItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === pid);
+        if (catItem && catItem.type === 'MCP') providerManifest = ACTION_POLICY_MANIFEST.mcp;
+      }
+    }
+
+    let tier = providerManifest ? providerManifest[act] : null;
     if (!tier && providerManifest) {
       // Handle camelCase conversion to snake_case e.g. getMe -> get_me, deleteMessage -> delete_message
       const snake = act.replace(/([A-Z])/g, '_$1').toLowerCase();
@@ -1178,28 +1314,28 @@
         const noUnderscore = act.replace(/_/g, '');
         tier = providerManifest[noUnderscore];
       }
-      if (!tier) {
-        // Prefix check for read_*, list_*, get_*, search_*, fetch_*, view_*
-        if (/^(read|list|get|search|fetch|view)_/i.test(act) && !/create|update|delete|send|push|write|patch|drop|remove|exec/i.test(act)) {
-          tier = 'read_only';
-        }
+    }
+    if (!tier) {
+      const catItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === pid);
+      if (catItem && catItem.type === 'MCP') {
+        tier = 'mutating';
       }
     }
 
-    if (tier === 'mutating' || tier === 'high_risk') {
+    // STRICT LAW OF DEFAULT-DENY: Absolutely NO prefix guessing (read_*, list_*, get_*, search_*, fetch_*, view_*)
+    return tier || null;
+  }
+
+  function isSensitiveProviderAction(providerId, action) {
+    const tier = getActionPolicyCategory(providerId, action);
+    if (!tier) {
+      // Law of Absolute Default-Deny: unlisted actions are ALWAYS sensitive (fail-closed)
       return true;
     }
     if (tier === 'read_only') {
       return false;
     }
-
-    // Secondary regex safeguard for unmapped actions containing sensitive keywords
-    if (/send|upload|publish|delete|exec|write|push|drop|truncate|setwebhook|deletewebhook|broadcast|create|update|patch|remove/i.test(act)) {
-      return true;
-    }
-
-    // Fail-closed / Default-deny for any unmapped action or unknown provider
-    return true;
+    return true; // mutating or high_risk
   }
   const isMutatingOrSensitiveAction = isSensitiveProviderAction;
 
@@ -1223,7 +1359,7 @@
 
   function formatProviderError(error, providerId, context = {}) {
     const status = Number(error?.status || error?.statusCode || error?.response?.status) || 500;
-    const rawMsg = error?.message || (typeof error === 'string' ? error : 'Provider operation failed');
+    const rawMsg = error?.message || (typeof error === 'string' ? error : null);
 
     if (status === 401) {
       if (context && typeof context.quarantineToken === 'function') {
@@ -1271,7 +1407,7 @@
     return {
       status,
       error: error?.name || 'ProviderError',
-      message: rawMsg,
+      message: rawMsg || 'Provider operation failed',
       providerId
     };
   }
@@ -1352,6 +1488,28 @@
     const providerDef = PROVIDERS[providerId] || Object.values(PROVIDERS).find(p => (p.id || '').toLowerCase() === providerId) || catalogItem;
     const isKnownProvider = Boolean(providerDef || catalogItem || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
 
+    if (!isKnownProvider) {
+      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'NOT_FOUND' });
+      return {
+        status: 404,
+        error: 'NOT_FOUND',
+        message: `Unknown provider '${rawPid || providerId}'`
+      };
+    }
+
+    // Step 0: Check MCP disabled status
+    if (catalogItem && catalogItem.type === 'MCP') {
+      const conn = appConnections?.[providerId] || appConnections?.[rawPid];
+      if (conn && (conn.mcpEnabled === false || conn.connected === false)) {
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'MCP_DISABLED' });
+        return {
+          status: 403,
+          error: 'MCP_DISABLED',
+          message: `MCP server for ${providerId} is disabled or disconnected.`
+        };
+      }
+    }
+
     // Negative Security Check: requireApproval: false CANNOT bypass unmapped or sensitive actions (default-deny)
     if (requireApproval === false && isSensitiveProviderAction(providerId, action) && !approvalToken) {
       const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
@@ -1370,24 +1528,27 @@
       };
     }
 
-    if (!isKnownProvider) {
-      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'NOT_FOUND' });
+    // Law of Absolute Default-Deny: Unlisted actions MUST be strictly rejected immediately
+    const policyTier = getActionPolicyCategory(providerId, action);
+    if (!policyTier) {
+      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'UNLISTED_ACTION_DENIED' });
       return {
-        status: 404,
-        error: 'NOT_FOUND',
-        message: `Unknown provider '${rawPid || providerId}'`
+        status: 403,
+        error: 'UNLISTED_ACTION_DENIED',
+        message: `Action '${rawAct || action}' is not registered in ACTION_POLICY_MANIFEST and strictly denied.`
       };
     }
 
-    // Step 1: Check MCP disabled status
-    if (catalogItem && catalogItem.type === 'MCP') {
-      const conn = appConnections?.[providerId] || appConnections?.[rawPid];
-      if (conn && (conn.mcpEnabled === false || conn.connected === false)) {
-        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'MCP_DISABLED' });
+    // Step 0.5: Check AgentExecutionGuard limits if provided
+    if (request.executionGuard && typeof request.executionGuard.checkExecutionLimits === 'function') {
+      try {
+        request.executionGuard.checkExecutionLimits(action, params);
+      } catch (guardErr) {
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: guardErr.code || guardErr.message });
         return {
-          status: 403,
-          error: 'MCP_DISABLED',
-          message: `MCP server for ${providerId} is disabled or disconnected.`
+          status: 429,
+          error: guardErr.code || 'EXECUTION_LIMIT_EXCEEDED',
+          message: guardErr.message
         };
       }
     }
@@ -1440,11 +1601,28 @@
       }
 
       // Enforce atomic verification and single-use consumption of One-Time Capability Approval Token
-      const valid = consumeApprovalToken(approvalToken, {
-        providerId,
-        action,
-        params
-      });
+      let valid = false;
+      if (typeof _approvalVerifier === 'function') {
+        valid = _approvalVerifier(approvalToken, {
+          providerId,
+          action,
+          params
+        });
+      } else {
+        let peerApprovals = null;
+        if (typeof require === 'function') {
+          try { peerApprovals = require('../security/approvals.js'); } catch (_) {}
+        }
+        const fallbackVerifier = (peerApprovals && peerApprovals.consumeApprovalToken) ||
+          (target && target.NexusApprovals && target.NexusApprovals.consumeApprovalToken) ||
+          (target && target.NexusCore && target.NexusCore.consumeApprovalToken) ||
+          consumeApprovalTokenInternal;
+        valid = fallbackVerifier(approvalToken, {
+          providerId,
+          action,
+          params
+        });
+      }
       if (!valid) {
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'INVALID_APPROVAL_TOKEN' });
         return {
@@ -1466,12 +1644,22 @@
 
     // Step 5: Execute with retry and handle standard HTTP errors
     if (typeof executeFn !== 'function') {
+      if (request.executionGuard && typeof request.executionGuard.recordToolCall === 'function') {
+        try {
+          request.executionGuard.recordToolCall(action, params);
+        } catch (_) {}
+      }
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, message: 'Request validated successfully' };
     }
 
     try {
       const result = await executeWithRetry(executeFn, retryOptions);
+      if (request.executionGuard && typeof request.executionGuard.recordToolCall === 'function') {
+        try {
+          request.executionGuard.recordToolCall(action, params);
+        } catch (_) {}
+      }
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, data: result };
     } catch (err) {
@@ -1671,12 +1859,14 @@
         return s;
       }
     } catch (_) {}
+    /* istanbul ignore next */
     try {
       const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
       if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
         return nodeCrypto.randomBytes(bytes).toString('hex');
       }
     } catch (_) {}
+    /* istanbul ignore next */
     return Date.now().toString(36).padEnd(bytes * 2, '0').slice(0, bytes * 2);
   }
 
@@ -1904,6 +2094,131 @@
     }
   });
 
+  let AgentExecutionGuard = null;
+  if (typeof require === 'function') {
+    try {
+      const stateMod = require('../core/state.js');
+      AgentExecutionGuard = stateMod && stateMod.AgentExecutionGuard;
+    } catch (_) {}
+  }
+  /* istanbul ignore next */
+  if (!AgentExecutionGuard && typeof globalThis !== 'undefined' && globalThis.AgentExecutionGuard) {
+    AgentExecutionGuard = globalThis.AgentExecutionGuard;
+  }
+  /* istanbul ignore next */
+  if (!AgentExecutionGuard && target && target.AgentExecutionGuard) {
+    AgentExecutionGuard = target.AgentExecutionGuard;
+  }
+  /* istanbul ignore next */
+  if (!AgentExecutionGuard) {
+    AgentExecutionGuard = class AgentExecutionGuard {
+      constructor(options = {}) {
+        this.maxSteps = options.maxSteps !== undefined ? Number(options.maxSteps) : 15;
+        this.maxToolCalls = options.maxToolCalls !== undefined ? Number(options.maxToolCalls) : 20;
+        this.maxTokenBudget = options.maxTokenBudget !== undefined ? Number(options.maxTokenBudget) : 100000;
+        this.maxDurationMs = options.maxDurationMs !== undefined ? Number(options.maxDurationMs) : 120000;
+        this.currentSteps = 0;
+        this.currentToolCalls = 0;
+        this.usedTokens = 0;
+        this.startTime = Date.now();
+        this.callHistory = [];
+        this.abortController = (typeof AbortController !== 'undefined')
+          ? new AbortController()
+          : { signal: { aborted: false }, abort(reason) { this.signal.aborted = true; this.signal.reason = reason; } };
+        this.cancelled = false;
+        this.cancelReason = null;
+      }
+      _fingerprint(toolName, params) {
+        const t = String(toolName || '').trim();
+        let p = '';
+        try {
+          if (params !== undefined && params !== null) {
+            p = (typeof params === 'object') ? JSON.stringify(params) : String(params);
+          }
+        } catch (_) {
+          p = String(params || '');
+        }
+        return `${t}::${p}`;
+      }
+      detectLoop(toolName, params) {
+        const fp = this._fingerprint(toolName, params);
+        const n = this.callHistory.length;
+        if (n >= 2) {
+          const prev1 = this.callHistory[n - 1];
+          const prev2 = this.callHistory[n - 2];
+          if (prev1 && prev2 && prev1.fingerprint === fp && prev2.fingerprint === fp) {
+            const err = new Error(`LOOP_DETECTED: 3 consecutive calls with identical tool & params fingerprint (${toolName})`);
+            err.code = 'LOOP_DETECTED';
+            err.toolName = toolName;
+            throw err;
+          }
+        }
+        return false;
+      }
+      checkExecutionLimits(toolName, params) {
+        if (this.isCancelled()) {
+          const err = new Error(`EXECUTION_CANCELLED: ${this.cancelReason || 'Task was cancelled'}`);
+          err.code = 'EXECUTION_CANCELLED';
+          throw err;
+        }
+        if (this.currentSteps >= this.maxSteps) {
+          const err = new Error(`STEP_LIMIT_EXCEEDED: Maximum steps (${this.maxSteps}) exceeded`);
+          err.code = 'STEP_LIMIT_EXCEEDED';
+          throw err;
+        }
+        if (this.currentToolCalls >= this.maxToolCalls) {
+          const err = new Error(`TOOL_CALL_LIMIT_EXCEEDED: Maximum tool calls (${this.maxToolCalls}) exceeded`);
+          err.code = 'TOOL_CALL_LIMIT_EXCEEDED';
+          throw err;
+        }
+        if (this.usedTokens >= this.maxTokenBudget) {
+          const err = new Error(`TOKEN_BUDGET_EXCEEDED: Maximum token budget (${this.maxTokenBudget}) exceeded`);
+          err.code = 'TOKEN_BUDGET_EXCEEDED';
+          throw err;
+        }
+        if (Date.now() - this.startTime > this.maxDurationMs) {
+          const err = new Error(`DURATION_LIMIT_EXCEEDED: Maximum execution duration (${this.maxDurationMs}ms) exceeded`);
+          err.code = 'DURATION_LIMIT_EXCEEDED';
+          throw err;
+        }
+        if (toolName !== undefined && toolName !== null) {
+          this.detectLoop(toolName, params);
+        }
+        return true;
+      }
+      recordStep() {
+        this.currentSteps++;
+        return this.currentSteps;
+      }
+      recordToolCall(toolName, params, tokens = 0) {
+        this.currentToolCalls++;
+        const tok = Math.max(0, Number(tokens) || 0);
+        this.usedTokens += tok;
+        const entry = {
+          toolName: String(toolName || ''),
+          params: (params && typeof params === 'object') ? JSON.parse(JSON.stringify(params)) : params,
+          fingerprint: this._fingerprint(toolName, params),
+          tokens: tok,
+          timestamp: Date.now()
+        };
+        this.callHistory.push(entry);
+        return entry;
+      }
+      cancelTask(reason = 'Task cancelled by user') {
+        this.cancelled = true;
+        this.cancelReason = String(reason || 'Task cancelled');
+        if (this.abortController && typeof this.abortController.abort === 'function') {
+          try {
+            this.abortController.abort(reason);
+          } catch (_) {}
+        }
+      }
+      isCancelled() {
+        return Boolean(this.cancelled || (this.abortController && this.abortController.signal && this.abortController.signal.aborted));
+      }
+    };
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -1922,6 +2237,9 @@
     validateProviderScope,
     isMutatingOrSensitiveAction,
     isSensitiveProviderAction,
+    getActionPolicyCategory,
+    registerInternalApprovalVerifier,
+    AgentExecutionGuard,
     _withTimeout,
     formatProviderError,
     executeWithRetry,
@@ -1964,6 +2282,8 @@
     canonicalizeJson,
     _hashParams,
     _generateTokenNonce,
-    _sha256Pure
+    _sha256Pure,
+    _sha256Hex,
+    deepFreeze
   };
 });

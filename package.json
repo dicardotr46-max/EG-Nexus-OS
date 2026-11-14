@@ -1,7 +1,7 @@
 {
   "name": "eg-nexus-os",
-  "version": "6.2.2",
-  "description": "EG Nexus OS v6.2.2 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
+  "version": "6.2.3",
+  "description": "EG Nexus OS v6.2.3 — Personal Multi-Agent Operating System (PWA & Capacitor Android APK)",
   "private": true,
   "engines": {
     "node": ">=18.20.0"

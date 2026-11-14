@@ -379,6 +379,128 @@
   const appState = createProtectedStateProxy(createInitialAppState());
   const uiState = createProtectedStateProxy(createInitialUiState());
 
+  class AgentExecutionGuard {
+    constructor(options = {}) {
+      this.maxSteps = options.maxSteps !== undefined ? Number(options.maxSteps) : 15;
+      this.maxToolCalls = options.maxToolCalls !== undefined ? Number(options.maxToolCalls) : 20;
+      this.maxTokenBudget = options.maxTokenBudget !== undefined ? Number(options.maxTokenBudget) : 100000;
+      this.maxDurationMs = options.maxDurationMs !== undefined ? Number(options.maxDurationMs) : 120000;
+      this.currentSteps = 0;
+      this.currentToolCalls = 0;
+      this.usedTokens = 0;
+      this.startTime = Date.now();
+      this.callHistory = [];
+      this.abortController = (typeof AbortController !== 'undefined')
+        ? new AbortController()
+        : { signal: { aborted: false }, abort(reason) { this.signal.aborted = true; this.signal.reason = reason; } };
+      this.cancelled = false;
+      this.cancelReason = null;
+    }
+
+    _fingerprint(toolName, params) {
+      const t = String(toolName || '').trim();
+      let p = '';
+      try {
+        if (params !== undefined && params !== null) {
+          p = (typeof params === 'object') ? JSON.stringify(params) : String(params);
+        }
+      } catch (_) {
+        p = String(params || '');
+      }
+      return `${t}::${p}`;
+    }
+
+    detectLoop(toolName, params) {
+      const fp = this._fingerprint(toolName, params);
+      const n = this.callHistory.length;
+      if (n >= 2) {
+        const prev1 = this.callHistory[n - 1];
+        const prev2 = this.callHistory[n - 2];
+        if (prev1 && prev2 && prev1.fingerprint === fp && prev2.fingerprint === fp) {
+          const err = new Error(`LOOP_DETECTED: 3 consecutive calls with identical tool & params fingerprint (${toolName})`);
+          err.code = 'LOOP_DETECTED';
+          err.toolName = toolName;
+          throw err;
+        }
+      }
+      return false;
+    }
+
+    checkExecutionLimits(toolName, params) {
+      if (this.isCancelled()) {
+        const err = new Error(`EXECUTION_CANCELLED: ${this.cancelReason || 'Task was cancelled'}`);
+        err.code = 'EXECUTION_CANCELLED';
+        throw err;
+      }
+      if (this.currentSteps >= this.maxSteps) {
+        const err = new Error(`STEP_LIMIT_EXCEEDED: Maximum steps (${this.maxSteps}) exceeded`);
+        err.code = 'STEP_LIMIT_EXCEEDED';
+        throw err;
+      }
+      if (this.currentToolCalls >= this.maxToolCalls) {
+        const err = new Error(`TOOL_CALL_LIMIT_EXCEEDED: Maximum tool calls (${this.maxToolCalls}) exceeded`);
+        err.code = 'TOOL_CALL_LIMIT_EXCEEDED';
+        throw err;
+      }
+      if (this.usedTokens >= this.maxTokenBudget) {
+        const err = new Error(`TOKEN_BUDGET_EXCEEDED: Maximum token budget (${this.maxTokenBudget}) exceeded`);
+        err.code = 'TOKEN_BUDGET_EXCEEDED';
+        throw err;
+      }
+      if (Date.now() - this.startTime > this.maxDurationMs) {
+        const err = new Error(`DURATION_LIMIT_EXCEEDED: Maximum execution duration (${this.maxDurationMs}ms) exceeded`);
+        err.code = 'DURATION_LIMIT_EXCEEDED';
+        throw err;
+      }
+      if (toolName !== undefined && toolName !== null) {
+        this.detectLoop(toolName, params);
+      }
+      return true;
+    }
+
+    recordStep() {
+      this.currentSteps++;
+      return this.currentSteps;
+    }
+
+    recordToolCall(toolName, params, tokens = 0) {
+      this.currentToolCalls++;
+      const tok = Math.max(0, Number(tokens) || 0);
+      this.usedTokens += tok;
+      let safeParams = params;
+      try {
+        if (params && typeof params === 'object') {
+          safeParams = JSON.parse(JSON.stringify(params));
+        }
+      } catch (_) {
+        safeParams = String(params || '');
+      }
+      const entry = {
+        toolName: String(toolName || ''),
+        params: safeParams,
+        fingerprint: this._fingerprint(toolName, params),
+        tokens: tok,
+        timestamp: Date.now()
+      };
+      this.callHistory.push(entry);
+      return entry;
+    }
+
+    cancelTask(reason = 'Task cancelled by user') {
+      this.cancelled = true;
+      this.cancelReason = String(reason || 'Task cancelled');
+      if (this.abortController && typeof this.abortController.abort === 'function') {
+        try {
+          this.abortController.abort(reason);
+        } catch (_) {}
+      }
+    }
+
+    isCancelled() {
+      return Boolean(this.cancelled || (this.abortController && this.abortController.signal && this.abortController.signal.aborted));
+    }
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -393,6 +515,7 @@
     StateStore,
     appendMessage,
     appState,
-    uiState
+    uiState,
+    AgentExecutionGuard
   };
 });

@@ -289,19 +289,19 @@ describe('EG-Nexus-OS v6.0.0 Security Hardening & Audit Verification Suite', () 
     const sw = fs.readFileSync(path.join(__dirname, '../sw.js'), 'utf8');
 
     it('has valid release version in index.html title', () => {
-      expect(html).toMatch(/<title>EG Nexus OS v6\.[0-2]\.[0-2] \|/);
+      expect(html).toMatch(/<title>EG Nexus OS v6\.[0-9]+\.[0-9]+ \|/);
     });
 
     it('has valid release version in package.json', () => {
-      expect(pkg.version).toMatch(/^6\.[0-2]\.[0-2]$/);
+      expect(pkg.version).toMatch(/^6\.[0-9]+\.[0-9]+$/);
     });
 
     it('has valid release version in manifest.json', () => {
-      expect(manifest.name).toMatch(/v6\.[0-2]\.[0-2]/);
+      expect(manifest.name).toMatch(/v6\.[0-9]+\.[0-9]+/);
     });
 
     it('has valid release version in sw.js CACHE_NAME', () => {
-      expect(sw).toMatch(/eg-nexus-os-v6\.[0-2]\.[0-2]-pwa-cache/);
+      expect(sw).toMatch(/eg-nexus-os-v6\.[0-9]+\.[0-9]+-pwa-cache/);
     });
 
     it('has single authoritative CSP in <head>', () => {

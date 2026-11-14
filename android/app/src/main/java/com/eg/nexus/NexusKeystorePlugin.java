@@ -99,13 +99,14 @@ public class NexusKeystorePlugin extends Plugin {
 
     private synchronized void setJournalState(String state) {
         this.memoryJournalState = state;
-        try {
-            Context context = getContext();
-            if (context != null) {
-                SharedPreferences prefs = context.getSharedPreferences(JOURNAL_PREFS_NAME, Context.MODE_PRIVATE);
-                prefs.edit().putString(JOURNAL_KEY_MIGRATION_STATE, state).commit();
+        Context context = getContext();
+        if (context != null) {
+            SharedPreferences prefs = context.getSharedPreferences(JOURNAL_PREFS_NAME, Context.MODE_PRIVATE);
+            boolean committed = prefs.edit().putString(JOURNAL_KEY_MIGRATION_STATE, state).commit();
+            if (!committed) {
+                throw new IllegalStateException("Failed to persist StrongBox journal state: " + state);
             }
-        } catch (Exception ignored) {}
+        }
     }
 
     /**
@@ -472,6 +473,19 @@ public class NexusKeystorePlugin extends Plugin {
         try {
             KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
             keyStore.load(null);
+            String stage = call.getString("stage", call.getString("state", null));
+            String currentState = getJournalState(keyStore);
+
+            if (STATE_STORAGE_COMMITTED.equals(stage)
+                    || (stage == null && STATE_V2_DATA_VERIFIED.equals(currentState))) {
+                setJournalState(STATE_STORAGE_COMMITTED);
+                ret.put("committed", true);
+                ret.put("journalState", STATE_STORAGE_COMMITTED);
+                ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
+                call.resolve(ret);
+                return;
+            }
+
             setJournalState(STATE_STORAGE_COMMITTED);
             setJournalState(STATE_ACTIVE_V2);
             boolean deletedOld = false;
@@ -485,7 +499,6 @@ public class NexusKeystorePlugin extends Plugin {
                     deletedOld = true;
                 }
             }
-            setJournalState(STATE_ACTIVE_V2);
             ret.put("committed", true);
             ret.put("deletedOldKeys", deletedOld);
             ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
@@ -557,12 +570,21 @@ public class NexusKeystorePlugin extends Plugin {
         try {
             KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
             keyStore.load(null);
+            String priorState = getJournalState(keyStore);
             boolean recovered = recoverInterruptedMigration(keyStore);
             String state = getJournalState(keyStore);
             String activeAlias = getActiveKeyAlias(keyStore);
             ret.put("recovered", recovered);
             ret.put("journalState", state);
             ret.put("activeAlias", activeAlias);
+            if (recovered && (STATE_MIGRATION_PREPARED.equals(priorState)
+                    || STATE_V2_KEY_CREATED.equals(priorState)
+                    || STATE_V2_DATA_VERIFIED.equals(priorState))) {
+                ret.put("deletedUncommittedV2", true);
+            }
+            if (recovered && STATE_STORAGE_COMMITTED.equals(priorState)) {
+                ret.put("deletedOldKeys", true);
+            }
             call.resolve(ret);
         } catch (Exception e) {
             ret.put("recovered", false);

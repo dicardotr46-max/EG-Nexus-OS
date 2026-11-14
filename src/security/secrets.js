@@ -31,6 +31,9 @@
       target.getMigrationJournalState = exports.getMigrationJournalState;
       target.recoverInterruptedMigration = exports.recoverInterruptedMigration;
     }
+    if (typeof exports.STAGING_KEY_SUFFIX === 'string') {
+      target.STAGING_KEY_SUFFIX = exports.STAGING_KEY_SUFFIX;
+    }
     if (typeof exports.isHardwareKeystoreAvailable === 'function') {
       target.isHardwareKeystoreAvailable = exports.isHardwareKeystoreAvailable;
     }
@@ -114,6 +117,7 @@
   const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
   const LEGACY_SESSION_SECRETS_KEY = LEGACY_STORAGE_KEY + '_session_secrets';
+  const STAGING_KEY_SUFFIX = '_v2_staging';
   const SESSION_KEY_STORAGE = 'nexus_session_key_seed_v1';
   const SESSION_KEY_SYM = Symbol.for('eg.nexus.session.key.v1');
   const SESSION_SECRETS_SCHEMA_VERSION = 1;
@@ -586,6 +590,7 @@
       return { migrated: false, reason: 'Native Android KeyStore StrongBox plugin not available' };
     }
     const store = _getStorage(options && (options.storage || options.store) ? (options.storage || options.store) : undefined);
+    let stagingKey = null;
     try {
       let payload = {};
       let storageKey = null;
@@ -615,7 +620,8 @@
         }
       }
 
-      // Step 1: Request transactional migration from native keystore
+      // 2PC Step a: Keep V1 data in SESSION_SECRETS_KEY (storageKey) untouched.
+      // 2PC Step b: Generate V2 key in native keystore, re-encrypt payload, and verify roundtrip decryption with native keystore (journal state: V2_DATA_VERIFIED).
       const res = await ks.migrateKeyToStrongBox(payload);
       if (!res || !res.migrated) {
         if (res && res.alreadyStrongBox) {
@@ -635,7 +641,7 @@
         return res || { migrated: false, error: 'Migration failed' };
       }
 
-      // Step 2: If re-encrypted ciphertext was produced, verify it roundtrip with native decrypt
+      // Verify roundtrip decryption with native decrypt if new ciphertext was produced
       if (res.newCiphertext && res.newIv && typeof ks.decrypt === 'function') {
         const verifyRes = await ks.decrypt({
           ciphertext: res.newCiphertext,
@@ -645,34 +651,86 @@
         if (!verifyRes || typeof verifyRes.data !== 'string') {
           throw new Error('StrongBox re-encrypted payload roundtrip verification failed');
         }
+      }
 
-        // Persist new ciphertext into storage with committed journal states
-        if (store && typeof store.setItem === 'function' && storageKey) {
-          const envelopeToStore = existingEnvelope || {
-            version: SESSION_SECRETS_SCHEMA_VERSION,
-            encrypted: true,
-            algorithm: 'AES-GCM-256'
-          };
-          envelopeToStore.ciphertext = res.newCiphertext;
-          envelopeToStore.iv = res.newIv;
-          if (res.aad) envelopeToStore.aad = res.aad;
-          envelopeToStore.keySource = 'AndroidKeyStore';
-          envelopeToStore.migratedAt = Date.now();
-          envelopeToStore.migrationState = 'STORAGE_COMMITTED';
-          envelopeToStore.journalState = 'ACTIVE_V2';
-          store.setItem(storageKey, JSON.stringify(envelopeToStore));
+      // 2PC Step c: Define const STAGING_KEY = storageKey + '_v2_staging'.
+      // Write the new V2 encrypted envelope to STAGING_KEY in storage.
+      // Immediately read back from STAGING_KEY and JSON.parse/verify to guarantee disk write integrity.
+      // At this point, BOTH V1 data in storageKey and V2 data in STAGING_KEY exist simultaneously.
+      let envelopeToStore = null;
+      if (store && typeof store.setItem === 'function' && storageKey && res.newCiphertext && res.newIv) {
+        const STAGING_KEY = storageKey + STAGING_KEY_SUFFIX;
+        stagingKey = STAGING_KEY;
+        envelopeToStore = existingEnvelope ? { ...existingEnvelope } : {
+          version: SESSION_SECRETS_SCHEMA_VERSION,
+          encrypted: true,
+          algorithm: 'AES-GCM-256'
+        };
+        if (res.newCiphertext) envelopeToStore.ciphertext = res.newCiphertext;
+        if (res.newIv) envelopeToStore.iv = res.newIv;
+        if (res.aad) envelopeToStore.aad = res.aad;
+        envelopeToStore.keySource = 'AndroidKeyStore';
+        envelopeToStore.migratedAt = Date.now();
+        envelopeToStore.migrationState = 'STORAGE_COMMITTED';
+        envelopeToStore.journalState = 'ACTIVE_V2';
+
+        store.setItem(STAGING_KEY, JSON.stringify(envelopeToStore));
+
+        // Immediately read back from STAGING_KEY and JSON.parse/verify to guarantee disk write integrity
+        const readBackRaw = store.getItem(STAGING_KEY);
+        if (!readBackRaw) {
+          throw new Error('STAGING_VERIFICATION_FAILED: failed to read back staging envelope from storage');
+        }
+        let readBackParsed;
+        try {
+          readBackParsed = JSON.parse(readBackRaw);
+        } catch (parseErr) {
+          throw new Error('STAGING_VERIFICATION_FAILED: failed to parse staged envelope');
+        }
+        if (!readBackParsed || typeof readBackParsed !== 'object') {
+          throw new Error('STAGING_VERIFICATION_FAILED: staged envelope is not a valid object');
+        }
+        if (res.newCiphertext && readBackParsed.ciphertext !== res.newCiphertext) {
+          throw new Error('STAGING_VERIFICATION_FAILED: staged ciphertext verification mismatch');
+        }
+        if (res.newIv && readBackParsed.iv !== res.newIv) {
+          throw new Error('STAGING_VERIFICATION_FAILED: staged iv verification mismatch');
+        }
+        // At this point, BOTH V1 data in storageKey and V2 data in STAGING_KEY exist simultaneously.
+      }
+
+      // 2PC Step d: Call ks.commitKeyMigration() which persists journal state STORAGE_COMMITTED to SharedPreferences.
+      let commitRes = null;
+      if (typeof ks.commitKeyMigration === 'function') {
+        commitRes = await ks.commitKeyMigration({ stage: 'STORAGE_COMMITTED' });
+        if (commitRes && commitRes.committed === false) {
+          throw new Error(commitRes.error || 'Failed to commit StrongBox migration journal state');
         }
       }
 
-      // Step 3: Commit the migration natively (safe to delete old keys now)
-      let commitRes = null;
+      // 2PC Step e: Once STORAGE_COMMITTED is confirmed, copy the staging envelope to storageKey (SESSION_SECRETS_KEY),
+      // remove STAGING_KEY from storage, and advance native journal to ACTIVE_V2 / delete old V1 keys.
+      if (store && typeof store.setItem === 'function' && storageKey && envelopeToStore) {
+        store.setItem(storageKey, JSON.stringify(envelopeToStore));
+        if (stagingKey && typeof store.removeItem === 'function') {
+          store.removeItem(stagingKey);
+          stagingKey = null;
+        }
+      }
+
+      // Advance native journal to ACTIVE_V2 / delete old V1 keys
       if (typeof ks.commitKeyMigration === 'function') {
-        commitRes = await ks.commitKeyMigration();
+        try {
+          const finalCommit = await ks.commitKeyMigration({ stage: 'ACTIVE_V2' });
+          if (finalCommit) {
+            commitRes = { ...commitRes, ...finalCommit };
+          }
+        } catch (_) {}
       }
 
       const secLevel = res.securityLevel || 'strongbox';
       const isHw = Boolean(secLevel === 'strongbox' || secLevel === 'tee');
-      const finalJournalState = (commitRes && commitRes.journalState) || res.journalState || 'ACTIVE_V2';
+      const finalJournalState = (commitRes && commitRes.journalState) || 'ACTIVE_V2';
       const finalAlias = (commitRes && commitRes.activeAlias) || res.alias || 'eg_nexus_master_aes_key_sb_v2';
       _cachedKeySecurityInfo = {
         available: true,
@@ -693,6 +751,12 @@
       if (err && err.message && err.message.includes('CORRUPTED_STORAGE_ENVELOPE')) {
         throw err;
       }
+      // Clean up staging key on failure
+      if (store && stagingKey && typeof store.removeItem === 'function') {
+        try {
+          store.removeItem(stagingKey);
+        } catch (_) {}
+      }
       // Step 4: Rollback uncommitted StrongBox migration on any failure
       if (ks && typeof ks.rollbackKeyMigration === 'function') {
         try {
@@ -703,12 +767,12 @@
     }
   }
 
-  async function commitKeyMigration() {
+  async function commitKeyMigration(options = {}) {
     const ks = _getNativeAndroidKeystore();
     if (!ks || typeof ks.commitKeyMigration !== 'function') {
       return { committed: false, reason: 'Native Android KeyStore commitKeyMigration not available' };
     }
-    const res = await ks.commitKeyMigration();
+    const res = await ks.commitKeyMigration(options);
     if (res && res.committed) {
       if (_cachedKeySecurityInfo) {
         _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V2';
@@ -771,9 +835,23 @@
     }
   }
 
-  async function recoverInterruptedMigration() {
+  async function recoverInterruptedMigration(options = {}) {
     const ks = _getNativeAndroidKeystore();
+    const store = _getStorage(options && (options.storage || options.store) ? (options.storage || options.store) : undefined);
+    let storageKey = null;
+    let stagingKey = null;
+
+    if (store && typeof store.getItem === 'function') {
+      storageKey = _resolveSecretsStorageKey(store) || SESSION_SECRETS_KEY;
+      stagingKey = storageKey + STAGING_KEY_SUFFIX;
+    }
+
     if (!ks || typeof ks.recoverInterruptedMigration !== 'function') {
+      if (store && stagingKey && typeof store.removeItem === 'function') {
+        try {
+          store.removeItem(stagingKey);
+        } catch (_) {}
+      }
       return {
         recovered: false,
         reason: 'Native Android KeyStore recoverInterruptedMigration not available',
@@ -781,17 +859,74 @@
         activeAlias: 'eg_nexus_master_aes_key'
       };
     }
+
     try {
+      let priorState = null;
+      if (typeof ks.getMigrationJournalState === 'function') {
+        try {
+          const stateRes = await ks.getMigrationJournalState();
+          priorState = stateRes?.journalState || null;
+        } catch (_) {}
+      }
+
       const res = await ks.recoverInterruptedMigration();
-      const state = res?.journalState || 'ACTIVE_V1';
-      const alias = res?.activeAlias || (state === 'ACTIVE_V2' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+      const finalState = res?.journalState || (priorState === 'STORAGE_COMMITTED' ? 'ACTIVE_V2' : 'ACTIVE_V1');
+      const alias = res?.activeAlias || (finalState === 'ACTIVE_V2' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+
+      // Storage-side cleanups based on journal state
+      if (store && typeof store.getItem === 'function' && storageKey) {
+        const isCommittedCrash = priorState === 'STORAGE_COMMITTED' ||
+          finalState === 'ACTIVE_V2' ||
+          Boolean(res?.deletedOldKeys);
+
+        if (isCommittedCrash) {
+          // If crash occurred during STORAGE_COMMITTED:
+          // The V2 key is valid and committed. Check if STAGING_KEY exists; if so, copy it to storageKey and remove STAGING_KEY.
+          if (stagingKey && typeof store.getItem === 'function') {
+            const stagingRaw = store.getItem(stagingKey);
+            if (stagingRaw !== null && stagingRaw !== undefined && stagingRaw !== '') {
+              let stagingEnv = null;
+              try {
+                stagingEnv = JSON.parse(stagingRaw);
+              } catch (_) {}
+              if (stagingEnv && typeof stagingEnv === 'object') {
+                stagingEnv.migrationState = 'STORAGE_COMMITTED';
+                stagingEnv.journalState = 'ACTIVE_V2';
+                store.setItem(storageKey, JSON.stringify(stagingEnv));
+              } else {
+                store.setItem(storageKey, stagingRaw);
+              }
+              if (typeof store.removeItem === 'function') {
+                store.removeItem(stagingKey);
+              }
+            }
+          }
+          const altStagingKey = SESSION_SECRETS_KEY + STAGING_KEY_SUFFIX;
+          if (altStagingKey !== stagingKey && typeof store.removeItem === 'function') {
+            try { store.removeItem(altStagingKey); } catch (_) {}
+          }
+        } else {
+          // If crash occurred during MIGRATION_PREPARED, V2_KEY_CREATED, or V2_DATA_VERIFIED:
+          // The primary storage key (SESSION_SECRETS_KEY) still contains untouched V1 data!
+          // Remove STAGING_KEY (_v2_staging) from storage if present.
+          if (stagingKey && typeof store.removeItem === 'function') {
+            try { store.removeItem(stagingKey); } catch (_) {}
+          }
+          const altStagingKey = SESSION_SECRETS_KEY + STAGING_KEY_SUFFIX;
+          if (altStagingKey !== stagingKey && typeof store.removeItem === 'function') {
+            try { store.removeItem(altStagingKey); } catch (_) {}
+          }
+        }
+      }
+
       if (_cachedKeySecurityInfo) {
-        _cachedKeySecurityInfo.journalState = state;
+        _cachedKeySecurityInfo.journalState = finalState;
         _cachedKeySecurityInfo.alias = alias;
       }
+
       return {
         recovered: Boolean(res?.recovered),
-        journalState: state,
+        journalState: finalState,
         activeAlias: alias,
         ...res
       };
@@ -2686,7 +2821,7 @@
     }
 
     getDiagnostics() {
-      const health = getSecretVaultHealth();
+      const health = getSecretVaultHealth(this.storage);
       return {
         ...health,
         encryptionCount: this._encryptionCount,
@@ -2843,10 +2978,6 @@
     async importEncryptedBackup(backupData, passphrase) {
       return await importEncryptedBackup(backupData, passphrase);
     }
-
-    getDiagnostics() {
-      return getSecretVaultHealth(this.storage);
-    }
   }
 
   SecretVault.exportEncryptedBackup = exportEncryptedBackup;
@@ -2860,6 +2991,7 @@
     SESSION_SECRETS_SCHEMA_VERSION,
     SESSION_SECRETS_KEY,
     LEGACY_SESSION_SECRETS_KEY,
+    STAGING_KEY_SUFFIX,
     SESSION_KEY_STORAGE,
     SESSION_KEY_SYM,
     IDB_KEYSTORE_DB,

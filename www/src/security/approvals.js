@@ -77,25 +77,23 @@
     return _fallbackUiState;
   }
 
-  // Capability handshake symbol for isolated in-memory token store & lifecycle audit trail
-  const APPROVAL_HANDSHAKE_SYM = Symbol.for('eg.nexus.security.approvals.handshake.v2');
-
   // Authoritative internal storage: private closure Map
-  let _internalTokenStore = null;
-  let _lifecycleAuditTrail = null;
-
-  // Check if peer module (registry.js) already registered the authoritative handshake
-  const _existingHandshake = (typeof globalThis !== 'undefined' && globalThis[APPROVAL_HANDSHAKE_SYM])
-    ? globalThis[APPROVAL_HANDSHAKE_SYM]
-    : null;
-
-  if (_existingHandshake && _existingHandshake.store instanceof Map) {
-    _internalTokenStore = _existingHandshake.store;
-    _lifecycleAuditTrail = (_existingHandshake.lifecycle instanceof Map) ? _existingHandshake.lifecycle : new Map();
-  } else {
-    _internalTokenStore = new Map();
-    _lifecycleAuditTrail = new Map();
+  const _internalTokenStore = (typeof globalThis !== 'undefined' && globalThis.__nexusInternalTokenStoreInstance)
+    ? globalThis.__nexusInternalTokenStoreInstance
+    : new Map();
+  if (typeof globalThis !== 'undefined' && !globalThis.__nexusInternalTokenStoreInstance) {
+    try {
+      Object.defineProperty(globalThis, '__nexusInternalTokenStoreInstance', {
+        value: _internalTokenStore,
+        writable: true,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {
+      globalThis.__nexusInternalTokenStoreInstance = _internalTokenStore;
+    }
   }
+  const _lifecycleAuditTrail = new Map();
 
   // Pure-JS SHA-256 for deterministic params hash in all environments
   function _sha256Pure(bytes) {
@@ -247,6 +245,7 @@
         return s;
       }
     } catch (_) {}
+    /* istanbul ignore next */
     try {
       if (typeof require === 'function') {
         const nodeCrypto = require('crypto');
@@ -255,6 +254,7 @@
         }
       }
     } catch (_) {}
+    /* istanbul ignore next */
     return Date.now().toString(36).padEnd(bytes * 2, '0').slice(0, bytes * 2);
   }
 
@@ -346,19 +346,60 @@
     clearApprovalTokensInternal();
   }
 
-  // OWASP Agent Control Standard (ACS 2026) Request Lifecycle Tracking
+  // Pure-JS SHA-256 for deterministic hex strings in all environments
+  function _sha256Hex(str) {
+    if (str === null || str === undefined) return '';
+    const input = String(str);
+    try {
+      if (typeof require === 'function') {
+        const nodeCrypto = require('crypto');
+        if (nodeCrypto && typeof nodeCrypto.createHash === 'function') {
+          return nodeCrypto.createHash('sha256').update(input, 'utf8').digest('hex');
+        }
+      }
+    } catch (_) {}
+    /* istanbul ignore next */
+    try {
+      const bytes = (typeof TextEncoder !== 'undefined')
+        ? new TextEncoder().encode(input)
+        : Buffer.from(input, 'utf8');
+      const hashBytes = _sha256Pure(bytes);
+      return Array.from(hashBytes, b => b.toString(16).padStart(2, '0')).join('');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  // Deep-freeze helper to prevent audit trail mutation
+  function deepFreeze(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    Object.freeze(obj);
+    for (const key of Object.getOwnPropertyNames(obj)) {
+      const val = obj[key];
+      if (val !== null && typeof val === 'object' && !Object.isFrozen(val)) {
+        deepFreeze(val);
+      }
+    }
+    return obj;
+  }
+
+  // OWASP Agent Control Standard (ACS 2026) Request Lifecycle Tracking with Cryptographic Hash Chain
   const MAX_LIFECYCLE_ENTRIES = 500;
 
-  function recordLifecycleEvent(requestId, state, metadata = {}) {
+  function recordLifecycleEvent(requestId, state, data = {}) {
     if (!requestId || typeof requestId !== 'string') {
       requestId = String(requestId || secureRandomId('req'));
     }
     const normState = String(state || '').trim().toLowerCase();
-    const event = {
-      state: normState,
-      timestamp: Date.now(),
-      metadata: (metadata && typeof metadata === 'object') ? { ...metadata } : {}
-    };
+
+    // Redact raw approvalToken and store short token fingerprint (first 16 hex chars)
+    const sanitizedData = (data && typeof data === 'object') ? { ...data } : {};
+    if ('approvalToken' in sanitizedData) {
+      if (sanitizedData.approvalToken) {
+        sanitizedData.tokenFingerprint = _sha256Hex(String(sanitizedData.approvalToken)).slice(0, 16);
+      }
+      delete sanitizedData.approvalToken;
+    }
 
     let record = _lifecycleAuditTrail.get(requestId);
     if (!record) {
@@ -377,6 +418,19 @@
       _lifecycleAuditTrail.set(requestId, record);
     }
 
+    // Cryptographic Hash Chain: prevHash -> entryHash
+    const lastEntry = record.history.length > 0 ? record.history[record.history.length - 1] : null;
+    const prevHash = lastEntry ? lastEntry.entryHash : 'GENESIS';
+    const entryHash = _sha256Hex(prevHash + '|' + JSON.stringify(sanitizedData));
+
+    const event = {
+      state: normState,
+      timestamp: Date.now(),
+      metadata: sanitizedData,
+      prevHash,
+      entryHash
+    };
+
     record.state = normState;
     record.currentState = normState;
     record.updatedAt = Date.now();
@@ -387,35 +441,43 @@
 
   function getRequestLifecycle(requestId) {
     if (!requestId || typeof requestId !== 'string') return null;
-    return _lifecycleAuditTrail.get(requestId) || null;
+    const record = _lifecycleAuditTrail.get(requestId);
+    if (!record) return null;
+    const clone = JSON.parse(JSON.stringify(record));
+    return deepFreeze(clone);
   }
 
-  // Capability handshake registration
-  const _capabilityHandshake = Object.freeze({
-    store: _internalTokenStore,
-    lifecycle: _lifecycleAuditTrail,
-    getStore: _getApprovalTokenStoreInternal,
-    issue: issueApprovalTokenInternal,
-    verify: verifyApprovalTokenInternal,
-    consume: consumeApprovalTokenInternal,
-    clear: clearApprovalTokensInternal,
-    recordLifecycleEvent,
-    getRequestLifecycle
-  });
+  // One-time internal approval verifier registration with peer registry module
+  function registerWithRegistry() {
+    let registrar = null;
+    if (typeof require === 'function') {
+      try {
+        const regMod = require('../providers/registry.js');
+        registrar = regMod && regMod.registerInternalApprovalVerifier;
+      } catch (_) {}
+    }
+    /* istanbul ignore next */
+    if (!registrar && typeof globalThis !== 'undefined') {
+      registrar = globalThis.registerInternalApprovalVerifier ||
+        (globalThis.NexusProviders && globalThis.NexusProviders.registerInternalApprovalVerifier) ||
+        (globalThis.NexusCore && globalThis.NexusCore.registerInternalApprovalVerifier);
+    }
+    /* istanbul ignore next */
+    if (!registrar && target) {
+      registrar = target.registerInternalApprovalVerifier ||
+        (target.NexusProviders && target.NexusProviders.registerInternalApprovalVerifier) ||
+        (target.NexusCore && target.NexusCore.registerInternalApprovalVerifier);
+    }
+    if (typeof registrar === 'function') {
+      try {
+        registrar(consumeApprovalTokenInternal);
+      } catch (_) {}
+    }
+  }
+  registerWithRegistry();
 
   if (typeof globalThis !== 'undefined') {
-    try {
-      Object.defineProperty(globalThis, APPROVAL_HANDSHAKE_SYM, {
-        value: _capabilityHandshake,
-        writable: false,
-        configurable: true,
-        enumerable: false
-      });
-    } catch (_) {
-      globalThis[APPROVAL_HANDSHAKE_SYM] = _capabilityHandshake;
-    }
-
-    // Replace direct storage on globalThis.__nexusApprovalTokens with backward-compatible non-enumerable accessor
+    // Backwards-compatibility for existing tests inspecting globalThis.__nexusApprovalTokens
     try {
       Object.defineProperty(globalThis, '__nexusApprovalTokens', {
         get() {
@@ -682,6 +744,8 @@
     _hashParams,
     _generateTokenNonce,
     _sha256Pure,
+    _sha256Hex,
+    deepFreeze,
     secureRandomHex,
     secureRandomId
   };

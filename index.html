@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.2.2 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.2.3 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -3362,9 +3362,33 @@ body > header,
         : ((typeof uiState !== 'undefined') ? uiState : ((typeof window !== 'undefined' && window.uiState) ? window.uiState : {}));
       if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
       let item;
-      const approvalId = (typeof secureRandomId === 'function'
-        ? secureRandomId('appr')
-        : ('appr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)));
+      let approvalId;
+      if (typeof secureRandomId === 'function') {
+        approvalId = secureRandomId('appr');
+      } else if (typeof crypto !== 'undefined' && crypto && typeof crypto.getRandomValues === 'function') {
+        const arr = new Uint8Array(4);
+        crypto.getRandomValues(arr);
+        approvalId = 'appr_' + Date.now().toString(36) + '_' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+      } else if (typeof require === 'function') {
+        try {
+          const nodeCrypto = require('crypto');
+          if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+            approvalId = 'appr_' + Date.now().toString(36) + '_' + nodeCrypto.randomBytes(4).toString('hex');
+          }
+        } catch (_) {}
+      }
+      if (!approvalId) {
+        try {
+          if (typeof globalThis !== 'undefined' && globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+            const arr = new Uint8Array(4);
+            globalThis.crypto.getRandomValues(arr);
+            approvalId = 'appr_' + Date.now().toString(36) + '_' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+          }
+        } catch (_) {}
+      }
+      if (!approvalId) {
+        approvalId = 'appr_' + Date.now().toString(36) + '_' + (ui.pendingApprovalQueue.length + 1);
+      }
 
       if (typeof reason === 'object' && reason !== null) {
         const reasonText = String(reason.reason || reason.text || reason.message || '');
@@ -24209,28 +24233,30 @@ function checkSecretComplexity(secret) {
   }
 
   const totalEntropy = entropy * s.length;
-  return totalEntropy >= 80;
+  return entropy >= 3.0 && totalEntropy >= 80;
 }
 
 function generateStrongWorkerSecret() {
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+  let secret = '';
+  if (typeof crypto !== 'undefined' && crypto && typeof crypto.getRandomValues === 'function') {
     const arr = new Uint8Array(32);
     crypto.getRandomValues(arr);
-    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-  }
-  if (typeof require === 'function') {
+    secret = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  } else if (typeof require === 'function') {
     try {
       const nodeCrypto = require('crypto');
       if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
-        return nodeCrypto.randomBytes(32).toString('hex');
+        secret = nodeCrypto.randomBytes(32).toString('hex');
       }
     } catch (_) {}
   }
-  let fallbackHex = '';
-  for (let i = 0; i < 64; i++) {
-    fallbackHex += Math.floor(Math.random() * 16).toString(16);
+  if (!secret) {
+    throw new Error('CSPRNG_UNAVAILABLE');
   }
-  return fallbackHex;
+  if (secret.length !== 64 || !checkSecretComplexity(secret)) {
+    throw new Error('CSPRNG_INSUFFICIENT_ENTROPY');
+  }
+  return secret;
 }
 
 if (typeof window !== 'undefined') {
@@ -24296,8 +24322,8 @@ const LEASE_DURATION_MS = 60000; // 60s delivery lease before ACK
 const ROUTINE_LOCK_TTL_MS = 240000; // 4m best-effort KV lease, NOT an atomic distributed mutex
 const MAX_DAILY_CLOUD_RUNS = 180; // Cost & KV daily write budget guard
 
-function workerSecureHex(bytes = 16) {
-  const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+function workerSecureHex(bytes = 32) {
+  const cryptoObj = (typeof crypto !== 'undefined' && crypto) ? crypto : (typeof window !== 'undefined' && window ? window.crypto : null);
   if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
     const arr = new Uint8Array(bytes);
     cryptoObj.getRandomValues(arr);
@@ -24311,7 +24337,7 @@ function workerSecureHex(bytes = 16) {
       }
     } catch (_) {}
   }
-  throw new Error('Fail-closed CSPRNG: secure random generator unavailable');
+  throw new Error('CSPRNG_UNAVAILABLE');
 }
 
 function workerSecureId(prefix = 'id') {
@@ -24319,7 +24345,11 @@ function workerSecureId(prefix = 'id') {
 }
 
 function generateStrongWorkerSecret() {
-  return workerSecureHex(32);
+  const secret = workerSecureHex(32);
+  if (secret.length !== 64 || !checkSecretComplexity(secret)) {
+    throw new Error('CSPRNG_INSUFFICIENT_ENTROPY');
+  }
+  return secret;
 }
 
 
@@ -24356,7 +24386,7 @@ function checkSecretComplexity(secret) {
   }
 
   const totalEntropy = entropy * s.length;
-  return totalEntropy >= 80;
+  return entropy >= 3.0 && totalEntropy >= 80;
 }
 
 
@@ -29990,10 +30020,8 @@ if (typeof document !== 'undefined') {
       grep_search: { tool: 'grep_search', bin: 'grep', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'] },
       rg_search: { tool: 'rg_search', bin: 'rg', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'] },
       ffprobe_inspect: { tool: 'ffprobe_inspect', bin: 'ffprobe', safeFlags: ['-v', 'error', '-show_format', '-show_streams', '-of', 'json'] },
-      ffmpeg_preset: { tool: 'ffmpeg_preset', bin: 'ffmpeg', safeFlags: ['-i', '-y', '-vn', '-an', '-acodec', '-vcodec', '-c:a', '-c:v', '-b:a', '-b:v', '-vf', '-af', '-preset', '-crf', '-f'] },
-      python_audit: { tool: 'python_audit', bin: 'python', scripts: ['full_app_audit.py', 'test_full_app_audit.py', '--version'] },
-      python_workspace_script: { tool: 'python_workspace_script', bin: 'python', ext: '.py' },
-      node_workspace_script: { tool: 'node_workspace_script', bin: 'node', ext: ['.js', '.mjs', '.cjs'] },
+      ffmpeg_preset: { tool: 'ffmpeg_preset', bin: 'ffmpeg', presets: ['transcode_mp4_h264', 'extract_audio_mp3', 'compress_720p'] },
+      python_audit: { tool: 'python_audit', bin: 'python3', scripts: ['full_app_audit.py'] },
       read_workspace_file: { tool: 'read_workspace_file', bins: ['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'] }
     });
 
@@ -30019,10 +30047,40 @@ if (typeof document !== 'undefined') {
 
     function validateStructuredTermuxCommand(rawCmd) {
       let cmd = '';
+      let objectArgs = null;
+      const FFMPEG_FILE_REGEX = /^[a-zA-Z0-9._-]+\.(mp4|mkv|webm|mp3|wav|m4a)$/i;
+      const ALLOWED_FFMPEG_PRESETS = new Set(['transcode_mp4_h264', 'extract_audio_mp3', 'compress_720p']);
+
+      function validatePresetFields(pId, inF, outF) {
+        if (!ALLOWED_FFMPEG_PRESETS.has(pId)) {
+          return { ok: false, error: `شناسه پریست نامعتبر ffmpeg: "${pId}". فقط پریست‌های transcode_mp4_h264، extract_audio_mp3 و compress_720p مجاز هستند.` };
+        }
+        if (!inF || !FFMPEG_FILE_REGEX.test(inF) || isUnsafeTermuxPath(inF) || /[\/\\\x00-\x1f\x7f-\x9f\`]/.test(inF) || inF.includes('..')) {
+          return { ok: false, error: `نام فایل ورودی نامعتبر است: "${inF}". فقط نام فایل ساده بدون مسیر و با پسوندهای مجاز (mp4, mkv, webm, mp3, wav, m4a) مجاز است.` };
+        }
+        if (!outF || !FFMPEG_FILE_REGEX.test(outF) || isUnsafeTermuxPath(outF) || /[\/\\\x00-\x1f\x7f-\x9f\`]/.test(outF) || outF.includes('..')) {
+          return { ok: false, error: `نام فایل خروجی نامعتبر است: "${outF}". فقط نام فایل ساده بدون مسیر و با پسوندهای مجاز (mp4, mkv, webm, mp3, wav, m4a) مجاز است.` };
+        }
+        return { ok: true, tool: 'ffmpeg_preset', presetId: pId, inputFile: inF, outputFile: outF };
+      }
+
       if (typeof rawCmd === 'string') {
         cmd = rawCmd.trim();
       } else if (rawCmd && typeof rawCmd === 'object') {
-        cmd = String(rawCmd.command || '').trim();
+        if (Array.isArray(rawCmd.args)) {
+          objectArgs = rawCmd.args.map(String);
+        }
+        if (rawCmd.presetId || rawCmd.tool === 'ffmpeg_preset') {
+          const pId = String(rawCmd.presetId || '').trim();
+          const inF = String(rawCmd.inputFile || rawCmd.input || '').trim();
+          const outF = String(rawCmd.outputFile || rawCmd.output || '').trim();
+          return validatePresetFields(pId, inF, outF);
+        }
+        if (rawCmd.command) {
+          cmd = String(rawCmd.command).trim();
+        } else if (rawCmd.tool) {
+          cmd = String(rawCmd.tool).trim();
+        }
       }
       if (!cmd) return { ok: false, error: 'دستور ترمینال خالی است' };
       if (SHELL_CHAINING_REGEX.test(cmd)) {
@@ -30040,10 +30098,17 @@ if (typeof document !== 'undefined') {
       const tokens = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
       const cleanTokens = tokens.map(t => (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")) ? t.slice(1, -1) : t);
       const bin = (cleanTokens[0] || '').toLowerCase();
-      const args = cleanTokens.slice(1);
+      const args = objectArgs || cleanTokens.slice(1);
 
       if (bin === 'find') {
         return { ok: false, error: 'دستور find در ابزارهای ساختاریافته مسدود است' };
+      }
+
+      if (bin === 'ffmpeg_preset') {
+        const pId = args[0] || '';
+        const inF = args[1] || '';
+        const outF = args[2] || '';
+        return validatePresetFields(pId, inF, outF);
       }
 
       // 1. Git
@@ -30230,60 +30295,35 @@ if (typeof document !== 'undefined') {
         if (args.length === 1 && (args[0] === '-version' || args[0] === '--version')) {
           return { ok: true, tool: 'ffmpeg_preset' };
         }
-        for (let i = 0; i < args.length; i++) {
-          const arg = args[i];
-          if (!arg.startsWith('-')) {
-            if (isUnsafeTermuxPath(arg)) {
-              return { ok: false, error: `مسیر ورودی یا خروجی خارج از دایرکتوری کاری رد شد: ${arg}` };
-            }
-          }
+        if (args[0] === 'preset' && args.length === 4) {
+          return validatePresetFields(args[1], args[2], args[3]);
         }
-        return { ok: true, tool: 'ffmpeg_preset' };
+        if (ALLOWED_FFMPEG_PRESETS.has(args[0]) && args.length === 3) {
+          return validatePresetFields(args[0], args[1], args[2]);
+        }
+        if (args.length === 8 && args[0] === '-i' && args[2] === '-c:v' && args[3] === 'libx264' && args[4] === '-c:a' && args[5] === 'aac' && args[6] === '-y') {
+          return validatePresetFields('transcode_mp4_h264', args[1], args[7]);
+        }
+        if (args.length === 9 && args[0] === '-i' && args[2] === '-vn' && args[3] === '-c:a' && args[4] === 'libmp3lame' && args[5] === '-q:a' && args[6] === '2' && args[7] === '-y') {
+          return validatePresetFields('extract_audio_mp3', args[1], args[8]);
+        }
+        if (args.length === 12 && args[0] === '-i' && args[2] === '-vf' && args[3] === 'scale=-2:720' && args[4] === '-c:v' && args[5] === 'libx264' && args[6] === '-crf' && args[7] === '28' && args[8] === '-c:a' && args[9] === 'aac' && args[10] === '-y') {
+          return validatePresetFields('compress_720p', args[1], args[11]);
+        }
+        return { ok: false, error: 'آرگومان‌های دلخواه در ffmpeg مسدود است؛ فقط پریست‌های مشخص (transcode_mp4_h264, extract_audio_mp3, compress_720p) با گرامر مشخص مجاز هستند.' };
       }
 
       // 7. Python
       if (bin === 'python' || bin === 'python3') {
-        const script = args[0] || '';
-        if (script === '--version' || script === '-V') {
+        if ((bin === 'python3' || bin === 'python') && args.length === 1 && args[0] === 'full_app_audit.py') {
           return { ok: true, tool: 'python_audit' };
         }
-        if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py') {
-          return { ok: true, tool: 'python_audit' };
-        }
-        if (script.endsWith('.py')) {
-          if (isUnsafeTermuxPath(script)) {
-            return { ok: false, error: `مسیر اسکریپت پایتون خارج از دایرکتوری کاری رد شد: ${script}` };
-          }
-          for (let i = 1; i < args.length; i++) {
-            const arg = args[i];
-            if (isUnsafeTermuxPath(arg)) {
-              return { ok: false, error: `مسیر آرگومان خارج از دایرکتوری کاری رد شد: ${arg}` };
-            }
-          }
-          return { ok: true, tool: 'python_workspace_script' };
-        }
-        return { ok: false, error: `اجرای اسکریپت پایتون نامعتبر یا خارج از فضای کاری: ${script}` };
+        return { ok: false, error: 'اجرای پایتون در حالت خودکار منحصراً محدود به python3 full_app_audit.py بدون هیچ آرگومان اضافی است' };
       }
 
       // 8. Node
       if (bin === 'node') {
-        const script = args[0] || '';
-        if (script === '--version' || script === '-v') {
-          return { ok: true, tool: 'node_workspace_script' };
-        }
-        if (script.endsWith('.js') || script.endsWith('.mjs') || script.endsWith('.cjs')) {
-          if (isUnsafeTermuxPath(script)) {
-            return { ok: false, error: `مسیر اسکریپت Node.js خارج از دایرکتوری کاری رد شد: ${script}` };
-          }
-          for (let i = 1; i < args.length; i++) {
-            const arg = args[i];
-            if (isUnsafeTermuxPath(arg)) {
-              return { ok: false, error: `مسیر آرگومان خارج از دایرکتوری کاری رد شد: ${arg}` };
-            }
-          }
-          return { ok: true, tool: 'node_workspace_script' };
-        }
-        return { ok: false, error: `اجرای اسکریپت Node.js نامعتبر یا خارج از فضای کاری: ${script}` };
+        return { ok: false, error: 'اجرای اسکریپت‌های اختیاری Node.js مسدود است (node_workspace_script حذف گردیده است)' };
       }
 
       // 9. Read-only workspace inspection
@@ -30535,9 +30575,9 @@ if (IS_LAN_MODE && (!SECRET || SECRET.length < 16)) {
 const DEFAULT_WORKSPACE = ${JSON.stringify(rawAllowedFolders)};
 const MAX_BODY_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
-const EXEC_TIMEOUT_MS = 120000;
+const EXEC_TIMEOUT_MS = 30000;
 const MAX_CONCURRENT_JOBS = 2;
-const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'node', 'npm', 'python', 'python3', 'ffmpeg', 'ffprobe', 'cat', 'head', 'tail', 'grep', 'rg', 'stat', 'du', 'df', 'wc', 'file', 'tree', 'pytest'];
+const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'npm', 'python', 'python3', 'ffmpeg', 'ffprobe', 'cat', 'head', 'tail', 'grep', 'rg', 'stat', 'du', 'df', 'wc', 'file', 'tree', 'pytest'];
 const SHELL_CHAINING_REGEX = /[;|\\\`$><]|&&|\\|\\||\\$\\(/;
 const BLOCKED_CMD_REGEX = /(?:\\b(?:busybox|toybox)\\s+)?\\brm\\b(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*r|\\s--recursive))(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*f|\\s--force))[^;&|\\r\\n]*\\s+(?:\\/|\\*|\\.\\.?\\/?\\*?|~|\\$HOME|\\$PREFIX|\\/sdcard|\\/storage|--no-preserve-root)(?:$|[\\s;&|><)'"])|\\brm\\b\\s+-[a-zA-Z]*(?:rf|fr)\\s+(?:\\.|\\.\\.)(?:$|[\\s/;&|><)'"])|\\bfind\\b.*\\s-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b|\\brg\\b.*--pre(?:-glob)?\\b|\\b(?:mkfs\\.[a-z0-9]+|wipefs|shred)\\b|\\bdd\\b\\s+.*\\bof=\\/dev\\/|\\btruncate\\b\\s+.*\\s+\\/(?:$|\\s)|\\bchmod\\b\\s+-R\\s+000\\s+(?:\\/|\\.|~)|\\bchown\\b\\s+-R\\s+.*\\s+\\/|\\b(?:shutil\\.rmtree|os\\.(?:remove|unlink|rmdir|removedirs|system|popen)|fs\\.(?:rmSync|rmdirSync|unlinkSync)|child_process)\\b|:(\\s*)\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:/i;
 const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env[a-zA-Z0-9_.*?-]*|id_rsa[a-zA-Z0-9_.*?-]*|id_ed25519[a-zA-Z0-9_.*?-]*|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
@@ -30736,6 +30776,42 @@ function resolveSafeWorkingDir(requestedCwd) {
   } catch (e) {
     return getFallbackHomeWorkspace();
   }
+}
+
+
+function verifyWorkspacePath(targetPath, workspaceRoot, opts) {
+  const options = opts || {};
+  const checkExists = options.checkExists !== false;
+  const checkSizeLimit = options.checkSizeLimit !== false;
+  const realWs = fs.realpathSync(workspaceRoot);
+  const targetAbs = path.resolve(workspaceRoot, String(targetPath || ''));
+  if (checkExists && !fs.existsSync(targetAbs)) {
+    throw new Error('Target path does not exist: ' + targetPath);
+  }
+  let realTarget;
+  if (fs.existsSync(targetAbs)) {
+    realTarget = fs.realpathSync(targetAbs);
+  } else {
+    let curr = targetAbs;
+    const tails = [];
+    while (curr && curr !== path.dirname(curr) && !fs.existsSync(curr)) {
+      tails.unshift(path.basename(curr));
+      curr = path.dirname(curr);
+    }
+    const realAncestor = fs.existsSync(curr) ? fs.realpathSync(curr) : realWs;
+    realTarget = path.join(realAncestor, ...tails);
+  }
+  const isContained = (realTarget === realWs) || realTarget.startsWith(realWs + path.sep);
+  if (!isContained) {
+    throw new Error('Symlink traversal outside workspace detected: ' + targetPath);
+  }
+  if (checkSizeLimit && fs.existsSync(realTarget)) {
+    const st = fs.statSync(realTarget);
+    if (st.isFile() && st.size > 50 * 1024 * 1024) {
+      throw new Error('File size exceeds 50MB limit (' + st.size + ' bytes): ' + targetPath);
+    }
+  }
+  return realTarget;
 }
 
 
@@ -31025,14 +31101,7 @@ http.createServer((req, res) => {
           const parts = command.trim().split(/\\s+/).filter(Boolean);
           const candidateFiles = parts.slice(1).filter(p => !p.startsWith('-'));
           for (const cand of candidateFiles) {
-            const targetAbs = path.resolve(safeCwd, cand);
-            if (fs.existsSync(targetAbs)) {
-              const realTarget = fs.realpathSync(targetAbs);
-              if (!isInsideAllowedRoots(realTarget, allowedRoots)) {
-                res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-                return res.end(JSON.stringify({ ok: false, error: 'Access denied: target path or symlink resolves outside allowed workspace roots' }));
-              }
-            }
+            verifyWorkspacePath(cand, safeCwd, { checkExists: false, checkSizeLimit: true });
           }
         } catch (e) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -31046,14 +31115,7 @@ http.createServer((req, res) => {
           const parts = command.trim().split(/\\s+/).filter(Boolean);
           const candidateFiles = parts.slice(1).filter(p => !p.startsWith('-') && !p.startsWith('http://') && !p.startsWith('https://'));
           for (const cand of candidateFiles) {
-            const targetAbs = path.resolve(safeCwd, cand);
-            if (fs.existsSync(targetAbs)) {
-              const realTarget = fs.realpathSync(targetAbs);
-              if (!isInsideAllowedRoots(realTarget, allowedRoots)) {
-                res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-                return res.end(JSON.stringify({ ok: false, error: 'Access denied: script or media argument resolves outside allowed workspace roots' }));
-              }
-            }
+            verifyWorkspacePath(cand, safeCwd, { checkExists: false, checkSizeLimit: true });
           }
         } catch (e) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -31084,8 +31146,8 @@ http.createServer((req, res) => {
         }
         return t;
       });
-      const spawnBin = cleanTokens[0] || 'echo';
-      const spawnArgs = cleanTokens.slice(1);
+      let spawnBin = cleanTokens[0] || 'echo';
+      let spawnArgs = cleanTokens.slice(1);
       const bin = spawnBin.toLowerCase();
 
       // Block dangerous agent flags
@@ -31131,6 +31193,13 @@ http.createServer((req, res) => {
             if (arg.startsWith('-') || isUnsafeDaemonPath(arg)) {
               pathBad = true;
               policyReason = 'git diff argument disallowed: ' + arg;
+              break;
+            }
+            try {
+              verifyWorkspacePath(arg, safeCwd, { checkExists: false, checkSizeLimit: false });
+            } catch (err) {
+              pathBad = true;
+              policyReason = err.message;
               break;
             }
           }
@@ -31221,6 +31290,13 @@ http.createServer((req, res) => {
               policyReason = 'grep path outside workspace disallowed: ' + ga;
               break;
             }
+            try {
+              verifyWorkspacePath(ga, safeCwd, { checkExists: false, checkSizeLimit: true });
+            } catch (err) {
+              grepBad = true;
+              policyReason = err.message;
+              break;
+            }
           }
         }
         if (!grepBad) toolOk = true;
@@ -31253,6 +31329,13 @@ http.createServer((req, res) => {
                 policyReason = 'rg path outside workspace disallowed: ' + ra;
                 break;
               }
+              try {
+                verifyWorkspacePath(ra, safeCwd, { checkExists: false, checkSizeLimit: true });
+              } catch (err) {
+                rgBad = true;
+                policyReason = err.message;
+                break;
+              }
             }
           }
           if (!rgBad) toolOk = true;
@@ -31283,73 +31366,102 @@ http.createServer((req, res) => {
                 policyReason = 'ffprobe media path outside workspace disallowed: ' + pa;
                 break;
               }
+              if (!safeProbeTokens.has(pa)) {
+                try {
+                  verifyWorkspacePath(pa, safeCwd, { checkExists: true, checkSizeLimit: true });
+                } catch (err) {
+                  probeBad = true;
+                  policyReason = err.message;
+                  break;
+                }
+              }
             }
           }
           if (!probeBad) toolOk = true;
         }
-      } else if (bin === 'ffmpeg') {
-        if (/(?:https?|concat|subfile|pipe|ftp|gopher|data|crypto|tcp|udp|rtmp|rtsp|tls|hls):/i.test(command)) {
-          policyReason = 'ffmpeg dangerous or network protocol scheme disallowed';
-        } else if (/\\b(?:-f\\s+lavfi|lavfi)\\b/i.test(command) || spawnArgs.some(a => a.toLowerCase() === 'lavfi')) {
-          policyReason = 'ffmpeg lavfi filter/format disallowed';
+      } else if (bin === 'ffmpeg' || bin === 'ffmpeg_preset') {
+        const FFMPEG_FILE_REGEX = /^[a-zA-Z0-9._-]+\\.(mp4|mkv|webm|mp3|wav|m4a)$/i;
+        const ALLOWED_PRESETS = new Set(['transcode_mp4_h264', 'extract_audio_mp3', 'compress_720p']);
+        let presetId = '';
+        let inputFile = '';
+        let outputFile = '';
+
+        if (bin === 'ffmpeg' && spawnArgs.length === 1 && (spawnArgs[0] === '-version' || spawnArgs[0] === '--version')) {
+          toolOk = true;
         } else {
-          let ffmpegBad = false;
-          for (let fi = 0; fi < spawnArgs.length; fi++) {
-            const fa = spawnArgs[fi];
-            if (!fa.startsWith('-')) {
-              if (isUnsafeDaemonPath(fa)) {
-                ffmpegBad = true;
-                policyReason = 'ffmpeg media path outside workspace disallowed: ' + fa;
-                break;
-              }
+          if (parsed.presetId || parsed.tool === 'ffmpeg_preset') {
+            presetId = String(parsed.presetId || '').trim();
+            inputFile = String(parsed.inputFile || parsed.input || '').trim();
+            outputFile = String(parsed.outputFile || parsed.output || '').trim();
+          } else if (bin === 'ffmpeg_preset') {
+            presetId = spawnArgs[0] || '';
+            inputFile = spawnArgs[1] || '';
+            outputFile = spawnArgs[2] || '';
+          } else if (bin === 'ffmpeg') {
+            if (spawnArgs[0] === 'preset' && spawnArgs.length === 4) {
+              presetId = spawnArgs[1] || '';
+              inputFile = spawnArgs[2] || '';
+              outputFile = spawnArgs[3] || '';
+            } else if (ALLOWED_PRESETS.has(spawnArgs[0]) && spawnArgs.length === 3) {
+              presetId = spawnArgs[0] || '';
+              inputFile = spawnArgs[1] || '';
+              outputFile = spawnArgs[2] || '';
+            } else if (spawnArgs.length === 8 && spawnArgs[0] === '-i' && spawnArgs[2] === '-c:v' && spawnArgs[3] === 'libx264' && spawnArgs[4] === '-c:a' && spawnArgs[5] === 'aac' && spawnArgs[6] === '-y') {
+              presetId = 'transcode_mp4_h264';
+              inputFile = spawnArgs[1] || '';
+              outputFile = spawnArgs[7] || '';
+            } else if (spawnArgs.length === 9 && spawnArgs[0] === '-i' && spawnArgs[2] === '-vn' && spawnArgs[3] === '-c:a' && spawnArgs[4] === 'libmp3lame' && spawnArgs[5] === '-q:a' && spawnArgs[6] === '2' && spawnArgs[7] === '-y') {
+              presetId = 'extract_audio_mp3';
+              inputFile = spawnArgs[1] || '';
+              outputFile = spawnArgs[8] || '';
+            } else if (spawnArgs.length === 12 && spawnArgs[0] === '-i' && spawnArgs[2] === '-vf' && spawnArgs[3] === 'scale=-2:720' && spawnArgs[4] === '-c:v' && spawnArgs[5] === 'libx264' && spawnArgs[6] === '-crf' && spawnArgs[7] === '28' && spawnArgs[8] === '-c:a' && spawnArgs[9] === 'aac' && spawnArgs[10] === '-y') {
+              presetId = 'compress_720p';
+              inputFile = spawnArgs[1] || '';
+              outputFile = spawnArgs[11] || '';
             }
           }
-          if (!ffmpegBad) toolOk = true;
+
+          if (!presetId || !ALLOWED_PRESETS.has(presetId)) {
+            policyReason = 'Arbitrary ffmpeg arguments rejected. Only strict preset grammar is allowed: transcode_mp4_h264, extract_audio_mp3, compress_720p.';
+          } else if (!inputFile || !FFMPEG_FILE_REGEX.test(inputFile) || inputFile.includes('/') || inputFile.includes('\\\\') || inputFile.includes('\`') || inputFile.includes('\\0') || inputFile.includes('..')) {
+            policyReason = 'Invalid ffmpeg inputFile: must match regex /^[a-zA-Z0-9._-]+\\.(mp4|mkv|webm|mp3|wav|m4a)$/i with no slashes or special characters.';
+          } else if (!outputFile || !FFMPEG_FILE_REGEX.test(outputFile) || outputFile.includes('/') || outputFile.includes('\\\\') || outputFile.includes('\`') || outputFile.includes('\\0') || outputFile.includes('..')) {
+            policyReason = 'Invalid ffmpeg outputFile: must match regex /^[a-zA-Z0-9._-]+\\.(mp4|mkv|webm|mp3|wav|m4a)$/i with no slashes or special characters.';
+          } else {
+            try {
+              const realInput = verifyWorkspacePath(inputFile, safeCwd, { checkExists: true, checkSizeLimit: true });
+              const realOutput = verifyWorkspacePath(outputFile, safeCwd, { checkExists: false, checkSizeLimit: false });
+              spawnBin = 'ffmpeg';
+              const inputPath = realInput;
+              const outputPath = realOutput;
+              if (presetId === 'transcode_mp4_h264') {
+                spawnArgs = ['-i', inputPath, '-c:v', 'libx264', '-c:a', 'aac', '-y', outputPath];
+              } else if (presetId === 'extract_audio_mp3') {
+                spawnArgs = ['-i', inputPath, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', '-y', outputPath];
+              } else if (presetId === 'compress_720p') {
+                spawnArgs = ['-i', inputPath, '-vf', 'scale=-2:720', '-c:v', 'libx264', '-crf', '28', '-c:a', 'aac', '-y', outputPath];
+              }
+              toolOk = true;
+            } catch (err) {
+              policyReason = err.message;
+            }
+          }
         }
       } else if (bin === 'python' || bin === 'python3') {
-        const script = spawnArgs[0] || '';
-        if (script === '--version' || script === '-V') {
-          toolOk = true;
-        } else if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py') {
-          toolOk = true;
-        } else if (script.endsWith('.py')) {
-          if (isUnsafeDaemonPath(script)) {
-            policyReason = 'Python script outside workspace disallowed: ' + script;
-          } else {
-            let pyBad = false;
-            for (let pi = 1; pi < spawnArgs.length; pi++) {
-              if (isUnsafeDaemonPath(spawnArgs[pi])) {
-                pyBad = true;
-                policyReason = 'Python argument path outside workspace disallowed: ' + spawnArgs[pi];
-                break;
-              }
-            }
-            if (!pyBad) toolOk = true;
+        if ((bin === 'python3' || bin === 'python') && spawnArgs.length === 1 && spawnArgs[0] === 'full_app_audit.py') {
+          try {
+            verifyWorkspacePath('full_app_audit.py', safeCwd, { checkExists: true, checkSizeLimit: true });
+            spawnBin = bin;
+            spawnArgs = ['full_app_audit.py'];
+            toolOk = true;
+          } catch (err) {
+            policyReason = 'Python audit script verification failed: ' + err.message;
           }
         } else {
-          policyReason = 'Python script must be a valid .py workspace file: ' + script;
+          policyReason = 'Python execution in automated mode is strictly restricted to full_app_audit.py with no extra arguments';
         }
       } else if (bin === 'node') {
-        const script = spawnArgs[0] || '';
-        if (script === '--version' || script === '-v') {
-          toolOk = true;
-        } else if (script.endsWith('.js') || script.endsWith('.mjs') || script.endsWith('.cjs')) {
-          if (isUnsafeDaemonPath(script)) {
-            policyReason = 'Node.js script outside workspace disallowed: ' + script;
-          } else {
-            let nodeBad = false;
-            for (let ni = 1; ni < spawnArgs.length; ni++) {
-              if (isUnsafeDaemonPath(spawnArgs[ni])) {
-                nodeBad = true;
-                policyReason = 'Node.js argument path outside workspace disallowed: ' + spawnArgs[ni];
-                break;
-              }
-            }
-            if (!nodeBad) toolOk = true;
-          }
-        } else {
-          policyReason = 'Node.js script must be a valid .js workspace file: ' + script;
-        }
+        policyReason = 'Node.js workspace script execution is disallowed (node_workspace_script removed)';
       } else if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
         let pathEscape = false;
         for (let ai = 0; ai < spawnArgs.length; ai++) {
@@ -31358,6 +31470,13 @@ http.createServer((req, res) => {
           if (isUnsafeDaemonPath(arg)) {
             pathEscape = true;
             policyReason = 'External or relative path traversal rejected: ' + arg;
+            break;
+          }
+          try {
+            verifyWorkspacePath(arg, safeCwd, { checkExists: false, checkSizeLimit: true });
+          } catch (err) {
+            pathEscape = true;
+            policyReason = err.message;
             break;
           }
         }
@@ -31376,7 +31495,10 @@ http.createServer((req, res) => {
         detached: true,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: buildSanitizedChildEnv()
+        env: buildSanitizedChildEnv(),
+        timeout: 30000,
+        killSignal: 'SIGKILL',
+        maxBuffer: 4 * 1024 * 1024
       };
 
       const childProc = spawn(spawnBin, spawnArgs, spawnOpts);
@@ -31404,7 +31526,7 @@ http.createServer((req, res) => {
       const execTimer = setTimeout(() => {
         if (!finished) {
           timedOut = true;
-          killProcessTreeSafe(childProc);
+          killProcessTreeSafe(childProc, true);
         }
       }, EXEC_TIMEOUT_MS);
 
@@ -31422,7 +31544,7 @@ http.createServer((req, res) => {
           .replace(/([?&\\s](?:token|access_token|key|api[_-]?key|secret|password)=)[^&\\s"'<>]+/gi, '$1[REDACTED_PARAM]')
           .replace(/((?:X-Nexus-Secret|X-Nexus-Token|apikey):\\s*)[^\\r\\n\\s"'<>]+/gi, '$1[REDACTED_HEADER]');
         const suffix = timedOut
-          ? '\\nError: Execution timed out after 120s (Process Group SIGKILL)'
+          ? '\\nError: Execution timed out after 30s (Process Group SIGKILL)'
           : (errMsg ? '\\nError: ' + errMsg : '');
         const isOk = !timedOut && !errMsg && exitCode === 0;
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
