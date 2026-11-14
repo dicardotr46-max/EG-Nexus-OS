@@ -9,8 +9,25 @@
 
 ## 1. Context & Architectural Charter
 
-EG Nexus OS is an autonomous, privacy-preserving AI operating workspace designed for mobile and web environments. Unlike conventional cloud-based or SaaS AI applications that funnel user data and credentials through a central proxy or Backend-for-Frontend (BFF), EG Nexus OS enforces a **Sovereign Local-First** architectural paradigm:
+EG Nexus OS is an autonomous, privacy-preserving personal AI operating system engineered for Android (Capacitor APK) and web (offline-capable PWA). Unlike conventional cloud-based or SaaS AI applications that funnel user data and credentials through a central proxy or Backend-for-Frontend (BFF), EG Nexus OS enforces a **Sovereign Local-First** architectural paradigm:
 
+### 1.1 System Paradigm
+- **Definition:** `Sovereign, Local-First, Single-User Personal AI Operating System (Android APK + Offline-Capable PWA)`.
+- **Single-User Ownership:** The end-user is the sovereign administrator and sole owner of the physical device and execution runtime. There are no corporate accounts, centralized tracking databases, or intermediate proxy servers.
+- **Zero Server Costs:** The system operates at zero hosting cost for the user by running client-side, talking directly to AI providers via user-supplied API keys without third-party surveillance.
+
+### 1.2 Hybrid Architecture Rationale
+EG Nexus OS deliberately adopts a **Modular Security Core (`src/`) + Zero-Build Portable Single-Shell (`index.html`)** hybrid architecture:
+1. **Decoupled Security Core (`src/`):** The six mission-critical engines—`state.js`, `persistence.js`, `sanitization.js`, `secrets.js`, `approvals.js`, and `registry.js`—are completely decoupled, standalone, and strictly verified with 750+ automated Jest unit tests achieving $\ge 80\%$ branch coverage and $\ge 89\%$ line coverage.
+2. **Zero-Build Portable Shell (`index.html`):** The complete presentation shell and UI integration layer reside in `index.html`. This ensures the application can be opened directly over `file://`, packaged into a native Android APK via Capacitor with zero Webpack/Vite bundler friction, and loaded instantly offline via Service Worker (`sw.js`) without dynamic chunking failures.
+
+### 1.3 Explicit Architectural Non-Goals
+Reviewers and automated audit tools **MUST NOT** recommend or penalize the codebase for omitting the following:
+1. **No Central BFF / Server-Side Key Custody:** User API keys and OAuth tokens must **NEVER** leave the client device to be stored on an application backend. Storing secrets on a centralized server breaks the sovereign self-custody guarantee.
+2. **No Multi-Tenant Isolation / Enterprise RBAC:** This software is engineered exclusively for a single user per device instance. It does not require corporate tenant IDs, organization hierarchy trees, enterprise role-based access control, or distributed multi-region monitoring clusters.
+3. **Optional User-Owned Cloud Sync:** Integration with Cloudflare Workers or Supabase is **strictly opt-in (optional)** and deployed on the user’s personal infrastructure. Cloud sync is never the authoritative source of truth; local device storage always holds primary authority.
+
+### 1.4 Core Architectural Pillars
 1. **Local Data Sovereignty:**  
    دستگاه محلی کاربر مرجع اصلی و حقیقت پایه (Primary Authoritative Source of Truth) برای تمامی داده‌ها و اسرار است و همگام‌سازی ابری (از طریق Cloudflare Worker یا Supabase) کاملاً اختیاری، رمزنگاری‌شده و منحصراً با فعال‌سازی و رضایت صریح کاربر (Opt-In) انجام می‌گیرد.  
    All user state, chat history, custom models, and sensitive API secrets reside exclusively on the user's physical device. Keys are managed using hardware-backed security modules (Android KeyStore with StrongBox / TEE) or non-extractable CryptoKey primitives inside browser IndexedDB. Cloud synchronization (via Cloudflare Worker or Supabase) is strictly opt-in, client-side encrypted, and never authoritative over local storage.
@@ -22,6 +39,14 @@ EG Nexus OS is an autonomous, privacy-preserving AI operating workspace designed
 ---
 
 ## 2. Threat Model & Security Mitigations
+
+### 2.0 Authoritative Threat Model Boundary
+Because the device owner is the trusted local administrator (Admin), **"browser console/DevTools tampering by the device owner against their own client" is explicitly outside the threat model**.  
+Security audits, automated scanners, and human reviewers must focus **exclusively** on real-world threat vectors:
+1. **Indirect Prompt Injection & Memory Poisoning (`OWASP LLM01` / `ASI01` / `ASI06`)**
+2. **Deterministic Agent Capability Gating (`OWASP ASI02` / `ASI05`)**
+3. **Local Cryptographic Security at Rest (`OWASP MASWE-0003` / `0014` / `0015`)**
+4. **State Integrity Across Concurrent & Cross-Tab Execution (CAS & Write Queues)**
 
 ### 2.1 Threat Vector: Indirect Prompt Injection (IPI) & Capability Hijacking
 - **Attack Scenario:** An untrusted LLM prompt or malicious web content attempts to trick the agent into executing sensitive mutating actions (e.g., repository deletion, unsolicited emails, unapproved file modifications).

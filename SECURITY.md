@@ -6,12 +6,28 @@ We actively maintain and provide security patches for the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 6.3.x   | :white_check_mark: |
 | 6.2.x   | :white_check_mark: |
 | 6.1.x   | :white_check_mark: |
 | 6.0.x   | :white_check_mark: |
 | < 6.0   | :x:                |
 
-## Security Architecture & Threat Model
+## Architectural Paradigm & Threat Model Boundaries
+
+### Sovereign Local-First Paradigm
+EG Nexus OS is architected as a **Sovereign, Local-First, Single-User Personal AI Operating System** (packaged as an Android APK via Capacitor and an offline-first PWA).  
+- **No Central BFF:** There is no centralized application backend or server-side key escrow. All API keys and secrets reside on the user's physical device.
+- **Single-User Scope:** The system is single-tenant by design. Enterprise multi-tenancy, organization hierarchies, and cloud RBAC clusters are intentionally non-goals.
+
+### Threat Model Boundaries (In-Scope vs. Out-of-Scope)
+- **Out of Scope (Self-Tampering):** The physical device owner is the sovereign administrator (Admin). Modifying state, inspecting memory, or executing commands in browser DevTools by the device owner against their own client is explicitly **out of scope**.
+- **In Scope (Real Threats):** Security audits and vulnerability reports must focus on untrusted external threats:
+  1. **Indirect Prompt Injection & Memory Poisoning (`OWASP LLM01` / `ASI01` / `ASI06`):** Untrusted inputs from web pages, emails, or MCP servers attempting to hijack the agent or poison long-term memory.
+  2. **Agent Capability Hijacking & Loop Overrun (`OWASP ASI02` / `ASI05`):** Agents executing unapproved mutating actions or running uncontrolled loops.
+  3. **Data at Rest & Cryptographic Integrity (`OWASP MASWE-0003` / `0014` / `0015`):** Unauthorized extraction of stored keys or offline data tampering.
+  4. **State Concurrency:** Race conditions, data loss, or corruption across multi-tab execution.
+
+## Security Architecture & Defense-in-Depth
 
 EG Nexus OS enforces multi-layer defense-in-depth across the application boundary:
 
