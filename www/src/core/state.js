@@ -379,6 +379,104 @@
   const appState = createProtectedStateProxy(createInitialAppState());
   const uiState = createProtectedStateProxy(createInitialUiState());
 
+  /**
+   * Canonical JSON serializer
+   * Recursively sorts object keys alphabetically, handles primitives, arrays, null, undefined, dates, and circular references.
+   */
+  function canonicalizeJson(val, seen = new WeakSet()) {
+    if (val === null) return 'null';
+    if (val === undefined) return '';
+    const type = typeof val;
+    if (type === 'number') {
+      return Number.isFinite(val) ? String(val) : 'null';
+    }
+    if (type === 'boolean') {
+      return val ? 'true' : 'false';
+    }
+    if (type === 'string') {
+      return JSON.stringify(val);
+    }
+    if (type === 'bigint') {
+      return JSON.stringify(val.toString());
+    }
+    if (type === 'symbol' || type === 'function') {
+      return '';
+    }
+    if (val instanceof Date) {
+      return JSON.stringify(val.toISOString());
+    }
+    if (typeof val !== 'object') {
+      return JSON.stringify(String(val));
+    }
+    if (seen.has(val)) {
+      return '"[Circular]"';
+    }
+    seen.add(val);
+
+    if (Array.isArray(val)) {
+      const items = val.map(item => {
+        if (item === undefined || typeof item === 'function' || typeof item === 'symbol') {
+          return 'null';
+        }
+        return canonicalizeJson(item, seen);
+      });
+      return '[' + items.join(',') + ']';
+    }
+
+    const keys = Object.keys(val).sort();
+    const entries = [];
+    for (const k of keys) {
+      const v = val[k];
+      if (v === undefined || typeof v === 'function' || typeof v === 'symbol') {
+        continue;
+      }
+      entries.push(JSON.stringify(k) + ':' + canonicalizeJson(v, seen));
+    }
+    return '{' + entries.join(',') + '}';
+  }
+
+  /**
+   * Deep masking of sensitive keys & truncation of strings exceeding 500 characters
+   */
+  function sanitizeToolParams(params, seen = new WeakSet()) {
+    if (params === null || params === undefined) return params;
+    if (typeof params === 'string') {
+      if (params.length > 500) {
+        return params.slice(0, 500) + '... [TRUNCATED]';
+      }
+      return params;
+    }
+    if (typeof params !== 'object') {
+      return params;
+    }
+    if (seen.has(params)) {
+      return '[Circular]';
+    }
+    seen.add(params);
+
+    if (Array.isArray(params)) {
+      return params.map(item => sanitizeToolParams(item, seen));
+    }
+
+    const sensitiveKeyRegex = /(token|key|secret|password|auth|authorization|credential)/i;
+    const out = {};
+    for (const k of Object.keys(params)) {
+      if (sensitiveKeyRegex.test(k)) {
+        out[k] = '[REDACTED]';
+      } else {
+        const val = params[k];
+        if (typeof val === 'string' && val.length > 500) {
+          out[k] = val.slice(0, 500) + '... [TRUNCATED]';
+        } else if (val && typeof val === 'object') {
+          out[k] = sanitizeToolParams(val, seen);
+        } else {
+          out[k] = val;
+        }
+      }
+    }
+    return out;
+  }
+
   class AgentExecutionGuard {
     constructor(options = {}) {
       this.maxSteps = options.maxSteps !== undefined ? Number(options.maxSteps) : 15;
@@ -395,6 +493,7 @@
         : { signal: { aborted: false }, abort(reason) { this.signal.aborted = true; this.signal.reason = reason; } };
       this.cancelled = false;
       this.cancelReason = null;
+      this._pendingReservations = new Map();
     }
 
     _fingerprint(toolName, params) {
@@ -402,7 +501,7 @@
       let p = '';
       try {
         if (params !== undefined && params !== null) {
-          p = (typeof params === 'object') ? JSON.stringify(params) : String(params);
+          p = (typeof params === 'object') ? canonicalizeJson(params) : String(params);
         }
       } catch (_) {
         p = String(params || '');
@@ -411,18 +510,69 @@
     }
 
     detectLoop(toolName, params) {
-      const fp = this._fingerprint(toolName, params);
-      const n = this.callHistory.length;
-      if (n >= 2) {
-        const prev1 = this.callHistory[n - 1];
-        const prev2 = this.callHistory[n - 2];
-        if (prev1 && prev2 && prev1.fingerprint === fp && prev2.fingerprint === fp) {
-          const err = new Error(`LOOP_DETECTED: 3 consecutive calls with identical tool & params fingerprint (${toolName})`);
+      const hasArgs = (toolName !== undefined && toolName !== null);
+      const fp = hasArgs ? this._fingerprint(toolName, params) : null;
+      const historyFps = this.callHistory.map(entry => entry.fingerprint);
+      const fullSeq = hasArgs ? [...historyFps, fp] : historyFps;
+      const m = fullSeq.length;
+
+      // 1. 3 consecutive identical calls (1-step cycle: A -> A -> A)
+      if (m >= 3) {
+        if (fullSeq[m - 1] === fullSeq[m - 2] && fullSeq[m - 2] === fullSeq[m - 3]) {
+          const effectiveTool = toolName || this.callHistory[this.callHistory.length - 1]?.toolName || 'tool';
+          const err = new Error(`LOOP_DETECTED: 3 consecutive calls with identical tool & params fingerprint (${effectiveTool})`);
           err.code = 'LOOP_DETECTED';
-          err.toolName = toolName;
+          err.toolName = effectiveTool;
           throw err;
         }
       }
+
+      // 2. Alternating 2-step cycle (A -> B -> A -> B -> A -> B, 3 cycles of 2-step pattern)
+      if (m >= 6) {
+        const c1 = fullSeq[m - 1]; // B
+        const c2 = fullSeq[m - 2]; // A
+        if (
+          c1 !== c2 &&
+          fullSeq[m - 3] === c1 &&
+          fullSeq[m - 4] === c2 &&
+          fullSeq[m - 5] === c1 &&
+          fullSeq[m - 6] === c2
+        ) {
+          const histLen = this.callHistory.length;
+          const toolA = (hasArgs ? this.callHistory[histLen - 1]?.toolName : this.callHistory[histLen - 2]?.toolName) || 'toolA';
+          const toolB = (hasArgs ? toolName : this.callHistory[histLen - 1]?.toolName) || 'toolB';
+          const err = new Error(`LOOP_DETECTED: Alternating 2-step cycle detected (3 cycles of ${toolA} -> ${toolB})`);
+          err.code = 'LOOP_DETECTED';
+          err.toolName = toolB;
+          throw err;
+        }
+      }
+
+      // 3. Alternating 3-step cycle (A -> B -> C -> A -> B -> C -> A -> B -> C, 3 cycles of 3-step pattern)
+      if (m >= 9) {
+        const c1 = fullSeq[m - 1]; // C
+        const c2 = fullSeq[m - 2]; // B
+        const c3 = fullSeq[m - 3]; // A
+        if (
+          (c1 !== c2 || c2 !== c3) &&
+          fullSeq[m - 4] === c1 &&
+          fullSeq[m - 5] === c2 &&
+          fullSeq[m - 6] === c3 &&
+          fullSeq[m - 7] === c1 &&
+          fullSeq[m - 8] === c2 &&
+          fullSeq[m - 9] === c3
+        ) {
+          const histLen = this.callHistory.length;
+          const toolA = (hasArgs ? this.callHistory[histLen - 2]?.toolName : this.callHistory[histLen - 3]?.toolName) || 'toolA';
+          const toolB = (hasArgs ? this.callHistory[histLen - 1]?.toolName : this.callHistory[histLen - 2]?.toolName) || 'toolB';
+          const toolC = (hasArgs ? toolName : this.callHistory[histLen - 1]?.toolName) || 'toolC';
+          const err = new Error(`LOOP_DETECTED: Alternating 3-step cycle detected (3 cycles of ${toolA} -> ${toolB} -> ${toolC})`);
+          err.code = 'LOOP_DETECTED';
+          err.toolName = toolC;
+          throw err;
+        }
+      }
+
       return false;
     }
 
@@ -469,11 +619,16 @@
       this.usedTokens += tok;
       let safeParams = params;
       try {
-        if (params && typeof params === 'object') {
-          safeParams = JSON.parse(JSON.stringify(params));
-        }
+        safeParams = sanitizeToolParams(params);
       } catch (_) {
-        safeParams = String(params || '');
+        try {
+          safeParams = String(params || '');
+          if (safeParams.length > 500) {
+            safeParams = safeParams.slice(0, 500) + '... [TRUNCATED]';
+          }
+        } catch (_) {
+          safeParams = '[Unserializable]';
+        }
       }
       const entry = {
         toolName: String(toolName || ''),
@@ -483,6 +638,9 @@
         timestamp: Date.now()
       };
       this.callHistory.push(entry);
+      if (this.callHistory.length > 100) {
+        this.callHistory.splice(0, this.callHistory.length - 100);
+      }
       return entry;
     }
 
@@ -490,6 +648,68 @@
       const tok = Math.max(0, Number(tokens) || 0);
       this.usedTokens += tok;
       return this.usedTokens;
+    }
+
+    reserveTokens(callId, estimatedTokens) {
+      const estimated = Math.max(0, Number(estimatedTokens) || 0);
+      const pendingTotal = Array.from(this._pendingReservations.values()).reduce((sum, v) => sum + v, 0);
+      if ((this.usedTokens + pendingTotal + estimated) > this.maxTokenBudget) {
+        const err = new Error(`TOKEN_BUDGET_EXCEEDED: Reserving ${estimated} tokens exceeds budget (${this.maxTokenBudget})`);
+        err.code = 'TOKEN_BUDGET_EXCEEDED';
+        throw err;
+      }
+      const id = String(callId || ('res_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)));
+      this._pendingReservations.set(id, estimated);
+      const remainingBudget = this.maxTokenBudget - (this.usedTokens + pendingTotal + estimated);
+      return { callId: id, reservedTokens: estimated, remainingBudget };
+    }
+
+    settleTokens(callId, actualTokens) {
+      const actual = Math.max(0, Number(actualTokens) || 0);
+      const id = String(callId || '');
+      const reserved = this._pendingReservations.get(id) || 0;
+      this._pendingReservations.delete(id);
+      this.usedTokens += actual;
+      return { callId: id, actualTokens: actual, usedTokens: this.usedTokens, releasedReservation: reserved };
+    }
+
+    releaseReservation(callId) {
+      return this._pendingReservations.delete(String(callId || ''));
+    }
+
+    exportTaskJournal() {
+      return {
+        currentSteps: this.currentSteps,
+        currentToolCalls: this.currentToolCalls,
+        usedTokens: this.usedTokens,
+        startTime: this.startTime,
+        callHistory: JSON.parse(JSON.stringify(this.callHistory)),
+        cancelled: Boolean(this.cancelled),
+        cancelReason: this.cancelReason || null,
+        maxSteps: this.maxSteps,
+        maxToolCalls: this.maxToolCalls,
+        maxTokenBudget: this.maxTokenBudget,
+        maxDurationMs: this.maxDurationMs
+      };
+    }
+
+    restoreTaskJournal(journal) {
+      if (!journal || typeof journal !== 'object') {
+        return this;
+      }
+      if (typeof journal.currentSteps === 'number') this.currentSteps = journal.currentSteps;
+      if (typeof journal.currentToolCalls === 'number') this.currentToolCalls = journal.currentToolCalls;
+      if (typeof journal.usedTokens === 'number') this.usedTokens = journal.usedTokens;
+      if (typeof journal.startTime === 'number') this.startTime = journal.startTime;
+      if (Array.isArray(journal.callHistory)) {
+        this.callHistory = JSON.parse(JSON.stringify(journal.callHistory));
+      }
+      if (journal.cancelled !== undefined) this.cancelled = Boolean(journal.cancelled);
+      if (journal.cancelReason !== undefined) this.cancelReason = journal.cancelReason;
+      if (this.cancelled && this.abortController && typeof this.abortController.abort === 'function') {
+        try { this.abortController.abort(this.cancelReason); } catch (_) {}
+      }
+      return this;
     }
 
     cancelTask(reason = 'Task cancelled by user') {
@@ -620,6 +840,174 @@
     return child;
   }
 
+  /**
+   * CentralBudgetManager: Subagent Sub-budgets and isolated resource allocations
+   */
+  class CentralBudgetManager {
+    static get ROLES() {
+      return Object.freeze(['Planner', 'Researcher', 'Coder', 'Verifier']);
+    }
+
+    static getDefaultRoleRatios() {
+      return {
+        Planner: { stepsRatio: 0.25, tokensRatio: 0.25, toolCallsRatio: 0.2 },
+        Researcher: { stepsRatio: 0.35, tokensRatio: 0.35, toolCallsRatio: 0.4 },
+        Coder: { stepsRatio: 0.35, tokensRatio: 0.35, toolCallsRatio: 0.35 },
+        Verifier: { stepsRatio: 0.15, tokensRatio: 0.15, toolCallsRatio: 0.15 }
+      };
+    }
+
+    static allocateSubagentBudget(parentGuard, role, budgetOptions = {}) {
+      if (!parentGuard) {
+        throw new Error('parentGuard is required to allocate subagent budget');
+      }
+      const roleKey = String(role || 'Researcher').trim();
+      const ratios = CentralBudgetManager.getDefaultRoleRatios()[roleKey] || { stepsRatio: 0.25, tokensRatio: 0.25, toolCallsRatio: 0.25 };
+
+      const parentRemainingSteps = Math.max(0, (parentGuard.maxSteps ?? Infinity) - (parentGuard.currentSteps ?? 0));
+      const parentRemainingToolCalls = Math.max(0, (parentGuard.maxToolCalls ?? Infinity) - (parentGuard.currentToolCalls ?? 0));
+      const parentRemainingTokens = Math.max(0, (parentGuard.maxTokenBudget ?? Infinity) - (parentGuard.usedTokens ?? 0));
+      const parentRemainingDuration = (parentGuard.maxDurationMs !== undefined && parentGuard.startTime !== undefined)
+        ? Math.max(0, (parentGuard.startTime + parentGuard.maxDurationMs) - Date.now())
+        : (parentGuard.maxDurationMs || 120000);
+
+      const maxSteps = budgetOptions.maxSteps !== undefined
+        ? Math.min(Number(budgetOptions.maxSteps), parentRemainingSteps)
+        : (parentRemainingSteps !== Infinity ? Math.max(1, Math.floor(parentRemainingSteps * (ratios.stepsRatio || 0.25))) : 15);
+
+      const maxToolCalls = budgetOptions.maxToolCalls !== undefined
+        ? Math.min(Number(budgetOptions.maxToolCalls), parentRemainingToolCalls)
+        : (parentRemainingToolCalls !== Infinity ? Math.max(1, Math.floor(parentRemainingToolCalls * (ratios.toolCallsRatio || 0.25))) : 20);
+
+      const maxTokenBudget = budgetOptions.maxTokenBudget !== undefined
+        ? Math.min(Number(budgetOptions.maxTokenBudget), parentRemainingTokens)
+        : (parentRemainingTokens !== Infinity ? Math.max(100, Math.floor(parentRemainingTokens * (ratios.tokensRatio || 0.25))) : 100000);
+
+      const maxDurationMs = budgetOptions.maxDurationMs !== undefined
+        ? Math.min(Number(budgetOptions.maxDurationMs), parentRemainingDuration)
+        : (parentRemainingDuration !== Infinity ? parentRemainingDuration : 120000);
+
+      const childGuard = createSubagentGuard(parentGuard, {
+        maxSteps,
+        maxToolCalls,
+        maxTokenBudget,
+        maxDurationMs
+      });
+      childGuard.role = roleKey;
+      return childGuard;
+    }
+
+    allocateSubagentBudget(parentGuard, role, budgetOptions) {
+      return CentralBudgetManager.allocateSubagentBudget(parentGuard, role, budgetOptions);
+    }
+  }
+
+  function allocateSubagentBudget(parentGuard, role, budgetOptions) {
+    return CentralBudgetManager.allocateSubagentBudget(parentGuard, role, budgetOptions);
+  }
+
+  /**
+   * OWASP ASI06 Defense: Memory & Context Poisoning Guard
+   */
+  const MEMORY_POISONING_REGEX = /ignore\s+previous\s+instructions|system\s+override|send\s+(api\s*)?key|reveal\s+(secret|password|token)|exfiltrate/i;
+
+  class MemoryGovernance {
+    constructor() {
+      this.shortTerm = [];
+      this.longTerm = [];
+      this.episodic = [];
+      this.semanticIndex = new Map();
+    }
+
+    registerMemoryEntry(layer, entry) {
+      if (!layer || (layer !== 'shortTerm' && layer !== 'longTerm' && layer !== 'episodic' && layer !== 'semanticIndex')) {
+        throw new Error(`Invalid memory layer: ${layer}. Expected shortTerm, longTerm, episodic, or semanticIndex`);
+      }
+      if (!entry || typeof entry !== 'object') {
+        throw new Error('Memory entry must be a non-null object');
+      }
+
+      const contentStr = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content ?? '');
+      const provenance = String(entry.provenance || 'system');
+      const sourceType = String(entry.sourceType || 'user').toLowerCase();
+      const trustScore = typeof entry.trustScore === 'number' ? entry.trustScore : Number(entry.trustScore ?? 1.0);
+      const userVerified = Boolean(entry.userVerified);
+
+      const hasPoisoningPattern = MEMORY_POISONING_REGEX.test(contentStr);
+      const isSensitiveLayer = layer === 'longTerm' || Boolean(entry.isSystemPrompt || entry.systemPrompt || entry.isRoutine || entry.routine);
+      const isUntrustedSource = sourceType === 'web' || sourceType === 'mcp' || sourceType === 'untrusted' || (typeof trustScore === 'number' && trustScore < 0.8);
+
+      // Defense against OWASP ASI06: Memory & Context Poisoning
+      if (hasPoisoningPattern || (isSensitiveLayer && isUntrustedSource)) {
+        if (!userVerified) {
+          const err = new Error('MEMORY_POISONING_BLOCKED: Untrusted memory entry or poisoning pattern detected without explicit user verification');
+          err.code = 'MEMORY_POISONING_BLOCKED';
+          err.layer = layer;
+          err.sourceType = sourceType;
+          err.trustScore = trustScore;
+          throw err;
+        }
+      }
+
+      const record = Object.freeze({
+        id: 'mem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        content: entry.content,
+        provenance,
+        sourceType,
+        trustScore,
+        timestamp: entry.timestamp || Date.now(),
+        userVerified
+      });
+
+      if (layer === 'semanticIndex') {
+        this.semanticIndex.set(record.id, record);
+      } else {
+        this[layer].push(record);
+      }
+
+      return record;
+    }
+
+    getMemories(layer) {
+      if (layer === 'semanticIndex') {
+        return Array.from(this.semanticIndex.values());
+      }
+      if (layer && Array.isArray(this[layer])) {
+        return [...this[layer]];
+      }
+      return {
+        shortTerm: [...this.shortTerm],
+        longTerm: [...this.longTerm],
+        episodic: [...this.episodic],
+        semanticIndex: Array.from(this.semanticIndex.values())
+      };
+    }
+
+    clearLayer(layer) {
+      if (layer === 'semanticIndex') {
+        this.semanticIndex.clear();
+        return;
+      }
+      if (layer && Array.isArray(this[layer])) {
+        this[layer].length = 0;
+        return;
+      }
+      this.shortTerm.length = 0;
+      this.longTerm.length = 0;
+      this.episodic.length = 0;
+      this.semanticIndex.clear();
+    }
+  }
+
+  let _defaultMemoryGovernance = new MemoryGovernance();
+  function getMemoryGovernance() {
+    return _defaultMemoryGovernance;
+  }
+  function resetMemoryGovernance() {
+    _defaultMemoryGovernance = new MemoryGovernance();
+    return _defaultMemoryGovernance;
+  }
+
   // OpenTelemetry GenAI Semantic Conventions & Audit Persistence delegates
   function _getPeerApprovals() {
     if (typeof require === 'function') {
@@ -642,21 +1030,22 @@
     USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens'
   });
 
-  const GenAISpan = (function() {
-    const peer = _getPeerApprovals();
-    return (peer && peer.GenAISpan) || class GenAISpan {
-      constructor(operation, attributes = {}) {
-        this.name = String(operation || 'gen_ai.operation');
-        this.attributes = { ...attributes };
+  class GenAISpan {
+    constructor(operation, attributes = {}) {
+      const peer = _getPeerApprovals();
+      if (peer && peer.GenAISpan && this.constructor === GenAISpan) {
+        return new peer.GenAISpan(operation, attributes);
       }
-      setAttribute(k, v) { this.attributes[k] = v; return this; }
-      setAttributes(a) { Object.assign(this.attributes, a); return this; }
-      addEvent() { return this; }
-      setStatus() { return this; }
-      end() { return this; }
-      toJSON() { return { name: this.name, attributes: this.attributes }; }
-    };
-  })();
+      this.name = String(operation || 'gen_ai.operation');
+      this.attributes = { ...attributes };
+    }
+    setAttribute(k, v) { this.attributes[k] = v; return this; }
+    setAttributes(a) { Object.assign(this.attributes, a); return this; }
+    addEvent() { return this; }
+    setStatus() { return this; }
+    end() { return this; }
+    toJSON() { return { name: this.name, attributes: this.attributes }; }
+  }
 
   function createGenAISpan(operation, attributes = {}) {
     const peer = _getPeerApprovals();
@@ -712,6 +1101,13 @@
     GEN_AI_OPERATIONS,
     GEN_AI_ATTRIBUTES,
     persistAuditTrail,
-    verifyAuditTrailIntegrity
+    verifyAuditTrailIntegrity,
+    canonicalizeJson,
+    sanitizeToolParams,
+    CentralBudgetManager,
+    allocateSubagentBudget,
+    MemoryGovernance,
+    getMemoryGovernance,
+    resetMemoryGovernance
   };
 });

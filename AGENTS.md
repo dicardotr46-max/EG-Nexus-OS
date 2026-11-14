@@ -7,7 +7,7 @@
 
 ## 1. Core Architecture Overview
 
-`EG-Nexus-OS` is an offline-first, mobile-optimized (strict 390×844 CSS viewport), full-stack Personal AI Operating System delivered as a zero-build Single Page Application (`index.html`) and packaged as an Android APK via Capacitor 8.5.3.
+`EG-Nexus-OS` is an offline-first, mobile-optimized (strict 390×844 CSS viewport), full-stack Personal AI Operating System delivered as a zero-build Single Page Application (`index.html`) and packaged as an Android APK via Capacitor 8.6.0.
 
 ### 5-Phase Layered Architecture:
 1. **Phase 1 — Core State & Local Persistence:**  

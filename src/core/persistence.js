@@ -88,8 +88,19 @@
       clear: () => { mem.clear(); },
       key: (i) => Array.from(mem.keys())[i] || null,
       get length() { return mem.size; },
-      _isMemoryFallback: true
+      _isMemoryFallback: true,
+      _isMemoryShim: true
     };
+  }
+
+  function isUsingMemoryFallback(storage) {
+    const s = storage || getLocalStorage();
+    if (!s) return true;
+    if (s._isMemoryFallback === true || s._isMemoryShim === true) return true;
+    try {
+      if (typeof window !== 'undefined' && window.__storageRestricted) return true;
+    } catch (_) {}
+    return false;
   }
 
   function installStorageGuard(target) {
@@ -180,6 +191,15 @@
       return false;
     }
   }
+
+  const nexusStorage = {
+    get: (key, customStorage) => nexusStorageGet(key, customStorage),
+    set: (key, value, customStorage) => nexusStorageSet(key, value, customStorage),
+    remove: (key, customStorage) => nexusStorageRemove(key, customStorage),
+    isUsingMemoryFallback: (storage) => isUsingMemoryFallback(storage),
+    get _isMemoryShim() { return isUsingMemoryFallback(); },
+    get isDegraded() { return isUsingMemoryFallback(); }
+  };
 
   let _lastTabBaselineSnapshot = null;
 
@@ -310,6 +330,11 @@
         }
       });
     }
+    if (state.degraded_persistence !== undefined) {
+      persisted.degraded_persistence = Boolean(state.degraded_persistence);
+    } else if (isUsingMemoryFallback()) {
+      persisted.degraded_persistence = true;
+    }
     return persisted;
   }
 
@@ -317,6 +342,12 @@
     const base = (fallbackState && typeof fallbackState === 'object') ? fallbackState : {};
     const src = (s && typeof s === 'object' && !Array.isArray(s)) ? { ...base, ...s } : { ...base };
     const validObjs = (arr, def = []) => Array.isArray(arr) ? arr.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : def;
+
+    if (s && s.degraded_persistence !== undefined) {
+      src.degraded_persistence = Boolean(s.degraded_persistence);
+    } else if (isUsingMemoryFallback()) {
+      src.degraded_persistence = true;
+    }
 
     src.profileName = (typeof src.profileName === 'string' && src.profileName.trim()) ? src.profileName.trim() : 'Ali';
     src.dreamMemory = typeof src.dreamMemory === 'string' ? src.dreamMemory : (base.dreamMemory || '');
@@ -565,6 +596,108 @@
     return Number(item.version ?? item.revision ?? 0) || 0;
   }
 
+  function mergeRoutineItems(localItem, remoteItem, winner, options = {}) {
+    const winnerItem = winner === 'remote' ? remoteItem : localItem;
+    const loserItem = winner === 'remote' ? localItem : remoteItem;
+
+    const baseSnapshot = options.baselineState || options.baseline || _lastTabBaselineSnapshot;
+    const idKey = options.idKey || 'id';
+    const id = String(localItem[idKey] ?? localItem.id ?? remoteItem[idKey] ?? remoteItem.id);
+    const baseRoutine = (baseSnapshot && Array.isArray(baseSnapshot.routines) && baseSnapshot.routines.find(r => r && String(r[idKey] ?? r.id) === id)) || localItem._baseline || remoteItem._baseline || null;
+
+    const merged = { ...loserItem, ...winnerItem };
+
+    if (baseRoutine) {
+      const allKeys = new Set([...Object.keys(localItem), ...Object.keys(remoteItem), ...Object.keys(baseRoutine)]);
+      allKeys.forEach(k => {
+        if (['id', 'version', 'updatedAtTs', 'updated_at', 'updatedAt'].includes(k)) return;
+        const localVal = localItem[k];
+        const remoteVal = remoteItem[k];
+        const baseVal = baseRoutine[k];
+
+        const localChanged = localVal !== undefined && JSON.stringify(localVal) !== JSON.stringify(baseVal);
+        const remoteChanged = remoteVal !== undefined && JSON.stringify(remoteVal) !== JSON.stringify(baseVal);
+
+        if (localChanged && !remoteChanged) {
+          merged[k] = localVal;
+        } else if (!localChanged && remoteChanged) {
+          merged[k] = remoteVal;
+        } else if (localChanged && remoteChanged) {
+          merged[k] = winnerItem[k];
+        } else {
+          merged[k] = winnerItem[k] !== undefined ? winnerItem[k] : loserItem[k];
+        }
+      });
+      merged.version = Math.max(getItemVersion(localItem), getItemVersion(remoteItem));
+      return merged;
+    }
+
+    const titleDiff = localItem.title !== undefined && remoteItem.title !== undefined && localItem.title !== remoteItem.title;
+    const scheduleDiff = (localItem.schedule !== undefined && remoteItem.schedule !== undefined && localItem.schedule !== remoteItem.schedule) ||
+                         (localItem.cron !== undefined && remoteItem.cron !== undefined && localItem.cron !== remoteItem.cron);
+    const promptDiff = localItem.prompt !== undefined && remoteItem.prompt !== undefined && localItem.prompt !== remoteItem.prompt;
+
+    const localChangedFields = Array.isArray(localItem.changedFields || localItem._changedFields) ? (localItem.changedFields || localItem._changedFields) : null;
+    const remoteChangedFields = Array.isArray(remoteItem.changedFields || remoteItem._changedFields) ? (remoteItem.changedFields || remoteItem._changedFields) : null;
+
+    if (localChangedFields || remoteChangedFields) {
+      const lChanges = new Set(localChangedFields || []);
+      const rChanges = new Set(remoteChangedFields || []);
+      const routineFields = ['title', 'schedule', 'cron', 'prompt', 'enabled', 'action'];
+      routineFields.forEach(f => {
+        const lMod = lChanges.has(f);
+        const rMod = rChanges.has(f);
+        if (lMod && !rMod) {
+          merged[f] = localItem[f];
+        } else if (!lMod && rMod) {
+          merged[f] = remoteItem[f];
+        } else if (lMod && rMod) {
+          merged[f] = winnerItem[f];
+        }
+      });
+      merged.version = Math.max(getItemVersion(localItem), getItemVersion(remoteItem));
+      return merged;
+    }
+
+    // Non-conflicting field merge: one version changed title and the other changed schedule/cron/prompt
+    if (titleDiff && (scheduleDiff || promptDiff)) {
+      if (winner === 'remote') {
+        merged.title = localItem.title;
+        if (scheduleDiff) {
+          if (remoteItem.schedule !== undefined) merged.schedule = remoteItem.schedule;
+          if (remoteItem.cron !== undefined) merged.cron = remoteItem.cron;
+        }
+        if (promptDiff) {
+          merged.prompt = remoteItem.prompt;
+        }
+      } else {
+        merged.title = localItem.title;
+        if (scheduleDiff) {
+          if (remoteItem.schedule !== undefined) merged.schedule = remoteItem.schedule;
+          if (remoteItem.cron !== undefined) merged.cron = remoteItem.cron;
+        }
+        if (promptDiff) {
+          merged.prompt = remoteItem.prompt;
+        }
+      }
+    } else if (titleDiff && !scheduleDiff && !promptDiff) {
+      // Direct conflict on title only: preserve LWW
+      merged.title = winnerItem.title;
+    } else if (!titleDiff && (scheduleDiff || promptDiff)) {
+      // Direct conflict on schedule or prompt: preserve LWW
+      if (scheduleDiff) {
+        if (winnerItem.schedule !== undefined) merged.schedule = winnerItem.schedule;
+        if (winnerItem.cron !== undefined) merged.cron = winnerItem.cron;
+      }
+      if (promptDiff) {
+        merged.prompt = winnerItem.prompt;
+      }
+    }
+
+    merged.version = Math.max(getItemVersion(localItem), getItemVersion(remoteItem));
+    return merged;
+  }
+
   function mergeArrayById(fieldName, localArr, remoteArr, onConflictFn = recordConflictEvent) {
     const listA = Array.isArray(localArr) ? localArr : [];
     const listB = Array.isArray(remoteArr) ? remoteArr : [];
@@ -575,8 +708,10 @@
     listA.forEach((item, idx) => {
       if (!item || typeof item !== 'object') return;
       const id = String(item.id ?? idx);
+      if (!map.has(id)) {
+        order.push(id);
+      }
       map.set(id, { item, origin: 'local' });
-      order.push(id);
     });
 
     listB.forEach((remoteItem, idx) => {
@@ -616,10 +751,18 @@
         }
       }
 
+      const isRoutine = fieldName === 'routines' ||
+        Boolean((localItem && (localItem.schedule !== undefined || localItem.cron !== undefined || localItem.prompt !== undefined)) ||
+                (remoteItem && (remoteItem.schedule !== undefined || remoteItem.cron !== undefined || remoteItem.prompt !== undefined)));
+
+      if (isRoutine && typeof localItem === 'object' && typeof remoteItem === 'object') {
+        resolved = mergeRoutineItems(localItem, remoteItem, winner);
+      }
+
       const isDifferent = JSON.stringify(localItem) !== JSON.stringify(remoteItem);
       if (isDifferent) {
         const conflict = {
-          type: 'array_field_conflict',
+          type: fieldName === 'routines' ? 'routine_conflict' : 'array_field_conflict',
           fieldName,
           id,
           local: localItem,
@@ -629,7 +772,7 @@
           timestamp: Date.now()
         };
         if (typeof onConflictFn === 'function') {
-          onConflictFn(conflict);
+          try { onConflictFn(conflict); } catch (_) {}
         }
       }
 
@@ -814,6 +957,10 @@
         winner = 'local';
         resolved = localRoutine;
       }
+    }
+
+    if (typeof localRoutine === 'object' && typeof remoteRoutine === 'object') {
+      resolved = mergeRoutineItems(localRoutine, remoteRoutine, winner, options);
     }
 
     const isDifferent = JSON.stringify(localRoutine) !== JSON.stringify(remoteRoutine);
@@ -1211,6 +1358,12 @@
           } catch (_) {}
         }
         const sanitized = sanitizeLoadedState(parsed, fallbackState);
+        if (isUsingMemoryFallback(this.storage)) {
+          sanitized.degraded_persistence = true;
+          if (sanitized.cloudConfig) {
+            sanitized.cloudConfig.degraded_persistence = true;
+          }
+        }
         this._baselineSnapshot = JSON.parse(JSON.stringify(buildPersistedState(sanitized)));
         _lastTabBaselineSnapshot = JSON.parse(JSON.stringify(this._baselineSnapshot));
         return sanitized;
@@ -1250,13 +1403,24 @@
           } catch (_) {}
         }
 
+        if (isUsingMemoryFallback(this.storage)) {
+          stateToSave.degraded_persistence = true;
+          if (stateToSave.cloudConfig) {
+            stateToSave.cloudConfig.degraded_persistence = true;
+          }
+        }
+
         const serialized = JSON.stringify(stateToSave);
         const ok = nexusStorageSet(this.storageKey, serialized, this.storage);
         if (ok) {
           this._baselineSnapshot = JSON.parse(JSON.stringify(stateToSave));
           _lastTabBaselineSnapshot = JSON.parse(JSON.stringify(stateToSave));
         }
-        return { success: ok, savedState: stateToSave };
+        return {
+          success: ok,
+          savedState: stateToSave,
+          degraded_persistence: isUsingMemoryFallback(this.storage) ? true : Boolean(stateToSave.degraded_persistence)
+        };
       } finally {
         this._flags.isSaving = false;
       }
@@ -1272,6 +1436,9 @@
     nexusStorageGet,
     nexusStorageSet,
     nexusStorageRemove,
+    nexusStorage,
+    isUsingMemoryFallback,
+    mergeRoutineItems,
     migrateLegacyStorage,
     getStorageSizeEstimate,
     sanitizeLoadedState,

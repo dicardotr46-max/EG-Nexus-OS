@@ -1,24 +1,56 @@
-# 🚀 EG Nexus OS v6.2.5 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.3.0 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-648%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-702%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**EG Nexus OS v6.2.5** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10, OWASP ACS, OWASP MASWE v1.0.0)، مانیفست صریح خط‌مشی اکشن‌ها (`ACTION_POLICY_MANIFEST`) با اعمال قطعی سیاست Default-Deny بدون حدس پیشوند و مسدودسازی اکشن‌های ناشناخته با خطای صریح `UNLISTED_ACTION_DENIED`، گارد حاکمیتی اجرای ایجنت (`AgentExecutionGuard`) با محدودیت گام، تشخیص حلقه‌های تکراری و لغو عملیات، پروتکل مهاجرت دوفازی کلید در سکرت‌ها (Shadow-Key 2PC StrongBox Migration) با کلید میانی `_v2_staging` و تضمین عدم اتلاف داده در کرش، معماری گاردین محلی الهام‌گرفته از ACS با تصمیمات ۴گانه (allow/deny/ask/defer) و رد پای ممیزی زنجیره-هش‌شده (`prevHash`, `entryHash`)، قرنطینه ساندباکس دیمن Termux با اعتبارسنجی `realpathSync` و فیلتر دقیق پریست‌های ffmpeg، انتشار خودکار ریلیز و فایل APK امضاشده با توصیفگر قطعی اصالت (`SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`) و بیش از 648 تست خودکار Jest در 27 سوئیت با موفقیت ۱۰۰٪ منتشر شده است.
+**EG Nexus OS v6.3.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، سیستم مدیریت بودجه مرکزی و رزرو و تسویه توکن (`CentralBudgetManager` & Token Reservation/Settlement) با جلوگیری کامل از شمارش مضاعف، تشخیص پیشرفته حلقه‌های چندمرحله‌ای متناوب (`A -> B -> A -> B -> A -> B`) با مرتب‌سازی کلیدها بر اساس Canonical JSON و ماسک فیلدهای حساس تاریخچه، ماژول حاکمیت حافظه ۴ لایه (`MemoryGovernance`) و دفاع فعال در برابر مسمومیت حافظه (`OWASP ASI06`)، رجیستری جامع و یکپارچه مدل‌ها (`MODEL_REGISTRY`) با قیمت‌گذاری دقیق توکن‌ها و رد قطعی مدل‌های ناشناخته، لغو واقعی عملیات با `AbortSignal` در انقضای مهلت تأیید و ثبت وضعیت `'timed_out'`، انتخاب دترمینیستیک تک‌بکند در `SecretVault`، یکپارچه‌سازی شناسه اپلیکیشن موبایل (`com.eg.nexus`) و همگام‌ساز خودکار نسخه اندروید در گریدل (`versionCode 60300` و `versionName "6.3.0"`)، مانیفست صریح خط‌مشی اکشن‌ها (`ACTION_POLICY_MANIFEST`) با اعمال قطعی سیاست Default-Deny بدون حدس پیشوند و مسدودسازی اکشن‌های ناشناخته با خطای صریح `UNLISTED_ACTION_DENIED`، و آزمون‌های رگرسیون جامع منتشر شده است.
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.2.5
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.3.0
 
-### ۱. منشور معماری حاکمیتی محلی-محور و ماتریس انطباق استانداردهای ۲۰۲۶ (ADR-001 Section 5)
+### ۱. سیستم مدیریت بودجه مرکزی و رزرو/تسویه توکن (CentralBudgetManager & Token Reservation/Settlement)
+- **رزرو پیش از شبکه (`reserveTokens`):** متد `executeProviderRequest` پیش از ارسال هرگونه درخواست به ارائه‌دهندگان هوش مصنوعی یا اجرای ابزار، توکن‌های تخمینی را رزرو می‌کند. در صورت فراتر رفتن مجموع توکن‌های رزروشده و مصرفی از `maxTokenBudget`، بلافاصله خطای `429 TOKEN_BUDGET_EXCEEDED` صادر و درخواست بدون مصرف شبکه متوقف می‌شود.
+- **تسویه قطعی و آزادسازی اتمیک (`settleTokens` و `releaseReservation`):** پس از دریافت پاسخ موفقیت‌آمیز، توکن‌های واقعی مصرف‌شده تسویه و در صورت بروز خطا، رزرو به صورت اتمیک آزاد می‌شود؛ این فرآیند از هرگونه شمارش مضاعف (Double-Counting) یا نشت بودجه جلوگیری می‌کند.
+- **تخصیص سلسله‌مراتبی بودجه ساب‌ایجنت‌ها (`CentralBudgetManager`):** ساب‌ایجنت‌ها با `createSubagentGuard` بودجه اختصاصی خود را از سقف والد به ارث برده و از مصرف بی‌رویه منابع جلوگیری می‌نمایند.
+
+### ۲. تشخیص چرخه‌های چندمرحله‌ای متناوب و ماسک تاریخچه فراخوانی‌ها
+- **سریالایز کلیدها با Canonical JSON:** متد `_fingerprint` با مرتب‌سازی بازگشتی الفبایی کلیدها تضمین می‌کند که تقدم و تأخر کلیدها در آبجکت پارامتر مانع از تشخیص الگو نشود.
+- **تشخیص چرخه‌های ۲ و ۳ مرحله‌ای:** الگوریتم `detectLoop` علاوه بر حلقه‌های ساده تک‌ابزار، چرخه‌های متناوب دو مرحله‌ای (نظیر `Search -> Read -> Search -> Read -> Search -> Read`) و سه مرحله‌ای را شناسایی و با پرتاب خطای صریح با کد `LOOP_DETECTED` متوقف می‌کند.
+- **ماسک اطلاعات حساس و سقف تاریخچه (`sanitizeToolParams`):** تمامی کلیدهای حاوی توکن، پسورد، کلید، سکرت و هدرهای احراز هویت با مقدار `[REDACTED]` ماسک شده، رشته‌های با طول بیش از ۵۰۰ کاراکتر ترانکیت گردیده و آرایه تاریخچه حداکثر به ۱۰۰ مورد محدود می‌شود.
+
+### ۳. ماژول حاکمیت حافظه ۴ لایه و دفاع در برابر مسمومیت حافظه (OWASP ASI06 Defense)
+- **معماری حافظه ۴ لایه (`MemoryGovernance`):** ساختاربندی حافظه به ۴ لایه مجزا: حافظه کاری کوتاه‌مدت (`shortTerm`)، حافظه اپیزودیک ابزارها (`episodic`)، حافظه معنایی بلندمدت (`longTerm`) و شاخص ممیزی حافظه (`semanticIndex`).
+- **فیلتر الگوهای تزریق پرامپت و مسمومیت حافظه:** متد `registerMemoryEntry` محتوای حافظه را در برابر الگوهای متخاصم (نظیر `ignore previous instructions`, `system override`, `send api key`, `reveal secret`, `exfiltrate`) ارزیابی می‌کند.
+- **سیاست شکست‌بسته برای منابع نامعتبر:** در صورت ورود داده از منابع نامعتبر (`web`, `mcp`, `untrusted`) به لایه‌های حساس یا وجود الگوهای مسمومیت، ثبت حافظه متوقف و خطای `MEMORY_POISONING_BLOCKED` پرتاب می‌شود، مگر آنکه تایید صریح کاربر (`userVerified: true`) ضمیمه شده باشد.
+
+### ۴. رجیستری یکپارچه مدل‌ها و قیمت‌گذاری دقیق توکن‌ها (MODEL_REGISTRY)
+- **ثبت متمرکز مدل‌ها:** پایگاه داده متمرکز تمامی مدل‌های پشتیبانی‌شده در ارائه‌دهندگان مختلف (Google Gemini, OpenRouter, DeepSeek, Grok, Kimi) با ثبت سقف پنجره زمینه، توکن‌های خروجی و پرچم‌های پشتیبانی از ابزار و استریم.
+- **رد مدل‌های ناشناخته (`resolveProviderModelId`):** درخواست به مدل‌های نامعتبر یا ثبت‌نشده بلافاصله با خطای `MODEL_NOT_FOUND` مسدود می‌شود.
+- **محاسبه تفکیک‌شده هزینه‌ها (`recordModelTokenAndCostUsage`):** محاسبه مستقل هزینه توکن‌های ورودی پرامپت، خروجی تکمیل پاسخ و توکن‌های ورودی کَش‌شده (Cached Input Tokens) بر اساس تعرفه واقعی ارائه‌دهنده.
+
+### ۵. لغو واقعی عملیات با AbortSignal در تایم‌اوت دروازه تأیید (Approval Gate Timeout)
+- **پیوستگی کنترلر لغو (`AbortController`):** متد `resolveApprovalGate` از یک `AbortController` فعال با زمان انقضای استاندارد ۶۰ ثانیه استفاده می‌کند.
+- **لغو فرآیند و وضعیت `'timed_out'`:** با سپری شدن مهلت ۶۰ ثانیه‌ای، سیگنال لغو (`signal.aborted === true`) فعال شده و چرخه عمر درخواست وضعیت دقیق `'timed_out'` را دریافت می‌کند تا از ایجاد فرآیندهای معلق جلوگیری شود.
+
+### ۶. انتخاب دترمینیستیک تک‌بکند در SecretVault
+- قفل شدن بکند فعال رمزنگاری (`_activeBackend`) در مرحله راه‌اندازی اولیه و استفاده یکسان و تضمین‌شده از همان بکند برای هر دو عملیات رمزنگاری (`encrypt`) و رمزگشایی (`decrypt`).
+- نگهداری پایدار شمارنده فراخوانی‌های رمزنگاری مطابق استاندارد NIST SP 800-38D در سراسر نشست‌ها.
+
+### ۷. یکپارچه‌سازی شناسه اپلیکیشن و همگام‌ساز خودکار نسخه گریدل
+- یکسان‌سازی کامل شناسه اپلیکیشن روی `com.eg.nexus` در `capacitor.config.json`، `android/app/build.gradle` و `AndroidManifest.xml`.
+- پیاده‌سازی اسکریپت خودکار `syncGradleVersion()` در `scripts/sync-www.js` برای تولید `versionCode 60300` و `versionName "6.3.0"` متناسب با `package.json`.
+
+### ۸. منشور معماری حاکمیتی محلی-محور و ماتریس انطباق استانداردهای ۲۰۲۶ (ADR-001 Section 5)
 - **سند رسمی ADR-001 و بخش ۵:** تدوین جدول ماتریس ردیابی کنترل‌ها و تطابق کامل با استانداردهای مدرن ۲۰۲۶ در `docs/ADR-001-sovereign-local-first.md`:
   - **OWASP ASVS v5.0.0:** کنترل‌های معماری لوکال-فرست بدون BFF (V1)، احراز هویت CSPRNG Fail-Closed (V2)، مدیریت نشست امن AES-GCM-256 با AAD سخت‌افزاری (`V3.2.1`)، اعتبارسنجی ورودی با Canonical JSON (V5)، الزامات رمزنگاری NIST SP 800-38D و تولید کلید سخت‌افزاری (`V6.2.1`, `V6.4.2`)، حفاظت از افشای داده‌های حساس (`V8.2.2`) و هاردنینگ CSP و SBOM رسمی CycloneDX (`V14.2.1`).
-  - **OWASP Top 10 for Agentic Applications 2026:** پیشگیری از هایجک ایجنت با مانیفست اکشن‌ها (ASI-01)، ایمن‌سازی فراخوانی ابزارها با ماتریس Termux (ASI-02)، توکن‌های مصرف تک‌باره اتمیک (ASI-03)، کنترل همزمانی صف سریالایز شده سکرت‌ها (ASI-04) و ایزولاسیون کامل سخت‌افزاری سکرت‌ها (ASI-05).
-  - **OWASP Agent Control Standard (ACS - Sep 2026):** معماری **ACS-Inspired Local Guardian با تصمیمات allow/deny/ask/defer و رد پای ممیزی زنجیره-هش‌شده**، توکن‌های تک‌باره اتمیک با انقضای ۵ دقیقه (ACS-REQ-01)، مانیفست صریح اکشن‌ها در ۳ سطح دسترسی (ACS-REQ-02)، ردگیری رد پای ممیزی چرخه عمر درخواست‌ها با زنجیره هش SHA-256 و رکوردهای فریز شده (ACS-REQ-03) و دروازه تایید کلاینتی غیرقابل‌دورزدن (ACS-REQ-04).
+  - **OWASP Top 10 for Agentic Applications 2026:** پوشش رسمی ۱۰ آسیب‌پذیری استاندارد (ASI01 الی ASI10) شامل پیشگیری از هایجک ایجنت (ASI01)، سوءاستفاده از ابزارها (ASI02)، سوءاستفاده از هویت و دسترسی (ASI03)، آسیب‌پذیری‌های زنجیره تأمین ایجنتیک (ASI04)، اجرای کد پیش‌بینی‌نشده (ASI05)، مسمومیت حافظه و زمینه (ASI06)، ارتباطات ناامن بین‌ایجنتی (ASI07)، شکست‌های آبشاری (ASI08)، سوءاستفاده از اعتماد انسان-ایجنت (ASI09) و ایجنت‌های سرکش (ASI10).
+  - **OWASP Agent Control Standard (ACS - Sep 2026):** معماری **ACS-Inspired Local Guardian با تصمیمات allow/deny/ask/defer و رد پای ممیزی زنجیره-هش‌شده**، توکن‌های تک‌باره اتمیک با انقضای ۶۰ ثانیه (ACS-REQ-01)، مانیفست صریح اکشن‌ها در ۳ سطح دسترسی (ACS-REQ-02)، ردگیری رد پای ممیزی چرخه عمر درخواست‌ها با زنجیره هش SHA-256 و رکوردهای فریز شده (ACS-REQ-03) و دروازه تایید کلاینتی غیرقابل‌دورزدن (ACS-REQ-04) منطبق با کنوانسیون مستقل OpenTelemetry GenAI Semantic Conventions (`open-telemetry/semantic-conventions` v1.29+).
   - **OWASP MASWE v1.0.0 (Aug 2026):** انطباق رسمی با شناسه‌های ۴ رقمی استاندارد MASWE شامل محافظت کلیدها در کی‌استور سخت‌افزاری (`MASWE-0003`)، بهره‌گیری انحصاری از الگوریتم‌های استاندارد NIST AES-GCM و جلوگیری از الگوریتم‌های منسوخ (`MASWE-0007`)، اعتبارسنجی یکپارچگی داده‌های احراز هویت مضاعف AAD و HMAC زمان‌ثابت (`MASWE-0009`)، تولید کلید با آنتروپی CSPRNG Fail-Closed (`MASWE-0013`)، مشتق‌سازی کلید با PBKDF2 و ۶۰۰ هزار دور تکرار (`MASWE-0014`)، مهاجرت دوفازی کلید و چرخش امن بدون بازگشت (`MASWE-0015`)، و دروازه تایید محلی با توکن‌های یکبارمصرف اتمیک و غیرقابل‌دورزدن (`MASWE-0020`).
 
 ### ۲. مانیفست صریح اکشن‌ها و سیاست Default-Deny مطلق (`ACTION_POLICY_MANIFEST`)
@@ -52,8 +84,8 @@
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.2.5 (تمام اکشن‌ها با SHA پین شده)
-├── __tests__/                      # مجموعه تست‌های جامع Jest (۲۷ سوئیت)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.3.0 (تمام اکشن‌ها با SHA پین شده)
+├── __tests__/                      # مجموعه تست‌های جامع Jest (شامل سوئیت v630_ai_architecture_and_p0_fixes)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
 │   ├── generateUniqueId.spec.js   # تست‌های شناسه تصادفی و آزمون‌های یکتا
@@ -66,6 +98,7 @@ EG-Nexus-OS/
 │   ├── sanitization.spec.js       # تست‌های تزریق اسکریپت، پاک‌سازی URL و ضد XSS
 │   ├── v61_hardware_keystore.test.js # تست‌های Keystore سخت‌افزاری، StrongBox و هش استاندارد
 │   ├── v622_policy_strongbox_termux.spec.js # تست‌های جامع خط‌مشی اکشن‌ها، ژورنال کرش، ماتریس ترموکس و آنتروپی
+│   ├── v630_ai_architecture_and_p0_fixes.spec.js # تست‌های جامع معماری هوش مصنوعی v6.3.0 و اصلاحات P0
 │   └── worker_queue.spec.js       # تست‌های صف توزیع‌شده ورکر
 ├── android/                       # سورس بومی Capacitor Android با پشتیبانی API 36
 ├── docs/
@@ -75,22 +108,22 @@ EG-Nexus-OS/
 │   ├── generate-cyclonedx-sbom.js # تولید SBOM رسمی CycloneDX v1.5
 │   ├── lint.js                    # بررسی قوانین امنیتی و نشت سکرت
 │   ├── sync-audit-report.js       # همگام‌سازی خودکار گزارش‌های ممیزی با نتایج Jest
-│   ├── sync-www.js                # همگام‌سازی ۱۰۰٪ بایت‌به‌بایت ریشه با www/
+│   ├── sync-www.js                # همگام‌سازی ۱۰۰٪ بایت‌به‌بایت ریشه با www/ و همگام‌سازی نسخه گریدل
 │   └── verify-mutations.js        # سوئیت ارزیابی اینواریانت‌های امنیتی و تزریق خطا
 ├── src/                           # معماری ماژولار تفکیک‌شده هسته (Non-Enumerable Exports)
-│   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها و مدیریت حالت (شامل AgentExecutionGuard)
-│   ├── providers/                 # رجیستری ارتباط با مدل‌های هوش مصنوعی (شامل ACTION_POLICY_MANIFEST)
+│   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها، مدیریت حالت، AgentExecutionGuard و MemoryGovernance
+│   ├── providers/                 # رجیستری ارتباط با مدل‌ها (ACTION_POLICY_MANIFEST و MODEL_REGISTRY)
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی، تاییدات و ژورنال 2PC StrongBox
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.2.5
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.3.0
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.2.5)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.2.5)
-├── package.json                   # شناسه پکیج نسخه 6.2.5 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.2.5)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.3.0)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.3.0)
+├── package.json                   # شناسه پکیج نسخه 6.3.0 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.3.0)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.2.5
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.3.0
 ```
 
 ---
@@ -99,8 +132,8 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.2.5`) را انتخاب کنید.
-3. فایل **`EG-Nexus-OS-v6.2.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
+2. آخرین نسخه منتشرشده (`v6.3.0`) را انتخاب کنید.
+3. فایل **`EG-Nexus-OS-v6.3.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است (توصیفگر اصالت: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`).
 
 ### روش دوم: نصب در قالب وب‌اپلیکیشن پیشرونده (PWA)

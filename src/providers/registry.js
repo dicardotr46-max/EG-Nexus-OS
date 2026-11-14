@@ -953,6 +953,7 @@
       list: 'read_only',
       get: 'read_only',
       search: 'read_only',
+      search_workspace: 'read_only',
       view: 'read_only',
       read: 'read_only',
       create: 'mutating',
@@ -1538,18 +1539,27 @@
 
   let _activeTaskExecutionGuard = null;
 
+  let _cachedAgentExecutionGuardClass = null;
+  let _registryGuardExport = null;
+
   function _resolveAgentExecutionGuardClass() {
-    if (typeof AgentExecutionGuard === 'function') return AgentExecutionGuard;
+    if (_cachedAgentExecutionGuardClass && _cachedAgentExecutionGuardClass !== _registryGuardExport) {
+      return _cachedAgentExecutionGuardClass;
+    }
     if (typeof require === 'function') {
       try {
         const stateMod = require('../core/state.js');
-        if (stateMod && stateMod.AgentExecutionGuard) return stateMod.AgentExecutionGuard;
+        if (stateMod && stateMod.AgentExecutionGuard && stateMod.AgentExecutionGuard !== _registryGuardExport) {
+          _cachedAgentExecutionGuardClass = stateMod.AgentExecutionGuard;
+          return _cachedAgentExecutionGuardClass;
+        }
       } catch (_) {}
     }
-    if (typeof globalThis !== 'undefined' && globalThis.AgentExecutionGuard) {
-      return globalThis.AgentExecutionGuard;
+    if (typeof globalThis !== 'undefined' && globalThis._nexusCoreState && globalThis._nexusCoreState.AgentExecutionGuard && globalThis._nexusCoreState.AgentExecutionGuard !== _registryGuardExport) {
+      _cachedAgentExecutionGuardClass = globalThis._nexusCoreState.AgentExecutionGuard;
+      return _cachedAgentExecutionGuardClass;
     }
-    return null;
+    return _cachedAgentExecutionGuardClass;
   }
 
   function getSessionExecutionGuard(options = {}) {
@@ -1590,10 +1600,6 @@
         const stateMod = require('../core/state.js');
         if (stateMod && typeof stateMod.createSubagentGuard === 'function') return stateMod;
       } catch (_) {}
-      try {
-        const stateMod = require('./src/core/state.js');
-        if (stateMod && typeof stateMod.createSubagentGuard === 'function') return stateMod;
-      } catch (_) {}
     }
     if (typeof globalThis !== 'undefined' && globalThis._nexusCoreState && typeof globalThis._nexusCoreState.createSubagentGuard === 'function') {
       return globalThis._nexusCoreState;
@@ -1612,7 +1618,7 @@
     return null;
   }
 
-  async function executeProviderRequest(request) {
+  async function executeProviderRequest(request, optionsArg = {}) {
     if (!request || typeof request !== 'object') {
       return { status: 400, error: 'BAD_REQUEST', message: 'Invalid provider request payload' };
     }
@@ -1630,6 +1636,7 @@
       return { status: 400, error: 'BAD_REQUEST', message: 'providerId is required' };
     }
 
+    const options = Object.assign({}, request.options || {}, optionsArg);
     const {
       token,
       grantedScopes,
@@ -1640,8 +1647,7 @@
       approvalToken = null,
       retryOptions = { maxRetries: 3, baseDelayMs: 100 },
       appConnections = null,
-      approvalGateHandler = null,
-      options = {}
+      approvalGateHandler = null
     } = request;
 
     // Task 3: Universal AgentExecutionGuard - Mandatory for every tool or provider request!
@@ -1649,6 +1655,8 @@
       options.executionGuard ||
       request.guard ||
       options.guard ||
+      optionsArg.guard ||
+      optionsArg.executionGuard ||
       getSessionExecutionGuard();
 
     let combinedSignal = guard?.abortController?.signal || request.signal || options.signal || null;
@@ -1701,19 +1709,48 @@
         guard.recordStep();
       }
 
-      const tokens = Number(request.tokensUsed || options.tokensUsed || 0);
       if (typeof guard.recordToolCall === 'function') {
         try {
-          guard.recordToolCall(action, params, tokens);
+          guard.recordToolCall(action, params, 0);
         } catch (_) {}
       }
     }
 
+    const callId = 'call_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const estimatedTokens = Math.max(0, Number(request.estimatedTokens ?? options.estimatedTokens ?? 0));
+    let isTokensReserved = false;
+
+    if (guard && typeof guard.reserveTokens === 'function') {
+      try {
+        guard.reserveTokens(callId, estimatedTokens);
+        isTokensReserved = true;
+      } catch (err) {
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'TOKEN_BUDGET_EXCEEDED' });
+        return {
+          status: 429,
+          error: 'TOKEN_BUDGET_EXCEEDED',
+          message: err.message
+        };
+      }
+    }
+
+    const cleanupReservation = () => {
+      if (isTokensReserved) {
+        isTokensReserved = false;
+        if (guard && typeof guard.releaseReservation === 'function') {
+          guard.releaseReservation(callId);
+        } else if (guard && typeof guard.settleTokens === 'function') {
+          guard.settleTokens(callId, 0);
+        }
+      }
+    };
+
     const catalogItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === providerId);
     const providerDef = PROVIDERS[providerId] || Object.values(PROVIDERS).find(p => (p.id || '').toLowerCase() === providerId) || catalogItem;
-    const isKnownProvider = Boolean(providerDef || catalogItem || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
+    const isKnownProvider = Boolean(providerDef || catalogItem || providerId === 'google' || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
 
     if (!isKnownProvider) {
+      cleanupReservation();
       recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'NOT_FOUND' });
       return {
         status: 404,
@@ -1722,10 +1759,11 @@
       };
     }
 
-    // Step 0: Check MCP disabled status
+    // Step 0: Check MCP disabled status & validate MCP parameters
     if (catalogItem && catalogItem.type === 'MCP') {
       const conn = appConnections?.[providerId] || appConnections?.[rawPid];
       if (conn && (conn.mcpEnabled === false || conn.connected === false)) {
+        cleanupReservation();
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'MCP_DISABLED' });
         return {
           status: 403,
@@ -1735,8 +1773,24 @@
       }
     }
 
+    if (catalogItem?.type === 'MCP' || providerDef?.type === 'MCP') {
+      if (params && typeof params === 'object') {
+        const valRes = validateMcpParamsAgainstSchema(action, params);
+        if (!valRes.valid) {
+          cleanupReservation();
+          recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: valRes.error });
+          return {
+            status: 400,
+            error: valRes.error,
+            message: valRes.message
+          };
+        }
+      }
+    }
+
     // Negative Security Check: requireApproval: false CANNOT bypass unmapped or sensitive actions (default-deny)
     if (requireApproval === false && isSensitiveProviderAction(providerId, action) && !approvalToken) {
+      cleanupReservation();
       const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
       recordLifecycleEvent(requestId, 'awaiting_approval', { providerId, action, reason });
       if (typeof approvalGateHandler === 'function') {
@@ -1756,6 +1810,7 @@
     // Law of Absolute Default-Deny: Unlisted actions MUST be strictly rejected immediately
     const policyTier = getActionPolicyCategory(providerId, action);
     if (!policyTier) {
+      cleanupReservation();
       recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'UNLISTED_ACTION_DENIED' });
       return {
         status: 403,
@@ -1769,6 +1824,7 @@
     const isNoAuthService = (authType === 'none') && !getRequiredScope(providerId, action);
     if (!isNoAuthService) {
       if (!grantedScopes || (Array.isArray(grantedScopes) && grantedScopes.length === 0) || (typeof grantedScopes === 'string' && !grantedScopes.trim())) {
+        cleanupReservation();
         const requiredScope = getRequiredScope(providerId, action) || providerDef?.scopes?.[action] || null;
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'SCOPE_INSUFFICIENT' });
         return {
@@ -1781,6 +1837,7 @@
       }
       const hasScope = validateProviderScope(providerId, action, grantedScopes);
       if (!hasScope) {
+        cleanupReservation();
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'SCOPE_INSUFFICIENT' });
         return {
           status: 403,
@@ -1795,6 +1852,7 @@
     const needsApproval = isSensitiveProviderAction(providerId, action) || requireApproval === true;
     if (needsApproval) {
       if (!approvalToken) {
+        cleanupReservation();
         const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
         recordLifecycleEvent(requestId, 'awaiting_approval', { providerId, action, reason });
         if (typeof approvalGateHandler === 'function') {
@@ -1826,6 +1884,7 @@
         });
       }
       if (!valid) {
+        cleanupReservation();
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'INVALID_APPROVAL_TOKEN' });
         return {
           status: 403,
@@ -1840,14 +1899,17 @@
     // Step 4: Token presence validation based on provider authType !== 'none'
     const requiresToken = authType ? (authType !== 'none') : (providerId !== 'clash_royale' && providerId !== 'coingecko' && providerId !== 'web_search');
     if (requiresToken && (!token || !String(token).trim())) {
+      cleanupReservation();
       recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'UNAUTHORIZED' });
       return formatProviderError({ status: 401, message: 'Authentication token is required' }, providerId);
     }
 
     // Step 5: Execute with retry and handle standard HTTP errors
     if (typeof executeFn !== 'function') {
-      const estimatedTokens = Number(request.tokensUsed || options.tokensUsed || request.estimatedTokens || options.estimatedTokens || 0);
-      if (guard && estimatedTokens > 0) {
+      if (isTokensReserved && guard && typeof guard.settleTokens === 'function') {
+        guard.settleTokens(callId, estimatedTokens);
+        isTokensReserved = false;
+      } else if (!isTokensReserved && guard && estimatedTokens > 0) {
         if (typeof guard.addTokenUsage === 'function') {
           guard.addTokenUsage(estimatedTokens);
         } else if (typeof guard.usedTokens === 'number') {
@@ -1862,9 +1924,11 @@
       const runFn = () => executeFn(params, { signal: combinedSignal, guard, providerId, action });
       let result = await executeWithRetry(runFn, retryOptions);
 
-      const estimatedTokens = Number(request.tokensUsed || options.tokensUsed || request.estimatedTokens || options.estimatedTokens || 0);
-      const actualTokens = result?.usage?.total_tokens || ((result?.usage?.input_tokens || 0) + (result?.usage?.output_tokens || 0)) || estimatedTokens;
-      if (guard && actualTokens > 0) {
+      const actualTokens = Number(result?.tokensUsed || (result?.usage && (result.usage.total_tokens || ((result.usage.input_tokens || 0) + (result.usage.output_tokens || 0)))) || request.tokensUsed || options.tokensUsed || estimatedTokens);
+      if (isTokensReserved && guard && typeof guard.settleTokens === 'function') {
+        guard.settleTokens(callId, actualTokens);
+        isTokensReserved = false;
+      } else if (!isTokensReserved && guard && actualTokens > 0) {
         if (typeof guard.addTokenUsage === 'function') {
           guard.addTokenUsage(actualTokens);
         } else if (typeof guard.usedTokens === 'number') {
@@ -1889,6 +1953,14 @@
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, data: result };
     } catch (err) {
+      if (isTokensReserved) {
+        isTokensReserved = false;
+        if (guard && typeof guard.releaseReservation === 'function') {
+          guard.releaseReservation(callId);
+        } else if (guard && typeof guard.settleTokens === 'function') {
+          guard.settleTokens(callId, 0);
+        }
+      }
       recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: err?.message || String(err) });
       return formatProviderError(err, providerId, request);
     }
@@ -2108,7 +2180,46 @@
     return Boolean(conn && conn.mcpEnabled === true);
   }
 
+  function classifyMcpRisk(toolName, action) {
+    const target = String(toolName || action || '').toLowerCase();
+    if (/execute|exec|eval|shell|delete|drop|destroy|deploy|push|sudo|admin|kill/i.test(target)) {
+      return 'high_risk';
+    }
+    if (/write|create|update|patch|send|post|put|modify|insert|upload|set/i.test(target)) {
+      return 'mutating';
+    }
+    return 'read_only';
+  }
+
+  function validateMcpParamsAgainstSchema(methodOrAction, params) {
+    if (!params || typeof params !== 'object') {
+      return { valid: false, error: 'INVALID_MCP_PARAMS', message: 'MCP parameters must be an object' };
+    }
+    const schemaKey = String(methodOrAction || 'call_tool').toLowerCase();
+    const schema = MCP_PARAM_SCHEMA[schemaKey];
+    if (!schema) {
+      return { valid: true };
+    }
+    const allowed = schema.allowed || MCP_PARAM_SCHEMA.allowed;
+    const required = schema.required || MCP_PARAM_SCHEMA.required;
+
+    for (const reqKey of required) {
+      if (!(reqKey in params) || params[reqKey] === undefined || params[reqKey] === null || params[reqKey] === '') {
+        return { valid: false, error: 'MISSING_REQUIRED_PARAM', message: `Missing required MCP parameter '${reqKey}' for method '${methodOrAction}'` };
+      }
+    }
+    for (const key of Object.keys(params)) {
+      if (!allowed.includes(key)) {
+        return { valid: false, error: 'DISALLOWED_PARAM', message: `Disallowed MCP parameter '${key}' for method '${methodOrAction}'` };
+      }
+    }
+    return { valid: true };
+  }
+
   function formatMcpToolCall(serverName, toolName, args = {}) {
+    if (!toolName || typeof toolName !== 'string') {
+      throw new Error("Missing required MCP parameter 'name'");
+    }
     let parsedArgs = args;
     if (typeof args === 'string') {
       try {
@@ -2120,21 +2231,44 @@
     if (typeof parsedArgs !== 'object' || parsedArgs === null || Array.isArray(parsedArgs)) {
       throw new Error('MCP tool arguments must be a valid JSON object');
     }
+
+    const params = {
+      name: toolName,
+      arguments: parsedArgs || {},
+      server: serverName
+    };
+
+    const schemaVal = validateMcpParamsAgainstSchema('tools/call', params);
+    if (!schemaVal.valid) {
+      throw new Error(schemaVal.message);
+    }
+
+    const risk = classifyMcpRisk(toolName, 'tools/call');
+
     return {
       jsonrpc: '2.0',
       id: secureRandomId('mcp'),
       method: 'tools/call',
-      params: {
-        name: toolName,
-        arguments: parsedArgs || {},
-        server: serverName
-      }
+      params,
+      risk
     };
   }
 
   function parseMcpToolCall(raw) {
     if (typeof raw !== 'string') {
-      if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const toolName = raw.params?.name || raw.name;
+        if (raw.params && typeof raw.params === 'object') {
+          const valRes = validateMcpParamsAgainstSchema(raw.method || 'call_tool', raw.params);
+          if (!valRes.valid) {
+            throw new Error(valRes.message);
+          }
+        }
+        if (!raw.risk) {
+          raw.risk = classifyMcpRisk(toolName, raw.method);
+        }
+        return raw;
+      }
       throw new Error('Invalid MCP payload: expected string or object');
     }
     try {
@@ -2142,8 +2276,17 @@
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error('Invalid MCP payload: root must be an object');
       }
+      const toolName = parsed.params?.name || parsed.name;
+      if (parsed.params && typeof parsed.params === 'object') {
+        const valRes = validateMcpParamsAgainstSchema(parsed.method || 'call_tool', parsed.params);
+        if (!valRes.valid) {
+          throw new Error(valRes.message);
+        }
+      }
+      parsed.risk = classifyMcpRisk(toolName, parsed.method);
       return parsed;
     } catch (err) {
+      if (err.message && (err.message.startsWith('Invalid MCP payload') || err.message.startsWith('Missing required') || err.message.startsWith('Disallowed MCP'))) throw err;
       throw new Error('Malformed JSON in MCP payload: ' + err.message);
     }
   }
@@ -2192,45 +2335,343 @@
     return state;
   }
 
-  function resolveProviderModelId(uiModel, isOpenRouter = false) {
-    const m = String(uiModel || 'gemini-3.8-flash').toLowerCase();
-    if (isOpenRouter) {
-      if (m.includes('deepseek-v4-pro')) return 'deepseek/deepseek-v4-pro';
-      if (m.includes('deepseek')) return 'deepseek/deepseek-flash';
-      if (m.includes('kimi-k3')) return 'moonshotai/kimi-k3';
-      if (m.includes('kimi')) return 'moonshotai/kimi-k2.7-code';
-      if (m.includes('grok')) return 'x-ai/grok-4.7';
-      return 'google/gemini-3.8-flash';
+  const MODEL_REGISTRY = Object.freeze({
+    google: Object.freeze({
+      'gemini-1.5-pro': Object.freeze({
+        provider: 'google',
+        modelId: 'gemini-1.5-pro',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 2097152, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 1.25, outputPerMillion: 5.0, cachedInputPerMillion: 0.30 })
+      }),
+      'gemini-1.5-flash': Object.freeze({
+        provider: 'google',
+        modelId: 'gemini-1.5-flash',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 1048576, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.075, outputPerMillion: 0.30, cachedInputPerMillion: 0.01875 })
+      }),
+      'gemini-2.0-flash': Object.freeze({
+        provider: 'google',
+        modelId: 'gemini-2.0-flash',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 1048576, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.10, outputPerMillion: 0.40, cachedInputPerMillion: 0.025 })
+      }),
+      'gemini-3.8-flash': Object.freeze({
+        provider: 'google',
+        modelId: 'gemini-3.8-flash',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 1048576, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.015, outputPerMillion: 0.06, cachedInputPerMillion: 0.00375 })
+      })
+    }),
+    anthropic: Object.freeze({
+      'claude-3-5-sonnet-20241022': Object.freeze({
+        provider: 'anthropic',
+        modelId: 'claude-3-5-sonnet-20241022',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 200000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 3.0, outputPerMillion: 15.0, cachedInputPerMillion: 0.30 })
+      }),
+      'claude-3-5-haiku': Object.freeze({
+        provider: 'anthropic',
+        modelId: 'claude-3-5-haiku',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 200000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.80, outputPerMillion: 4.0, cachedInputPerMillion: 0.08 })
+      })
+    }),
+    openai: Object.freeze({
+      'gpt-4o': Object.freeze({
+        provider: 'openai',
+        modelId: 'gpt-4o',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 16384 }),
+        pricing: Object.freeze({ inputPerMillion: 2.50, outputPerMillion: 10.0, cachedInputPerMillion: 1.25 })
+      }),
+      'gpt-4o-mini': Object.freeze({
+        provider: 'openai',
+        modelId: 'gpt-4o-mini',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: true, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 16384 }),
+        pricing: Object.freeze({ inputPerMillion: 0.15, outputPerMillion: 0.60, cachedInputPerMillion: 0.075 })
+      }),
+      'o1': Object.freeze({
+        provider: 'openai',
+        modelId: 'o1',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: false, vision: true, streaming: false }),
+        limits: Object.freeze({ contextTokens: 200000, maxOutputTokens: 100000 }),
+        pricing: Object.freeze({ inputPerMillion: 15.0, outputPerMillion: 60.0, cachedInputPerMillion: 7.50 })
+      })
+    }),
+    deepseek: Object.freeze({
+      'deepseek-chat': Object.freeze({
+        provider: 'deepseek',
+        modelId: 'deepseek-chat',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 64000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.14, outputPerMillion: 0.28, cachedInputPerMillion: 0.014 })
+      }),
+      'deepseek-reasoner': Object.freeze({
+        provider: 'deepseek',
+        modelId: 'deepseek-reasoner',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 64000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.55, outputPerMillion: 2.19, cachedInputPerMillion: 0.14 })
+      }),
+      'deepseek-flash': Object.freeze({
+        provider: 'deepseek',
+        modelId: 'deepseek-flash',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 64000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.014, outputPerMillion: 0.028, cachedInputPerMillion: 0.007 })
+      }),
+      'deepseek-v4-pro': Object.freeze({
+        provider: 'deepseek',
+        modelId: 'deepseek-v4-pro',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 16384 }),
+        pricing: Object.freeze({ inputPerMillion: 0.28, outputPerMillion: 0.56, cachedInputPerMillion: 0.07 })
+      })
+    }),
+    meta: Object.freeze({
+      'llama-3.3-70b': Object.freeze({
+        provider: 'meta',
+        modelId: 'llama-3.3-70b',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.59, outputPerMillion: 0.79, cachedInputPerMillion: 0.10 })
+      })
+    }),
+    mistral: Object.freeze({
+      'mistral-large': Object.freeze({
+        provider: 'mistral',
+        modelId: 'mistral-large',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 2.0, outputPerMillion: 6.0, cachedInputPerMillion: 0.50 })
+      }),
+      'mixtral-8x7b': Object.freeze({
+        provider: 'mistral',
+        modelId: 'mixtral-8x7b',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 32000, maxOutputTokens: 4096 }),
+        pricing: Object.freeze({ inputPerMillion: 0.70, outputPerMillion: 0.70, cachedInputPerMillion: 0.20 })
+      })
+    }),
+    groq: Object.freeze({
+      'llama-3.3-70b': Object.freeze({
+        provider: 'groq',
+        modelId: 'llama-3.3-70b',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.59, outputPerMillion: 0.79, cachedInputPerMillion: 0.10 })
+      }),
+      'mixtral-8x7b': Object.freeze({
+        provider: 'groq',
+        modelId: 'mixtral-8x7b',
+        capabilities: Object.freeze({ reasoning: false, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 32768, maxOutputTokens: 4096 }),
+        pricing: Object.freeze({ inputPerMillion: 0.24, outputPerMillion: 0.24, cachedInputPerMillion: 0.05 })
+      }),
+      'grok-4.7': Object.freeze({
+        provider: 'groq',
+        modelId: 'grok-4.7',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.30, outputPerMillion: 0.60, cachedInputPerMillion: 0.10 })
+      })
+    }),
+    local_ollama: Object.freeze({
+      'llama-3.3-70b': Object.freeze({
+        provider: 'local_ollama',
+        modelId: 'llama-3.3-70b',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.0, outputPerMillion: 0.0, cachedInputPerMillion: 0.0 })
+      }),
+      'mistral-large': Object.freeze({
+        provider: 'local_ollama',
+        modelId: 'mistral-large',
+        capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: false, streaming: true }),
+        limits: Object.freeze({ contextTokens: 128000, maxOutputTokens: 8192 }),
+        pricing: Object.freeze({ inputPerMillion: 0.0, outputPerMillion: 0.0, cachedInputPerMillion: 0.0 })
+      })
+    })
+  });
+
+  function resolveProviderModelId(providerId, requestedModel) {
+    // Legacy support: resolveProviderModelId(uiModel, isOpenRouter = false)
+    if (arguments.length === 0) {
+      return 'gemini-3.8-flash';
     }
-    if (m === 'deepseek-flash') return 'deepseek-flash';
-    if (m === 'deepseek-v4-pro') return 'deepseek-v4-pro';
-    if (m === 'kimi-k2.7-code') return 'kimi-k2.7-code';
-    if (m === 'kimi-k3') return 'kimi-k3';
-    if (m === 'grok-4.7') return 'grok-4.7';
-    return 'gemini-3.8-flash';
+    if (typeof requestedModel === 'boolean' || (arguments.length === 1 && typeof providerId === 'string' && !MODEL_REGISTRY[providerId.toLowerCase()])) {
+      const uiModel = providerId;
+      const isOpenRouter = Boolean(requestedModel);
+      const m = String(uiModel || 'gemini-3.8-flash').toLowerCase();
+      if (isOpenRouter) {
+        if (m.includes('deepseek-v4-pro')) return 'deepseek/deepseek-v4-pro';
+        if (m.includes('deepseek')) return 'deepseek/deepseek-flash';
+        if (m.includes('kimi-k3')) return 'moonshotai/kimi-k3';
+        if (m.includes('kimi')) return 'moonshotai/kimi-k2.7-code';
+        if (m.includes('grok')) return 'x-ai/grok-4.7';
+        return 'google/gemini-3.8-flash';
+      }
+      if (m === 'deepseek-flash') return 'deepseek-flash';
+      if (m === 'deepseek-v4-pro') return 'deepseek-v4-pro';
+      if (m === 'kimi-k2.7-code') return 'kimi-k2.7-code';
+      if (m === 'kimi-k3') return 'kimi-k3';
+      if (m === 'grok-4.7') return 'grok-4.7';
+      return 'gemini-3.8-flash';
+    }
+
+    // New unified MODEL_REGISTRY lookup: resolveProviderModelId(providerId, requestedModel)
+    const pId = String(providerId || '').toLowerCase().trim();
+    const reqModel = String(requestedModel || '').toLowerCase().trim();
+
+    if (!reqModel) {
+      return {
+        valid: false,
+        error: 'MODEL_NOT_FOUND',
+        message: `Model parameter is required for provider '${providerId}'`
+      };
+    }
+
+    const providerModels = MODEL_REGISTRY[pId];
+    if (!providerModels) {
+      return {
+        valid: false,
+        error: 'MODEL_NOT_FOUND',
+        message: `Unknown or unsupported provider '${providerId}'`
+      };
+    }
+
+    const modelEntry = providerModels[reqModel] ||
+      Object.values(providerModels).find(m => m.modelId.toLowerCase() === reqModel);
+
+    if (!modelEntry) {
+      return {
+        valid: false,
+        error: 'MODEL_NOT_FOUND',
+        message: `Unknown or unsupported model '${requestedModel}' for provider '${providerId}'`
+      };
+    }
+
+    return {
+      valid: true,
+      providerId: modelEntry.provider,
+      modelId: modelEntry.modelId,
+      capabilities: modelEntry.capabilities,
+      limits: modelEntry.limits,
+      pricing: modelEntry.pricing,
+      toString() { return this.modelId; },
+      valueOf() { return this.modelId; }
+    };
   }
 
-  function recordModelTokenAndCostUsage(modelId, promptText, replyText, apiUsageObj = null) {
-    const m = String(modelId || 'gemini-3.8-flash').toLowerCase();
-    const ratePerMillion = m.includes('deepseek-flash') ? 0.014
-      : m.includes('deepseek-v4-pro') ? 0.28
-      : m.includes('kimi') ? 0.15
-      : m.includes('grok') ? 0.30
-      : 0.015;
-    let usedTokens = 0;
-    if (apiUsageObj && Number.isFinite(Number(apiUsageObj.totalTokenCount || apiUsageObj.total_tokens))) {
-      usedTokens = Math.max(1, Math.round(Number(apiUsageObj.totalTokenCount || apiUsageObj.total_tokens)));
-    } else {
-      const totalChars = String(promptText || '').length + String(replyText || '').length;
-      usedTokens = Math.max(32, Math.round(totalChars / 3.5));
+  function recordModelTokenAndCostUsage(providerId, modelId, usage = {}) {
+    let resolvedProviderId = providerId;
+    let resolvedModelId = modelId;
+    let usageObj = usage;
+    let promptText = '';
+    let replyText = '';
+    let apiUsageObj = null;
+
+    // Check if called with legacy signature: (modelId, promptText, replyText, apiUsageObj)
+    if (typeof modelId === 'string' && (typeof usage === 'string' || arguments.length >= 4)) {
+      resolvedModelId = providerId;
+      promptText = modelId;
+      replyText = String(usage || '');
+      apiUsageObj = arguments[3] || null;
+      resolvedProviderId = null;
     }
+
+    let modelEntry = null;
+    if (resolvedProviderId && MODEL_REGISTRY[resolvedProviderId.toLowerCase()]) {
+      const pModels = MODEL_REGISTRY[resolvedProviderId.toLowerCase()];
+      modelEntry = pModels[resolvedModelId.toLowerCase()] ||
+        Object.values(pModels).find(m => m.modelId.toLowerCase() === resolvedModelId.toLowerCase());
+    }
+    if (!modelEntry) {
+      for (const p of Object.keys(MODEL_REGISTRY)) {
+        const pModels = MODEL_REGISTRY[p];
+        if (pModels[resolvedModelId.toLowerCase()]) {
+          modelEntry = pModels[resolvedModelId.toLowerCase()];
+          resolvedProviderId = p;
+          break;
+        }
+        const match = Object.values(pModels).find(m => m.modelId.toLowerCase() === resolvedModelId.toLowerCase());
+        if (match) {
+          modelEntry = match;
+          resolvedProviderId = p;
+          break;
+        }
+      }
+    }
+
+    const pricing = modelEntry?.pricing || {
+      inputPerMillion: 0.015,
+      outputPerMillion: 0.06,
+      cachedInputPerMillion: 0.00375
+    };
+
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let cachedTokens = 0;
+    let totalTokens = 0;
+
+    if (apiUsageObj || promptText || replyText) {
+      if (apiUsageObj && Number.isFinite(Number(apiUsageObj.totalTokenCount || apiUsageObj.total_tokens))) {
+        totalTokens = Math.max(1, Math.round(Number(apiUsageObj.totalTokenCount || apiUsageObj.total_tokens)));
+        promptTokens = Number(apiUsageObj.promptTokenCount || apiUsageObj.prompt_tokens || Math.round(totalTokens * 0.7));
+        completionTokens = Number(apiUsageObj.candidatesTokenCount || apiUsageObj.completion_tokens || Math.round(totalTokens * 0.3));
+        cachedTokens = Number(apiUsageObj.cached_tokens || 0);
+      } else {
+        const totalChars = String(promptText || '').length + String(replyText || '').length;
+        totalTokens = Math.max(32, Math.round(totalChars / 3.5));
+        promptTokens = Math.round(totalTokens * 0.7);
+        completionTokens = Math.round(totalTokens * 0.3);
+      }
+      usageObj = { promptTokens, completionTokens, cachedTokens, totalTokens };
+    } else if (usage && typeof usage === 'object') {
+      promptTokens = Number(usage.promptTokens || usage.inputTokens || usage.prompt_tokens || 0);
+      completionTokens = Number(usage.completionTokens || usage.outputTokens || usage.completion_tokens || 0);
+      cachedTokens = Number(usage.cachedTokens || usage.cached_tokens || 0);
+      totalTokens = Number(usage.totalTokens || usage.total_tokens || (promptTokens + completionTokens));
+      usageObj = { promptTokens, completionTokens, cachedTokens, totalTokens };
+    }
+
+    const inputCost = (promptTokens || 0) * ((pricing?.inputPerMillion || 0) / 1e6);
+    const outputCost = (completionTokens || 0) * ((pricing?.outputPerMillion || 0) / 1e6);
+    const cachedInputCost = (cachedTokens || 0) * ((pricing?.cachedInputPerMillion || 0) / 1e6);
+    const totalCost = inputCost + outputCost + cachedInputCost;
 
     const state = (typeof window !== 'undefined' && window.appState) ? window.appState : (typeof globalThis !== 'undefined' ? globalThis.appState : null);
     if (state) {
-      state.totalTokensUsed = (Number(state.totalTokensUsed) || 0) + usedTokens;
-      state.totalEstimatedCostUSD = (Number(state.totalEstimatedCostUSD) || 0) + ((usedTokens / 1000000) * ratePerMillion);
+      state.totalTokensUsed = (Number(state.totalTokensUsed) || 0) + totalTokens;
+      state.totalEstimatedCostUSD = (Number(state.totalEstimatedCostUSD) || 0) + totalCost;
     }
-    return { usedTokens, ratePerMillion };
+
+    return {
+      providerId: resolvedProviderId || modelEntry?.provider || 'unknown',
+      modelId: resolvedModelId,
+      tokens: usageObj,
+      costs: {
+        inputCost,
+        outputCost,
+        cachedInputCost,
+        totalCost
+      },
+      usedTokens: totalTokens,
+      ratePerMillion: (modelEntry && modelEntry.pricing && modelEntry.pricing.inputPerMillion !== undefined)
+        ? modelEntry.pricing.inputPerMillion
+        : String(resolvedModelId || '').toLowerCase().includes('deepseek-flash') ? 0.014
+        : String(resolvedModelId || '').toLowerCase().includes('deepseek-v4-pro') ? 0.28
+        : String(resolvedModelId || '').toLowerCase().includes('kimi') ? 0.15
+        : String(resolvedModelId || '').toLowerCase().includes('grok') ? 0.30
+        : (pricing?.inputPerMillion || 0.015)
+    };
   }
 
   function isAppGenuinelyConnected(appId) {
@@ -2320,135 +2761,14 @@
     }
   });
 
-  let AgentExecutionGuard = null;
-  if (typeof require === 'function') {
-    try {
-      const stateMod = require('../core/state.js');
-      AgentExecutionGuard = stateMod && stateMod.AgentExecutionGuard;
-    } catch (_) {}
-  }
-  /* istanbul ignore next */
-  if (!AgentExecutionGuard && typeof globalThis !== 'undefined' && globalThis.AgentExecutionGuard) {
-    AgentExecutionGuard = globalThis.AgentExecutionGuard;
-  }
-  /* istanbul ignore next */
-  if (!AgentExecutionGuard && target && target.AgentExecutionGuard) {
-    AgentExecutionGuard = target.AgentExecutionGuard;
-  }
-  /* istanbul ignore next */
-  if (!AgentExecutionGuard) {
-    AgentExecutionGuard = class AgentExecutionGuard {
-      constructor(options = {}) {
-        this.maxSteps = options.maxSteps !== undefined ? Number(options.maxSteps) : 15;
-        this.maxToolCalls = options.maxToolCalls !== undefined ? Number(options.maxToolCalls) : 20;
-        this.maxTokenBudget = options.maxTokenBudget !== undefined ? Number(options.maxTokenBudget) : 100000;
-        this.maxDurationMs = options.maxDurationMs !== undefined ? Number(options.maxDurationMs) : 120000;
-        this.currentSteps = 0;
-        this.currentToolCalls = 0;
-        this.usedTokens = 0;
-        this.startTime = Date.now();
-        this.callHistory = [];
-        this.abortController = (typeof AbortController !== 'undefined')
-          ? new AbortController()
-          : { signal: { aborted: false }, abort(reason) { this.signal.aborted = true; this.signal.reason = reason; } };
-        this.cancelled = false;
-        this.cancelReason = null;
-      }
-      _fingerprint(toolName, params) {
-        const t = String(toolName || '').trim();
-        let p = '';
-        try {
-          if (params !== undefined && params !== null) {
-            p = (typeof params === 'object') ? JSON.stringify(params) : String(params);
-          }
-        } catch (_) {
-          p = String(params || '');
-        }
-        return `${t}::${p}`;
-      }
-      detectLoop(toolName, params) {
-        const fp = this._fingerprint(toolName, params);
-        const n = this.callHistory.length;
-        if (n >= 2) {
-          const prev1 = this.callHistory[n - 1];
-          const prev2 = this.callHistory[n - 2];
-          if (prev1 && prev2 && prev1.fingerprint === fp && prev2.fingerprint === fp) {
-            const err = new Error(`LOOP_DETECTED: 3 consecutive calls with identical tool & params fingerprint (${toolName})`);
-            err.code = 'LOOP_DETECTED';
-            err.toolName = toolName;
-            throw err;
-          }
-        }
-        return false;
-      }
-      checkExecutionLimits(toolName, params) {
-        if (this.isCancelled()) {
-          const err = new Error(`EXECUTION_CANCELLED: ${this.cancelReason || 'Task was cancelled'}`);
-          err.code = 'EXECUTION_CANCELLED';
-          throw err;
-        }
-        if (this.currentSteps >= this.maxSteps) {
-          const err = new Error(`STEP_LIMIT_EXCEEDED: Maximum steps (${this.maxSteps}) exceeded`);
-          err.code = 'STEP_LIMIT_EXCEEDED';
-          throw err;
-        }
-        if (this.currentToolCalls >= this.maxToolCalls) {
-          const err = new Error(`TOOL_CALL_LIMIT_EXCEEDED: Maximum tool calls (${this.maxToolCalls}) exceeded`);
-          err.code = 'TOOL_CALL_LIMIT_EXCEEDED';
-          throw err;
-        }
-        if (this.usedTokens >= this.maxTokenBudget) {
-          const err = new Error(`TOKEN_BUDGET_EXCEEDED: Maximum token budget (${this.maxTokenBudget}) exceeded`);
-          err.code = 'TOKEN_BUDGET_EXCEEDED';
-          throw err;
-        }
-        if (Date.now() - this.startTime > this.maxDurationMs) {
-          const err = new Error(`DURATION_LIMIT_EXCEEDED: Maximum execution duration (${this.maxDurationMs}ms) exceeded`);
-          err.code = 'DURATION_LIMIT_EXCEEDED';
-          throw err;
-        }
-        if (toolName !== undefined && toolName !== null) {
-          this.detectLoop(toolName, params);
-        }
-        return true;
-      }
-      recordStep() {
-        this.currentSteps++;
-        return this.currentSteps;
-      }
-      recordToolCall(toolName, params, tokens = 0) {
-        this.currentToolCalls++;
-        const tok = Math.max(0, Number(tokens) || 0);
-        this.usedTokens += tok;
-        const entry = {
-          toolName: String(toolName || ''),
-          params: (params && typeof params === 'object') ? JSON.parse(JSON.stringify(params)) : params,
-          fingerprint: this._fingerprint(toolName, params),
-          tokens: tok,
-          timestamp: Date.now()
-        };
-        this.callHistory.push(entry);
-        return entry;
-      }
-      addTokenUsage(tokens) {
-        const tok = Math.max(0, Number(tokens) || 0);
-        this.usedTokens += tok;
-        return this.usedTokens;
-      }
-      cancelTask(reason = 'Task cancelled by user') {
-        this.cancelled = true;
-        this.cancelReason = String(reason || 'Task cancelled');
-        if (this.abortController && typeof this.abortController.abort === 'function') {
-          try {
-            this.abortController.abort(reason);
-          } catch (_) {}
-        }
-      }
-      isCancelled() {
-        return Boolean(this.cancelled || (this.abortController && this.abortController.signal && this.abortController.signal.aborted));
-      }
-    };
-  }
+  const AgentExecutionGuard = (function() {
+    const Cls = _resolveAgentExecutionGuardClass();
+    if (Cls) {
+      _registryGuardExport = Cls;
+      return Cls;
+    }
+    return class AgentExecutionGuardFallback {};
+  })();
 
   // OpenTelemetry GenAI Semantic Conventions & Audit Persistence delegates
   function _getPeerApprovals() {
@@ -2555,6 +2875,8 @@
     deduplicateKVEntries,
     resolveRoutineConflicts,
     isMcpServerEnabled,
+    classifyMcpRisk,
+    validateMcpParamsAgainstSchema,
     formatMcpToolCall,
     parseMcpToolCall,
     validateMcpToolApproval,
@@ -2562,6 +2884,7 @@
     cleanMemoryState,
     resolveProviderModelId,
     recordModelTokenAndCostUsage,
+    MODEL_REGISTRY,
     isAppGenuinelyConnected,
     secureRandomId,
     ACTION_POLICY_MANIFEST,

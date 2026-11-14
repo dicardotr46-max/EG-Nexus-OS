@@ -699,18 +699,18 @@
     }
   ],
   "test_summary": {
-    "passed_tests": 648,
-    "total_tests": 648,
-    "passed_suites": 27,
-    "total_suites": 27,
+    "passed_tests": 702,
+    "total_tests": 702,
+    "passed_suites": 28,
+    "total_suites": 28,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
   "coverage_summary": {
-    "lines_pct": 90.56,
-    "statements_pct": 89.36,
-    "functions_pct": 89.01,
-    "branches_pct": 80.36
+    "lines_pct": 90.42,
+    "statements_pct": 89.4,
+    "functions_pct": 89.13,
+    "branches_pct": 80.11
   },
   "npm_audit": {
     "vulnerabilities": 0,

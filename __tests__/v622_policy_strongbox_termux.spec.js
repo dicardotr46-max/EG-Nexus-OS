@@ -1972,7 +1972,7 @@ describe('EG Nexus OS v6.2.5 — Standards, Policy & Keystore Resilience Suite',
       const explodingStore = {
         setItem: () => { throw new Error('QuotaExceededError'); }
       };
-      expect(approvals.persistAuditTrail(explodingStore)).toBe(true);
+      expect(approvals.persistAuditTrail(explodingStore)).toBe(false);
     });
   });
 

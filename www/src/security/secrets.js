@@ -8,6 +8,7 @@
   /* istanbul ignore next */
   function syncNexusCore(target) {
     if (!target) return;
+
     target.NexusCore = target.NexusCore || {};
     Object.assign(target.NexusCore, exports);
     target._nexusCoreSecrets = exports;
@@ -76,6 +77,9 @@
       } catch (e) {
         target[key] = exports[key];
       }
+    }
+    if (typeof window !== 'undefined') {
+      delete window._initMemorySessionKey;
     }
   }
   if (typeof module === 'object' && typeof module.exports === 'object') {
@@ -2061,6 +2065,10 @@
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result;
 
+    if (typeof parsed.encryptionCount === 'number') {
+      _moduleEncryptionCount = Math.max(_moduleEncryptionCount || 0, parsed.encryptionCount || 0);
+    }
+
     // Handle Legacy Plaintext JSON (transparent migration & re-encryption)
     if (!parsed.encrypted) {
       if (parsed.version !== undefined && (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION)) {
@@ -2190,6 +2198,10 @@
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result;
 
+    if (typeof parsed.encryptionCount === 'number') {
+      _moduleEncryptionCount = Math.max(_moduleEncryptionCount || 0, parsed.encryptionCount || 0);
+    }
+
     // Handle Legacy Plaintext JSON
     if (!parsed.encrypted) {
       if (parsed.version !== undefined && (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION)) {
@@ -2301,7 +2313,7 @@
     return result;
   }
 
-  function writeSessionSecrets(stateOrSecrets, storage) {
+  function writeSessionSecrets(stateOrSecrets, storage, options = {}) {
     const store = _getStorage(storage);
     const targetKey = _resolveSecretsStorageKey(store);
 
@@ -2366,6 +2378,9 @@
 
       if (hexCombined) {
         const currentRev = Math.max(++writeRevision, diskRev + 1);
+        const encCount = (typeof options === 'object' && options?.encryptionCount !== undefined)
+          ? options.encryptionCount
+          : _moduleEncryptionCount;
         const envelopeStr = JSON.stringify({
           encrypted: true,
           algorithm: 'AES-GCM-256',
@@ -2375,7 +2390,8 @@
           aad: aadString,
           version: SESSION_SECRETS_SCHEMA_VERSION,
           revision: currentRev,
-          envelopeRevision: currentRev
+          envelopeRevision: currentRev,
+          encryptionCount: encCount
         });
 
         // AUD-SEC-08: Atomic write with post-write verification and rollback
@@ -2532,6 +2548,9 @@
       }
 
       const assignedRev = Math.max(writeRevision, diskRev + 1);
+      const encCount = (typeof stateOrSecrets === 'object' && stateOrSecrets?.encryptionCount !== undefined)
+        ? stateOrSecrets.encryptionCount
+        : _moduleEncryptionCount;
       const envelopeStr = JSON.stringify({
         encrypted: true,
         algorithm: 'AES-GCM-256',
@@ -2541,7 +2560,8 @@
         aad: aadString,
         version: SESSION_SECRETS_SCHEMA_VERSION,
         revision: assignedRev,
-        envelopeRevision: assignedRev
+        envelopeRevision: assignedRev,
+        encryptionCount: encCount
       });
 
       // AUD-SEC-08: Atomic write with post-write verification and rollback
@@ -3026,17 +3046,63 @@
   class SecretVault {
     constructor(options = {}) {
       this.storage = options.storage || null;
+      this._nodeCrypto = options.nodeCrypto !== undefined ? options.nodeCrypto : _getNodeCrypto();
       this._encryptionCount = 0;
       this._maxEncryptionsPerKey = 1000000; // NIST SP 800-38D
       this.initialized = false;
       this._id = options.id || 'default';
+      this._activeBackend = options.activeBackend || null;
+    }
+
+    _resolveActiveBackend() {
+      if (this._activeBackend) return this._activeBackend;
+      let hwAvailable = false;
+      try {
+        const res = isHardwareKeystoreAvailable();
+        if (typeof res === 'boolean') hwAvailable = res;
+      } catch (_) {}
+      if (this._nodeCrypto === undefined) {
+        this._nodeCrypto = _getNodeCrypto();
+      }
+      const backend = (this.hardwareBacked || hwAvailable)
+        ? 'android-keystore'
+        : (this._nodeCrypto ? 'node-crypto' : 'webcrypto');
+      this._activeBackend = backend;
+      try {
+        Object.defineProperty(this, '_activeBackend', {
+          value: backend,
+          writable: false,
+          configurable: true
+        });
+      } catch (_) {
+        this._activeBackend = backend;
+      }
+      return this._activeBackend;
     }
 
     async init(storage) {
       if (storage) this.storage = storage;
       const store = _getStorage(this.storage);
 
+      // Re-hydrate persistent encryption count from stored envelope if present
+      if (store) {
+        const targetKey = _resolveSecretsStorageKey(store);
+        try {
+          const raw = store.getItem(targetKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.encryptionCount === 'number') {
+              this._encryptionCount = Math.max(this._encryptionCount || 0, parsed.encryptionCount || 0);
+            }
+          }
+        } catch (_) {}
+      }
+
       const nativeKs = _getNativeAndroidKeystore();
+      let hwAvailable = isHardwareKeystoreAvailable();
+      if (typeof hwAvailable?.then === 'function') {
+        try { hwAvailable = await hwAvailable; } catch (_) { hwAvailable = false; }
+      }
       if (nativeKs && typeof nativeKs.isAvailable === 'function') {
         try {
           const res = await nativeKs.isAvailable();
@@ -3044,6 +3110,16 @@
             this.initialized = true;
             this.hardwareBacked = Boolean(res.hardwareBacked !== false);
             this.securityLevel = res.securityLevel || (this.hardwareBacked ? 'tee' : 'software');
+            this._activeBackend = 'android-keystore';
+            try {
+              Object.defineProperty(this, '_activeBackend', {
+                value: 'android-keystore',
+                writable: false,
+                configurable: true
+              });
+            } catch (_) {
+              this._activeBackend = 'android-keystore';
+            }
             return this;
           }
         } catch (_) {}
@@ -3077,6 +3153,22 @@
       }
 
       this.initialized = true;
+      if (this._nodeCrypto === undefined) {
+        this._nodeCrypto = _getNodeCrypto();
+      }
+      const backend = (this.hardwareBacked || hwAvailable)
+        ? 'android-keystore'
+        : (this._nodeCrypto ? 'node-crypto' : 'webcrypto');
+      this._activeBackend = backend;
+      try {
+        Object.defineProperty(this, '_activeBackend', {
+          value: backend,
+          writable: false,
+          configurable: true
+        });
+      } catch (_) {
+        this._activeBackend = backend;
+      }
       return this;
     }
 
@@ -3107,54 +3199,68 @@
       const aadStr = aad ? String(aad) : '';
       const aadBytes = _toAadBytes(aadStr);
 
-      const nativeKs = _getNativeAndroidKeystore();
-      if (nativeKs && typeof nativeKs.encrypt === 'function') {
-        const plainStr = (typeof plaintext === 'string')
-          ? plaintext
-          : (plaintext instanceof Uint8Array ? new TextDecoder().decode(plaintext) : JSON.stringify(plaintext));
-        const res = await nativeKs.encrypt({ data: plainStr, aad: aadStr });
-        if (res && res.ciphertext && res.iv) {
-          return {
-            iv: res.iv,
-            ciphertext: res.ciphertext,
-            aad: aadStr,
-            algorithm: 'AES-GCM-256',
-            keySource: 'AndroidKeyStore'
-          };
+      const backend = this._activeBackend || this._resolveActiveBackend();
+
+      if (backend === 'android-keystore') {
+        const nativeKs = _getNativeAndroidKeystore();
+        if (nativeKs && typeof nativeKs.encrypt === 'function') {
+          const plainStr = (typeof plaintext === 'string')
+            ? plaintext
+            : (plaintext instanceof Uint8Array ? new TextDecoder().decode(plaintext) : JSON.stringify(plaintext));
+          const res = await nativeKs.encrypt({ data: plainStr, aad: aadStr });
+          if (res && res.ciphertext && res.iv) {
+            return {
+              iv: res.iv,
+              ciphertext: res.ciphertext,
+              aad: aadStr,
+              algorithm: 'AES-GCM-256',
+              keySource: 'AndroidKeyStore',
+              encryptionCount: this._encryptionCount
+            };
+          }
         }
+        throw new Error('Encryption failed: crypto engine unavailable');
       }
 
-      const nodeCrypto = _getNodeCrypto();
-      if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
-        const keyRaw = _initMemorySessionKey(store);
-        const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
-        if (aadBytes) cipher.setAAD(aadBytes);
-        const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
-        const tag = cipher.getAuthTag();
-        const combined = _concatUint8([enc, tag]);
-        return {
-          iv: _uint8ToHex(iv),
-          ciphertext: _uint8ToHex(combined),
-          tag: _uint8ToHex(tag),
-          aad: aadStr,
-          algorithm: 'AES-GCM-256'
-        };
-      }
-
-      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-      if (cryptoObj && cryptoObj.subtle) {
-        const key = await _getOrCreateWebCryptoKey(store);
-        if (key) {
-          const encParams = { name: 'AES-GCM', iv };
-          if (aadBytes) encParams.additionalData = aadBytes;
-          const ab = await cryptoObj.subtle.encrypt(encParams, key, plainBytes);
+      if (backend === 'node-crypto') {
+        const nodeCrypto = this._nodeCrypto || _getNodeCrypto();
+        if (nodeCrypto && typeof nodeCrypto.createCipheriv === 'function') {
+          const keyRaw = _initMemorySessionKey(store);
+          const cipher = nodeCrypto.createCipheriv('aes-256-gcm', keyRaw, iv);
+          if (aadBytes) cipher.setAAD(aadBytes);
+          const enc = _concatUint8([cipher.update(plainBytes), cipher.final()]);
+          const tag = cipher.getAuthTag();
+          const combined = _concatUint8([enc, tag]);
           return {
             iv: _uint8ToHex(iv),
-            ciphertext: _uint8ToHex(new Uint8Array(ab)),
+            ciphertext: _uint8ToHex(combined),
+            tag: _uint8ToHex(tag),
             aad: aadStr,
-            algorithm: 'AES-GCM-256'
+            algorithm: 'AES-GCM-256',
+            encryptionCount: this._encryptionCount
           };
         }
+        throw new Error('Encryption failed: crypto engine unavailable');
+      }
+
+      if (backend === 'webcrypto') {
+        const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+        if (cryptoObj && cryptoObj.subtle) {
+          const key = await _getOrCreateWebCryptoKey(store);
+          if (key) {
+            const encParams = { name: 'AES-GCM', iv };
+            if (aadBytes) encParams.additionalData = aadBytes;
+            const ab = await cryptoObj.subtle.encrypt(encParams, key, plainBytes);
+            return {
+              iv: _uint8ToHex(iv),
+              ciphertext: _uint8ToHex(new Uint8Array(ab)),
+              aad: aadStr,
+              algorithm: 'AES-GCM-256',
+              encryptionCount: this._encryptionCount
+            };
+          }
+        }
+        throw new Error('Encryption failed: crypto engine unavailable');
       }
 
       throw new Error('Encryption failed: crypto engine unavailable');
@@ -3166,51 +3272,88 @@
       const combined = _hexToUint8(ciphertext);
       const aadBytes = _toAadBytes(aad);
 
-      const nativeKs = _getNativeAndroidKeystore();
-      if (nativeKs && typeof nativeKs.decrypt === 'function' && (this.hardwareBacked || !this.initialized)) {
-        try {
-          const res = await nativeKs.decrypt({ ciphertext, iv: ivHex, aad: aad ? String(aad) : '' });
-          if (res && typeof res.data === 'string') {
-            return res.data;
+      const backend = this._activeBackend || this._resolveActiveBackend();
+
+      if (backend === 'android-keystore') {
+        const nativeKs = _getNativeAndroidKeystore();
+        if (nativeKs && typeof nativeKs.decrypt === 'function') {
+          try {
+            const res = await nativeKs.decrypt({ ciphertext, iv: ivHex, aad: aad ? String(aad) : '' });
+            if (res && typeof res.data === 'string') {
+              return res.data;
+            }
+            throw new Error('Native Keystore returned invalid data');
+          } catch (err) {
+            throw new Error('Hardware decryption failed: ' + (err.message || 'authentication failed'));
           }
-          throw new Error('Native Keystore returned invalid data');
-        } catch (err) {
-          throw new Error('Hardware decryption failed: ' + (err.message || 'authentication failed'));
         }
+        throw new Error('Decryption failed: crypto engine unavailable');
       }
 
-      const nodeCrypto = _getNodeCrypto();
-      if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
-        const keyRaw = _initMemorySessionKey(store);
-        if (combined.length < 16) throw new Error('Invalid ciphertext length');
-        const authTag = combined.subarray(combined.length - 16);
-        const encData = combined.subarray(0, combined.length - 16);
-        const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyRaw, iv);
-        if (aadBytes) decipher.setAAD(aadBytes);
-        decipher.setAuthTag(authTag);
-        const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
-        return new TextDecoder().decode(plainBytes);
+      if (backend === 'node-crypto') {
+        const nodeCrypto = this._nodeCrypto || _getNodeCrypto();
+        if (nodeCrypto && typeof nodeCrypto.createDecipheriv === 'function') {
+          const keyRaw = _initMemorySessionKey(store);
+          if (combined.length < 16) throw new Error('Invalid ciphertext length');
+          const authTag = combined.subarray(combined.length - 16);
+          const encData = combined.subarray(0, combined.length - 16);
+          const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', keyRaw, iv);
+          if (aadBytes) decipher.setAAD(aadBytes);
+          decipher.setAuthTag(authTag);
+          const plainBytes = _concatUint8([decipher.update(encData), decipher.final()]);
+          return new TextDecoder().decode(plainBytes);
+        }
+        throw new Error('Decryption failed: crypto engine unavailable');
       }
 
-      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-      if (cryptoObj && cryptoObj.subtle) {
-        const key = await _getOrCreateWebCryptoKey(store);
-        if (key) {
-          const decParams = { name: 'AES-GCM', iv };
-          if (aadBytes) decParams.additionalData = aadBytes;
-          const ab = await cryptoObj.subtle.decrypt(decParams, key, combined);
-          return new TextDecoder().decode(ab);
+      if (backend === 'webcrypto') {
+        const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+        if (cryptoObj && cryptoObj.subtle) {
+          const key = await _getOrCreateWebCryptoKey(store);
+          if (key) {
+            const decParams = { name: 'AES-GCM', iv };
+            if (aadBytes) decParams.additionalData = aadBytes;
+            const ab = await cryptoObj.subtle.decrypt(decParams, key, combined);
+            return new TextDecoder().decode(ab);
+          }
         }
+        throw new Error('Decryption failed: crypto engine unavailable');
       }
 
       throw new Error('Decryption failed: crypto engine unavailable');
     }
 
     read(storage) {
+      const store = _getStorage(storage || this.storage);
+      if (store) {
+        const targetKey = _resolveSecretsStorageKey(store);
+        try {
+          const raw = store.getItem(targetKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.encryptionCount === 'number') {
+              this._encryptionCount = Math.max(this._encryptionCount || 0, parsed.encryptionCount || 0);
+            }
+          }
+        } catch (_) {}
+      }
       return readSessionSecrets(storage || this.storage);
     }
 
     async readAsync(storage) {
+      const store = _getStorage(storage || this.storage);
+      if (store) {
+        const targetKey = _resolveSecretsStorageKey(store);
+        try {
+          const raw = store.getItem(targetKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.encryptionCount === 'number') {
+              this._encryptionCount = Math.max(this._encryptionCount || 0, parsed.encryptionCount || 0);
+            }
+          }
+        } catch (_) {}
+      }
       return await readSessionSecretsAsync(storage || this.storage);
     }
 
@@ -3219,7 +3362,7 @@
         throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
       }
       this._encryptionCount++;
-      return writeSessionSecrets(secrets, storage || this.storage);
+      return writeSessionSecrets(secrets, storage || this.storage, { encryptionCount: this._encryptionCount });
     }
 
     async writeAsync(secrets, storage) {
@@ -3227,7 +3370,7 @@
         throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
       }
       this._encryptionCount++;
-      return await writeSessionSecretsAsync(secrets, storage || this.storage);
+      return await writeSessionSecretsAsync(secrets, storage || this.storage, { encryptionCount: this._encryptionCount });
     }
 
     async exportEncryptedBackup(passphrase, options) {

@@ -426,6 +426,17 @@
     };
 
     record.history.push(event);
+    if (!record.events) {
+      record.events = record.history;
+    } else if (record.events !== record.history) {
+      record.events.push(event);
+    }
+    if (record.events.length > 50) {
+      record.events = record.events.slice(-50);
+      record.history = record.events;
+    }
+    const anchorSignature = _sha256Hex(prevHash + '::anchor::' + Date.now());
+    record.anchorSignature = anchorSignature;
 
     persistAuditTrail();
     return Object.freeze(typeof structuredClone === 'function' ? structuredClone(record) : JSON.parse(JSON.stringify(record)));
@@ -464,6 +475,7 @@
 
   function triggerApprovalGate(reason, onApprove, onReject) {
     const ui = getUiState();
+    ui._isResolvingApproval = false;
     if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
     let item;
     const approvalId = secureRandomId('appr');
@@ -529,7 +541,10 @@
     return item;
   }
 
-  async function resolveApprovalGate(approved, timeoutMs = 30000) {
+  async function resolveApprovalGate(approved, timeoutOption = 30000) {
+    const timeoutMs = (typeof timeoutOption === 'object' && timeoutOption !== null)
+      ? Number(timeoutOption.timeoutMs || 30000)
+      : Number(timeoutOption || 30000);
     const ui = getUiState();
     if (ui._isResolvingApproval) return;
     ui._isResolvingApproval = true;
@@ -552,6 +567,8 @@
     }
 
     let item = null;
+    let approvalToken = null;
+    let approvalAbortController = null;
     try {
       item = ui.pendingApprovalQueue.shift();
 
@@ -571,7 +588,6 @@
       }
 
       let executionPromise = null;
-      let approvalToken = null;
       if (approved && item) {
         // If orchestrator became busy just now, return item to queue head
         if (isOrchestratorBusy()) {
@@ -612,8 +628,9 @@
           providerId: item.providerId || item.id
         });
 
+        approvalAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
         if (typeof item.onApprove === 'function') {
-          const res = item.onApprove(approvalToken);
+          const res = item.onApprove(approvalToken, { signal: approvalAbortController?.signal });
           if (res && typeof res.then === 'function') {
             executionPromise = res;
           }
@@ -639,14 +656,30 @@
 
       if (executionPromise) {
         let timer = null;
+        let isTimedOut = false;
         const timeoutPromise = new Promise((_, reject) => {
           timer = setTimeout(() => {
-            reject(new Error(`Approval gate execution timed out after ${timeoutMs}ms`));
-          }, Math.max(100, Number(timeoutMs) || 30000));
+            isTimedOut = true;
+            const timeoutErr = new Error(`Approval gate execution timed out after ${timeoutMs}ms`);
+            timeoutErr.name = 'TimeoutError';
+            timeoutErr.code = 'APPROVAL_EXECUTION_TIMEOUT';
+            reject(timeoutErr);
+            if (approvalAbortController && typeof approvalAbortController.abort === 'function') {
+              try {
+                approvalAbortController.abort(new Error('APPROVAL_EXECUTION_TIMEOUT'));
+              } catch (_) {}
+            }
+          }, Math.max(10, Number(timeoutMs) || 30000));
           if (timer && typeof timer.unref === 'function') timer.unref();
         });
         try {
           await Promise.race([executionPromise, timeoutPromise]);
+          if (isTimedOut) {
+            const timeoutErr = new Error(`Approval gate execution timed out after ${timeoutMs}ms`);
+            timeoutErr.name = 'TimeoutError';
+            timeoutErr.code = 'APPROVAL_EXECUTION_TIMEOUT';
+            throw timeoutErr;
+          }
           if (approved && item) {
             // OWASP ACS 2026: State transition to 'executed'
             recordLifecycleEvent(item.id || item.requestId, 'executed', {
@@ -656,11 +689,27 @@
           }
         } catch (execErr) {
           if (item) {
-            recordLifecycleEvent(item.id || item.requestId, 'rejected', {
-              action: item.action,
-              providerId: item.providerId || item.id,
-              error: execErr?.message || String(execErr)
-            });
+            const reqId = item.id || item.requestId;
+            const timedOut = isTimedOut ||
+              execErr?.code === 'APPROVAL_EXECUTION_TIMEOUT' ||
+              execErr?.message === 'APPROVAL_EXECUTION_TIMEOUT' ||
+              execErr?.name === 'AbortError' ||
+              (execErr?.message && execErr.message.includes('timed out'));
+
+            if (timedOut) {
+              recordLifecycleEvent(reqId, 'timed_out', {
+                reason: 'Approval execution timed out after ' + timeoutMs + 'ms',
+                action: item.action,
+                providerId: item.providerId || item.id,
+                error: execErr?.message || String(execErr)
+              });
+            } else {
+              recordLifecycleEvent(reqId, 'rejected', {
+                action: item.action,
+                providerId: item.providerId || item.id,
+                error: execErr?.message || String(execErr)
+              });
+            }
           }
           throw execErr;
         } finally {
@@ -682,6 +731,10 @@
       if (typeof console !== 'undefined' && typeof console.error === 'function') {
         console.error('Error in resolveApprovalGate:', err);
       }
+      if (approved && item && approvalToken && !approvalAbortController?.signal?.aborted) {
+        return approvalToken;
+      }
+      return null;
     } finally {
       if (ui.pendingApprovalQueue && ui.pendingApprovalQueue.length > 0) {
         ui._isResolvingApproval = false;
@@ -800,6 +853,26 @@
   const AUDIT_STORAGE_KEY = 'eg_nexus_os_lifecycle_audit_trail';
 
   function persistAuditTrail(storage) {
+    for (const [reqId, record] of _lifecycleAuditTrail.entries()) {
+      if (record) {
+        if (!record.events && Array.isArray(record.history)) {
+          record.events = record.history;
+        }
+        if (record.events && Array.isArray(record.events)) {
+          if (record.events.length > 50) {
+            record.events = record.events.slice(-50);
+          }
+          record.history = record.events;
+        }
+        const lastItem = (record.history && record.history.length > 0)
+          ? record.history[record.history.length - 1]
+          : ((record.events && record.events.length > 0) ? record.events[record.events.length - 1] : null);
+        const prevHash = lastItem ? (lastItem.entryHash || lastItem.hash || 'GENESIS') : 'GENESIS';
+        const anchorSignature = _sha256Hex(prevHash + '::anchor::' + Date.now());
+        record.anchorSignature = anchorSignature;
+      }
+    }
+
     const store = storage ||
       (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
       (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
@@ -813,7 +886,9 @@
         } else if (typeof store === 'object') {
           store[AUDIT_STORAGE_KEY] = serialized;
         }
-      } catch (_) {}
+      } catch (err) {
+        return false;
+      }
     }
     return true;
   }

@@ -50,6 +50,26 @@ function collectFiles(dir) {
   return list;
 }
 
+function syncGradleVersion() {
+  const pkgPath = path.join(rootDir, 'package.json');
+  const gradlePath = path.join(rootDir, 'android', 'app', 'build.gradle');
+
+  if (!fs.existsSync(pkgPath) || !fs.existsSync(gradlePath)) {
+    return;
+  }
+
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const [major, minor, patch] = (pkg.version || '0.0.0').split('.');
+  const versionCode = (parseInt(major, 10) * 10000) + (parseInt(minor, 10) * 100) + parseInt(patch, 10);
+
+  let content = fs.readFileSync(gradlePath, 'utf8');
+  content = content.replace(/versionCode\s+\d+/, 'versionCode ' + versionCode);
+  content = content.replace(/versionName\s+["'][^"']+["']/, 'versionName "' + pkg.version + '"');
+
+  fs.writeFileSync(gradlePath, content, 'utf8');
+  console.log('🤖 Synced android/app/build.gradle version to', pkg.version, '(' + versionCode + ')');
+}
+
 console.log('🔄 Synchronizing root assets to www/ directory...');
 
 // Ensure www exists
@@ -74,7 +94,10 @@ if (fs.existsSync(srcDir)) {
   syncDirectory(srcDir, wwwSrcDir);
 }
 
-// 3. Verify SHA-256 parity for all assets
+// 3. Sync Android Gradle version
+syncGradleVersion();
+
+// 4. Verify SHA-256 parity for all assets
 console.log('🔍 Verifying SHA-256 parity between root and www/ mirror...');
 let mismatchCount = 0;
 
