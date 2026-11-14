@@ -373,47 +373,90 @@
       get: 'https://www.googleapis.com/auth/gmail.readonly',
       send: 'https://www.googleapis.com/auth/gmail.send',
       draft: 'https://www.googleapis.com/auth/gmail.send',
-      delete: 'https://www.googleapis.com/auth/gmail.send'
+      delete: 'https://www.googleapis.com/auth/gmail.send',
+      batchdelete: 'https://www.googleapis.com/auth/gmail.send',
+      batch_delete: 'https://www.googleapis.com/auth/gmail.send',
+      batchDelete: 'https://www.googleapis.com/auth/gmail.send'
     },
     gcal: {
       list: 'https://www.googleapis.com/auth/calendar',
       view: 'https://www.googleapis.com/auth/calendar',
+      get: 'https://www.googleapis.com/auth/calendar',
+      search: 'https://www.googleapis.com/auth/calendar',
       create: 'https://www.googleapis.com/auth/calendar',
       update: 'https://www.googleapis.com/auth/calendar',
-      delete: 'https://www.googleapis.com/auth/calendar'
+      patch: 'https://www.googleapis.com/auth/calendar',
+      delete: 'https://www.googleapis.com/auth/calendar',
+      remove: 'https://www.googleapis.com/auth/calendar'
     },
     youtube: {
       read: 'https://www.googleapis.com/auth/youtube.readonly',
       view: 'https://www.googleapis.com/auth/youtube.readonly',
+      get: 'https://www.googleapis.com/auth/youtube.readonly',
+      list: 'https://www.googleapis.com/auth/youtube.readonly',
+      search: 'https://www.googleapis.com/auth/youtube.readonly',
       channel_stats: 'https://www.googleapis.com/auth/youtube.readonly',
       upload: 'https://www.googleapis.com/auth/youtube.upload',
+      update: 'https://www.googleapis.com/auth/youtube.upload',
+      comment: 'https://www.googleapis.com/auth/youtube.upload',
       shorts_publish: 'https://www.googleapis.com/auth/youtube.upload',
       delete: 'https://www.googleapis.com/auth/youtube.upload'
     },
     github: {
       read: 'repo',
+      list: 'repo',
+      get: 'repo',
+      search: 'repo',
+      status: 'repo',
       commits: 'repo',
       branches: 'repo',
       issues: 'repo',
       pull_requests: 'repo',
       write: 'repo',
-      push: 'repo',
       create_issue: 'repo',
+      update: 'repo',
+      comment: 'repo',
+      fork: 'repo',
+      push: 'repo',
+      delete: 'repo',
+      merge: 'repo',
+      release: 'repo',
       delete_repo: 'delete_repo'
     },
     telegram: {
       getUpdates: 'bot',
+      get_updates: 'bot',
+      get_me: 'bot',
+      getMe: 'bot',
+      get_chat: 'bot',
+      getChat: 'bot',
       sendMessage: 'bot',
+      send_message: 'bot',
+      edit_message: 'bot',
+      editMessage: 'bot',
+      forward: 'bot',
       sendPhoto: 'bot',
+      send_photo: 'bot',
       setWebhook: 'bot',
-      deleteWebhook: 'bot'
+      set_webhook: 'bot',
+      deleteWebhook: 'bot',
+      delete_webhook: 'bot',
+      kick: 'bot',
+      ban: 'bot',
+      delete_message: 'bot',
+      deleteMessage: 'bot'
     },
     supabase: {
       select: 'anon',
+      query: 'anon',
+      fetch: 'anon',
+      read: 'anon',
       rpc: 'anon',
       insert: 'authenticated',
       update: 'authenticated',
+      upsert: 'authenticated',
       delete: 'service_role',
+      drop: 'service_role',
       sync: 'authenticated'
     },
     cloudflare: {
@@ -424,9 +467,19 @@
     termux: {
       status: 'terminal:read',
       read_file: 'terminal:read',
+      git_status: 'terminal:read',
+      git_diff: 'terminal:read',
+      read_workspace_file: 'terminal:read',
+      rg_search: 'terminal:read',
+      ffprobe_inspect: 'terminal:read',
+      grep_search: 'terminal:read',
       exec: 'terminal:exec',
       write_file: 'terminal:exec',
-      delete_file: 'terminal:exec'
+      delete_file: 'terminal:exec',
+      ffmpeg_preset: 'terminal:exec',
+      npm_test: 'terminal:exec',
+      git_push_verified: 'terminal:exec',
+      npm_install_locked: 'terminal:exec'
     }
   };
 
@@ -453,11 +506,24 @@
     return aKey ? p[aKey] : null;
   }
 
-  const _approvalTokenMap = (typeof globalThis !== 'undefined' && globalThis.__nexusApprovalTokens)
-    ? globalThis.__nexusApprovalTokens
-    : new Map();
-  if (typeof globalThis !== 'undefined') {
-    globalThis.__nexusApprovalTokens = _approvalTokenMap;
+  // Capability handshake symbol for isolated in-memory token store & lifecycle audit trail
+  const APPROVAL_HANDSHAKE_SYM = Symbol.for('eg.nexus.security.approvals.handshake.v2');
+
+  // Authoritative internal storage: private closure Map
+  let _internalTokenStore = null;
+  let _lifecycleAuditTrail = null;
+
+  // Check if peer module (approvals.js) already registered the authoritative handshake
+  const _existingHandshake = (typeof globalThis !== 'undefined' && globalThis[APPROVAL_HANDSHAKE_SYM])
+    ? globalThis[APPROVAL_HANDSHAKE_SYM]
+    : null;
+
+  if (_existingHandshake && _existingHandshake.store instanceof Map) {
+    _internalTokenStore = _existingHandshake.store;
+    _lifecycleAuditTrail = (_existingHandshake.lifecycle instanceof Map) ? _existingHandshake.lifecycle : new Map();
+  } else {
+    _internalTokenStore = new Map();
+    _lifecycleAuditTrail = new Map();
   }
 
   // Pure-JS SHA-256 for deterministic params hash in all environments
@@ -600,12 +666,17 @@
     }
   }
 
-  function issueApprovalToken(spec = {}) {
-    const { providerId, action, params, paramsHash, nonce } = spec;
+  function _getApprovalTokenStoreInternal() {
+    return _internalTokenStore;
+  }
+
+  function issueApprovalTokenInternal(spec = {}) {
+    const { providerId, action, params, paramsHash, nonce, requestId } = spec;
     const token = 'appr_' + _generateTokenNonce() + '_' + Date.now().toString(36);
     const computedParamsHash = paramsHash || (params ? _hashParams(params) : '');
     const entry = {
       token,
+      requestId: requestId || null,
       providerId: String(providerId || '').toLowerCase(),
       action: String(action || '').toLowerCase(),
       paramsHash: computedParamsHash,
@@ -613,17 +684,17 @@
       createdAt: Date.now(),
       expiresAt: Date.now() + 60000 // 60,000ms TTL
     };
-    _approvalTokenMap.set(token, entry);
+    _internalTokenStore.set(token, entry);
     return token;
   }
 
-  function consumeApprovalToken(token, context = {}) {
+  function consumeApprovalTokenInternal(token, context = {}) {
     if (!token || typeof token !== 'string') return false;
-    const entry = _approvalTokenMap.get(token);
+    const entry = _internalTokenStore.get(token);
     if (!entry) return false;
 
     // Atomic consumption: delete immediately upon first use to prevent Replay and Prompt Injection
-    _approvalTokenMap.delete(token);
+    _internalTokenStore.delete(token);
 
     if (Date.now() > entry.expiresAt) {
       return false; // Expired
@@ -647,19 +718,122 @@
     return true;
   }
 
-  function verifyApprovalToken(token) {
+  function verifyApprovalTokenInternal(token) {
     if (!token || typeof token !== 'string') return false;
-    const entry = _approvalTokenMap.get(token);
+    const entry = _internalTokenStore.get(token);
     if (!entry) return false;
     if (Date.now() > entry.expiresAt) {
-      _approvalTokenMap.delete(token);
+      _internalTokenStore.delete(token);
       return false;
     }
     return true;
   }
 
+  function clearApprovalTokensInternal() {
+    _internalTokenStore.clear();
+  }
+
+  function issueApprovalToken(spec = {}) {
+    return issueApprovalTokenInternal(spec);
+  }
+
+  function consumeApprovalToken(token, context = {}) {
+    return consumeApprovalTokenInternal(token, context);
+  }
+
+  function verifyApprovalToken(token) {
+    return verifyApprovalTokenInternal(token);
+  }
+
   function clearApprovalTokens() {
-    _approvalTokenMap.clear();
+    clearApprovalTokensInternal();
+  }
+
+  // OWASP Agent Control Standard (ACS 2026) Request Lifecycle Tracking
+  const MAX_LIFECYCLE_ENTRIES = 500;
+
+  function recordLifecycleEvent(requestId, state, metadata = {}) {
+    if (!requestId || typeof requestId !== 'string') {
+      requestId = String(requestId || secureRandomId('req'));
+    }
+    const normState = String(state || '').trim().toLowerCase();
+    const event = {
+      state: normState,
+      timestamp: Date.now(),
+      metadata: (metadata && typeof metadata === 'object') ? { ...metadata } : {}
+    };
+
+    let record = _lifecycleAuditTrail.get(requestId);
+    if (!record) {
+      if (_lifecycleAuditTrail.size >= MAX_LIFECYCLE_ENTRIES) {
+        const oldestKey = _lifecycleAuditTrail.keys().next().value;
+        _lifecycleAuditTrail.delete(oldestKey);
+      }
+      record = {
+        requestId,
+        state: normState,
+        currentState: normState,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        history: []
+      };
+      _lifecycleAuditTrail.set(requestId, record);
+    }
+
+    record.state = normState;
+    record.currentState = normState;
+    record.updatedAt = Date.now();
+    record.history.push(event);
+
+    return record;
+  }
+
+  function getRequestLifecycle(requestId) {
+    if (!requestId || typeof requestId !== 'string') return null;
+    return _lifecycleAuditTrail.get(requestId) || null;
+  }
+
+  // Capability handshake registration
+  const _capabilityHandshake = Object.freeze({
+    store: _internalTokenStore,
+    lifecycle: _lifecycleAuditTrail,
+    getStore: _getApprovalTokenStoreInternal,
+    issue: issueApprovalTokenInternal,
+    verify: verifyApprovalTokenInternal,
+    consume: consumeApprovalTokenInternal,
+    clear: clearApprovalTokensInternal,
+    recordLifecycleEvent,
+    getRequestLifecycle
+  });
+
+  if (typeof globalThis !== 'undefined') {
+    try {
+      Object.defineProperty(globalThis, APPROVAL_HANDSHAKE_SYM, {
+        value: _capabilityHandshake,
+        writable: false,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {
+      globalThis[APPROVAL_HANDSHAKE_SYM] = _capabilityHandshake;
+    }
+
+    // Replace direct storage on globalThis.__nexusApprovalTokens with backward-compatible non-enumerable accessor
+    try {
+      Object.defineProperty(globalThis, '__nexusApprovalTokens', {
+        get() {
+          return _internalTokenStore;
+        },
+        set(val) {
+          if (val && typeof val.forEach === 'function') {
+            _internalTokenStore.clear();
+            val.forEach((v, k) => _internalTokenStore.set(k, v));
+          }
+        },
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {}
   }
 
   function validateProviderScope(providerId, action, grantedScopes = null) {
@@ -705,18 +879,327 @@
     });
   }
 
+  // OWASP Agent Control Standard (ACS 2026) Action Policy Manifest
+  // Explicit 3-tier capability mapping: 'read_only' | 'mutating' | 'high_risk'
+  const ACTION_POLICY_MANIFEST = Object.freeze({
+    google: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      view: 'read_only',
+      read: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      delete: 'high_risk',
+      remove: 'high_risk',
+      drive_delete: 'high_risk'
+    }),
+    gcal: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      view: 'read_only',
+      read: 'read_only',
+      read_events: 'read_only',
+      list_events: 'read_only',
+      get_event: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      delete: 'high_risk',
+      remove: 'high_risk'
+    }),
+    calendar: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      view: 'read_only',
+      read: 'read_only',
+      read_events: 'read_only',
+      list_events: 'read_only',
+      get_event: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      delete: 'high_risk',
+      remove: 'high_risk'
+    }),
+    gmail: Object.freeze({
+      list: 'read_only',
+      read: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      list_threads: 'read_only',
+      read_thread: 'read_only',
+      get_thread: 'read_only',
+      draft: 'mutating',
+      create: 'mutating',
+      send: 'high_risk',
+      send_email: 'high_risk',
+      delete: 'high_risk',
+      batchdelete: 'high_risk',
+      batch_delete: 'high_risk',
+      batchDelete: 'high_risk'
+    }),
+    github: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      read: 'read_only',
+      search: 'read_only',
+      status: 'read_only',
+      commits: 'read_only',
+      read_commits: 'read_only',
+      list_commits: 'read_only',
+      branches: 'read_only',
+      issues: 'read_only',
+      pull_requests: 'read_only',
+      create_issue: 'mutating',
+      update: 'mutating',
+      comment: 'mutating',
+      fork: 'mutating',
+      write: 'mutating',
+      push: 'high_risk',
+      delete: 'high_risk',
+      merge: 'high_risk',
+      release: 'high_risk',
+      delete_repo: 'high_risk'
+    }),
+    supabase: Object.freeze({
+      query: 'read_only',
+      select: 'read_only',
+      read: 'read_only',
+      fetch: 'read_only',
+      sync: 'read_only',
+      sync_data: 'read_only',
+      insert: 'mutating',
+      update: 'mutating',
+      upsert: 'mutating',
+      delete: 'high_risk',
+      drop: 'high_risk',
+      rpc: 'high_risk'
+    }),
+    telegram: Object.freeze({
+      get_me: 'read_only',
+      getme: 'read_only',
+      get_updates: 'read_only',
+      getupdates: 'read_only',
+      get_chat: 'read_only',
+      getchat: 'read_only',
+      send_message: 'mutating',
+      sendmessage: 'mutating',
+      edit_message: 'mutating',
+      editmessage: 'mutating',
+      forward: 'mutating',
+      send_photo: 'mutating',
+      sendphoto: 'mutating',
+      kick: 'high_risk',
+      ban: 'high_risk',
+      delete_message: 'high_risk',
+      deletemessage: 'high_risk',
+      set_webhook: 'high_risk',
+      setwebhook: 'high_risk',
+      delete_webhook: 'high_risk',
+      deletewebhook: 'high_risk'
+    }),
+    youtube: Object.freeze({
+      list: 'read_only',
+      search: 'read_only',
+      get: 'read_only',
+      read: 'read_only',
+      view: 'read_only',
+      channel_stats: 'read_only',
+      upload: 'mutating',
+      update: 'mutating',
+      comment: 'mutating',
+      shorts_publish: 'mutating',
+      delete: 'high_risk'
+    }),
+    termux: Object.freeze({
+      git_status: 'read_only',
+      git_diff: 'read_only',
+      read_workspace_file: 'read_only',
+      rg_search: 'read_only',
+      ffprobe_inspect: 'read_only',
+      grep_search: 'read_only',
+      status: 'read_only',
+      read_file: 'read_only',
+      ffmpeg_preset: 'mutating',
+      npm_test: 'mutating',
+      exec: 'mutating',
+      write_file: 'mutating',
+      execute_command: 'high_risk',
+      git_push_verified: 'high_risk',
+      npm_install_locked: 'high_risk',
+      delete_file: 'high_risk'
+    }),
+    cloud: Object.freeze({
+      list: 'read_only',
+      list_routines: 'read_only',
+      get: 'read_only',
+      get_routine: 'read_only',
+      status: 'read_only',
+      sync: 'read_only',
+      update_routine: 'mutating',
+      delete_routine: 'high_risk'
+    }),
+    clash: Object.freeze({
+      get_deck: 'read_only',
+      get_cycle: 'read_only',
+      get_profile: 'read_only',
+      sync_deck: 'mutating'
+    }),
+    clash_royale: Object.freeze({
+      get_deck: 'read_only',
+      get_cycle: 'read_only',
+      get_profile: 'read_only',
+      sync_deck: 'mutating'
+    }),
+    office: Object.freeze({
+      read_doc: 'read_only',
+      list_sheets: 'read_only',
+      save_doc: 'mutating',
+      update_sheet: 'mutating',
+      delete_doc: 'high_risk'
+    }),
+    flux: Object.freeze({
+      get_status: 'read_only',
+      list_models: 'read_only',
+      generate_image: 'mutating'
+    }),
+    google_drive: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      read: 'read_only',
+      view: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      upload: 'mutating',
+      delete: 'high_risk',
+      remove: 'high_risk',
+      drive_delete: 'high_risk'
+    }),
+    drive: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      read: 'read_only',
+      view: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      upload: 'mutating',
+      delete: 'high_risk',
+      remove: 'high_risk',
+      drive_delete: 'high_risk'
+    }),
+    google_sheets: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      read: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      append: 'mutating',
+      delete: 'high_risk',
+      clear: 'high_risk'
+    }),
+    google_contacts: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      read: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      delete: 'high_risk'
+    }),
+    gworkspace: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      search: 'read_only',
+      read: 'read_only',
+      create: 'mutating',
+      update: 'mutating',
+      patch: 'mutating',
+      delete: 'high_risk'
+    }),
+    cloudflare: Object.freeze({
+      kv_read: 'read_only',
+      kv_write: 'mutating',
+      kv_delete: 'high_risk'
+    }),
+    cloudflare_worker: Object.freeze({
+      kv_read: 'read_only',
+      kv_write: 'mutating',
+      kv_delete: 'high_risk'
+    }),
+    coingecko: Object.freeze({
+      list: 'read_only',
+      get_price: 'read_only',
+      search: 'read_only',
+      get: 'read_only'
+    }),
+    tavily: Object.freeze({
+      search: 'read_only',
+      query: 'read_only'
+    }),
+    web_search: Object.freeze({
+      search: 'read_only',
+      query: 'read_only'
+    }),
+    fitbit: Object.freeze({
+      list: 'read_only',
+      get: 'read_only',
+      read: 'read_only',
+      update: 'mutating',
+      log: 'mutating',
+      delete: 'high_risk'
+    })
+  });
+
   function isSensitiveProviderAction(providerId, action) {
     const pid = String(providerId || '').trim().toLowerCase();
     const act = String(action || '').trim().toLowerCase();
-    if (!act) return false;
-    if (/send|upload|publish|delete|exec|write|push|drop|truncate|setwebhook|deletewebhook|broadcast/i.test(act)) {
+    if (!pid || !act) {
+      return true; // Fail-closed / default-deny
+    }
+
+    const providerManifest = ACTION_POLICY_MANIFEST[pid];
+    let tier = providerManifest ? providerManifest[act] : undefined;
+    if (!tier && providerManifest) {
+      // Handle camelCase conversion to snake_case e.g. getMe -> get_me, deleteMessage -> delete_message
+      const snake = act.replace(/([A-Z])/g, '_$1').toLowerCase();
+      tier = providerManifest[snake];
+      if (!tier) {
+        const noUnderscore = act.replace(/_/g, '');
+        tier = providerManifest[noUnderscore];
+      }
+      if (!tier) {
+        // Prefix check for read_*, list_*, get_*, search_*, fetch_*, view_*
+        if (/^(read|list|get|search|fetch|view)_/i.test(act) && !/create|update|delete|send|push|write|patch|drop|remove|exec/i.test(act)) {
+          tier = 'read_only';
+        }
+      }
+    }
+
+    if (tier === 'mutating' || tier === 'high_risk') {
       return true;
     }
-    if (pid === 'termux' && (act === 'exec' || act === 'write_file' || act === 'delete_file')) return true;
-    if (pid === 'gmail' && (act === 'send' || act === 'delete')) return true;
-    if (pid === 'youtube' && (act === 'upload' || act === 'shorts_publish' || act === 'delete')) return true;
-    if (pid === 'github' && (act === 'push' || act === 'delete_repo')) return true;
-    return false;
+    if (tier === 'read_only') {
+      return false;
+    }
+
+    // Secondary regex safeguard for unmapped actions containing sensitive keywords
+    if (/send|upload|publish|delete|exec|write|push|drop|truncate|setwebhook|deletewebhook|broadcast|create|update|patch|remove/i.test(act)) {
+      return true;
+    }
+
+    // Fail-closed / Default-deny for any unmapped action or unknown provider
+    return true;
   }
   const isMutatingOrSensitiveAction = isSensitiveProviderAction;
 
@@ -839,12 +1322,16 @@
       return { status: 400, error: 'BAD_REQUEST', message: 'Invalid provider request payload' };
     }
 
+    const requestId = String(request.requestId || request.id || secureRandomId('req'));
     const rawPid = request.providerId;
     const rawAct = request.action;
     const providerId = String(rawPid || '').trim().toLowerCase();
     const action = String(rawAct || '').trim().toLowerCase();
 
+    recordLifecycleEvent(requestId, 'queued', { providerId, action });
+
     if (!providerId) {
+      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'BAD_REQUEST' });
       return { status: 400, error: 'BAD_REQUEST', message: 'providerId is required' };
     }
 
@@ -865,7 +1352,26 @@
     const providerDef = PROVIDERS[providerId] || Object.values(PROVIDERS).find(p => (p.id || '').toLowerCase() === providerId) || catalogItem;
     const isKnownProvider = Boolean(providerDef || catalogItem || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
 
+    // Negative Security Check: requireApproval: false CANNOT bypass unmapped or sensitive actions (default-deny)
+    if (requireApproval === false && isSensitiveProviderAction(providerId, action) && !approvalToken) {
+      const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
+      recordLifecycleEvent(requestId, 'awaiting_approval', { providerId, action, reason });
+      if (typeof approvalGateHandler === 'function') {
+        try {
+          approvalGateHandler({ reason, providerId: rawPid || providerId, action: rawAct || action, params });
+        } catch (_) {}
+      }
+      return {
+        status: 403,
+        error: 'APPROVAL_REQUIRED',
+        pendingApproval: true,
+        reason,
+        message: reason
+      };
+    }
+
     if (!isKnownProvider) {
+      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'NOT_FOUND' });
       return {
         status: 404,
         error: 'NOT_FOUND',
@@ -877,6 +1383,7 @@
     if (catalogItem && catalogItem.type === 'MCP') {
       const conn = appConnections?.[providerId] || appConnections?.[rawPid];
       if (conn && (conn.mcpEnabled === false || conn.connected === false)) {
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'MCP_DISABLED' });
         return {
           status: 403,
           error: 'MCP_DISABLED',
@@ -891,6 +1398,7 @@
     if (!isNoAuthService) {
       if (!grantedScopes || (Array.isArray(grantedScopes) && grantedScopes.length === 0) || (typeof grantedScopes === 'string' && !grantedScopes.trim())) {
         const requiredScope = getRequiredScope(providerId, action) || providerDef?.scopes?.[action] || null;
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'SCOPE_INSUFFICIENT' });
         return {
           status: 403,
           error: 'SCOPE_INSUFFICIENT',
@@ -901,6 +1409,7 @@
       }
       const hasScope = validateProviderScope(providerId, action, grantedScopes);
       if (!hasScope) {
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'SCOPE_INSUFFICIENT' });
         return {
           status: 403,
           error: 'SCOPE_INSUFFICIENT',
@@ -915,6 +1424,7 @@
     if (needsApproval) {
       if (!approvalToken) {
         const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;
+        recordLifecycleEvent(requestId, 'awaiting_approval', { providerId, action, reason });
         if (typeof approvalGateHandler === 'function') {
           try {
             approvalGateHandler({ reason, providerId: rawPid || providerId, action: rawAct || action, params });
@@ -924,7 +1434,8 @@
           status: 403,
           error: 'APPROVAL_REQUIRED',
           pendingApproval: true,
-          reason
+          reason,
+          message: reason
         };
       }
 
@@ -935,6 +1446,7 @@
         params
       });
       if (!valid) {
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'INVALID_APPROVAL_TOKEN' });
         return {
           status: 403,
           error: 'APPROVAL_REQUIRED',
@@ -942,23 +1454,28 @@
           message: 'One-time capability approval token is invalid, expired, or has already been consumed (replay / prompt injection guard).'
         };
       }
+      recordLifecycleEvent(requestId, 'approved', { providerId, action, approvalToken });
     }
 
     // Step 4: Token presence validation based on provider authType !== 'none'
     const requiresToken = authType ? (authType !== 'none') : (providerId !== 'clash_royale' && providerId !== 'coingecko' && providerId !== 'web_search');
     if (requiresToken && (!token || !String(token).trim())) {
+      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'UNAUTHORIZED' });
       return formatProviderError({ status: 401, message: 'Authentication token is required' }, providerId);
     }
 
     // Step 5: Execute with retry and handle standard HTTP errors
     if (typeof executeFn !== 'function') {
+      recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, message: 'Request validated successfully' };
     }
 
     try {
       const result = await executeWithRetry(executeFn, retryOptions);
+      recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, data: result };
     } catch (err) {
+      recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: err?.message || String(err) });
       return formatProviderError(err, providerId, request);
     }
   }
@@ -1432,10 +1949,18 @@
     recordModelTokenAndCostUsage,
     isAppGenuinelyConnected,
     secureRandomId,
+    ACTION_POLICY_MANIFEST,
     issueApprovalToken,
     consumeApprovalToken,
     verifyApprovalToken,
     clearApprovalTokens,
+    _getApprovalTokenStoreInternal,
+    issueApprovalTokenInternal,
+    verifyApprovalTokenInternal,
+    consumeApprovalTokenInternal,
+    clearApprovalTokensInternal,
+    recordLifecycleEvent,
+    getRequestLifecycle,
     canonicalizeJson,
     _hashParams,
     _generateTokenNonce,

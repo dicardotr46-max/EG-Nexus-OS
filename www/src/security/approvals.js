@@ -77,11 +77,24 @@
     return _fallbackUiState;
   }
 
-  const _approvalTokenMap = (typeof globalThis !== 'undefined' && globalThis.__nexusApprovalTokens)
-    ? globalThis.__nexusApprovalTokens
-    : new Map();
-  if (typeof globalThis !== 'undefined') {
-    globalThis.__nexusApprovalTokens = _approvalTokenMap;
+  // Capability handshake symbol for isolated in-memory token store & lifecycle audit trail
+  const APPROVAL_HANDSHAKE_SYM = Symbol.for('eg.nexus.security.approvals.handshake.v2');
+
+  // Authoritative internal storage: private closure Map
+  let _internalTokenStore = null;
+  let _lifecycleAuditTrail = null;
+
+  // Check if peer module (registry.js) already registered the authoritative handshake
+  const _existingHandshake = (typeof globalThis !== 'undefined' && globalThis[APPROVAL_HANDSHAKE_SYM])
+    ? globalThis[APPROVAL_HANDSHAKE_SYM]
+    : null;
+
+  if (_existingHandshake && _existingHandshake.store instanceof Map) {
+    _internalTokenStore = _existingHandshake.store;
+    _lifecycleAuditTrail = (_existingHandshake.lifecycle instanceof Map) ? _existingHandshake.lifecycle : new Map();
+  } else {
+    _internalTokenStore = new Map();
+    _lifecycleAuditTrail = new Map();
   }
 
   // Pure-JS SHA-256 for deterministic params hash in all environments
@@ -224,30 +237,61 @@
     }
   }
 
-  function issueApprovalToken(spec = {}) {
-    const { providerId, action, params, paramsHash, nonce } = spec;
+  function secureRandomHex(bytes = 6) {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const arr = new Uint8Array(bytes);
+        crypto.getRandomValues(arr);
+        let s = '';
+        for (let i = 0; i < arr.length; i++) s += arr[i].toString(16).padStart(2, '0');
+        return s;
+      }
+    } catch (_) {}
+    try {
+      if (typeof require === 'function') {
+        const nodeCrypto = require('crypto');
+        if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+          return nodeCrypto.randomBytes(bytes).toString('hex');
+        }
+      }
+    } catch (_) {}
+    return Date.now().toString(36).padEnd(bytes * 2, '0').slice(0, bytes * 2);
+  }
+
+  function secureRandomId(prefix = 'id') {
+    const p = prefix ? String(prefix).trim() : 'id';
+    return (p ? p + '_' : '') + Date.now().toString(36) + '_' + secureRandomHex(4);
+  }
+
+  function _getApprovalTokenStoreInternal() {
+    return _internalTokenStore;
+  }
+
+  function issueApprovalTokenInternal(spec = {}) {
+    const { providerId, action, params, paramsHash, nonce, requestId } = spec;
     const token = 'appr_' + _generateTokenNonce() + '_' + Date.now().toString(36);
     const computedParamsHash = paramsHash || (params ? _hashParams(params) : '');
     const entry = {
       token,
+      requestId: requestId || null,
       providerId: String(providerId || '').toLowerCase(),
       action: String(action || '').toLowerCase(),
       paramsHash: computedParamsHash,
       nonce: nonce || _generateTokenNonce(),
       createdAt: Date.now(),
-      expiresAt: Date.now() + 60000 // 60,000ms TTL
+      expiresAt: Date.now() + (typeof spec.ttlMs === 'number' ? spec.ttlMs : 60000)
     };
-    _approvalTokenMap.set(token, entry);
+    _internalTokenStore.set(token, entry);
     return token;
   }
 
-  function consumeApprovalToken(token, context = {}) {
+  function consumeApprovalTokenInternal(token, context = {}) {
     if (!token || typeof token !== 'string') return false;
-    const entry = _approvalTokenMap.get(token);
+    const entry = _internalTokenStore.get(token);
     if (!entry) return false;
 
     // Atomic consumption: delete immediately upon first use to prevent Replay and Prompt Injection
-    _approvalTokenMap.delete(token);
+    _internalTokenStore.delete(token);
 
     if (Date.now() > entry.expiresAt) {
       return false; // Expired
@@ -271,36 +315,138 @@
     return true;
   }
 
-  function verifyApprovalToken(token) {
+  function verifyApprovalTokenInternal(token) {
     if (!token || typeof token !== 'string') return false;
-    const entry = _approvalTokenMap.get(token);
+    const entry = _internalTokenStore.get(token);
     if (!entry) return false;
     if (Date.now() > entry.expiresAt) {
-      _approvalTokenMap.delete(token);
+      _internalTokenStore.delete(token);
       return false;
     }
     return true;
   }
 
+  function clearApprovalTokensInternal() {
+    _internalTokenStore.clear();
+  }
+
+  function issueApprovalToken(spec = {}) {
+    return issueApprovalTokenInternal(spec);
+  }
+
+  function consumeApprovalToken(token, context = {}) {
+    return consumeApprovalTokenInternal(token, context);
+  }
+
+  function verifyApprovalToken(token) {
+    return verifyApprovalTokenInternal(token);
+  }
+
   function clearApprovalTokens() {
-    _approvalTokenMap.clear();
+    clearApprovalTokensInternal();
+  }
+
+  // OWASP Agent Control Standard (ACS 2026) Request Lifecycle Tracking
+  const MAX_LIFECYCLE_ENTRIES = 500;
+
+  function recordLifecycleEvent(requestId, state, metadata = {}) {
+    if (!requestId || typeof requestId !== 'string') {
+      requestId = String(requestId || secureRandomId('req'));
+    }
+    const normState = String(state || '').trim().toLowerCase();
+    const event = {
+      state: normState,
+      timestamp: Date.now(),
+      metadata: (metadata && typeof metadata === 'object') ? { ...metadata } : {}
+    };
+
+    let record = _lifecycleAuditTrail.get(requestId);
+    if (!record) {
+      if (_lifecycleAuditTrail.size >= MAX_LIFECYCLE_ENTRIES) {
+        const oldestKey = _lifecycleAuditTrail.keys().next().value;
+        _lifecycleAuditTrail.delete(oldestKey);
+      }
+      record = {
+        requestId,
+        state: normState,
+        currentState: normState,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        history: []
+      };
+      _lifecycleAuditTrail.set(requestId, record);
+    }
+
+    record.state = normState;
+    record.currentState = normState;
+    record.updatedAt = Date.now();
+    record.history.push(event);
+
+    return record;
+  }
+
+  function getRequestLifecycle(requestId) {
+    if (!requestId || typeof requestId !== 'string') return null;
+    return _lifecycleAuditTrail.get(requestId) || null;
+  }
+
+  // Capability handshake registration
+  const _capabilityHandshake = Object.freeze({
+    store: _internalTokenStore,
+    lifecycle: _lifecycleAuditTrail,
+    getStore: _getApprovalTokenStoreInternal,
+    issue: issueApprovalTokenInternal,
+    verify: verifyApprovalTokenInternal,
+    consume: consumeApprovalTokenInternal,
+    clear: clearApprovalTokensInternal,
+    recordLifecycleEvent,
+    getRequestLifecycle
+  });
+
+  if (typeof globalThis !== 'undefined') {
+    try {
+      Object.defineProperty(globalThis, APPROVAL_HANDSHAKE_SYM, {
+        value: _capabilityHandshake,
+        writable: false,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {
+      globalThis[APPROVAL_HANDSHAKE_SYM] = _capabilityHandshake;
+    }
+
+    // Replace direct storage on globalThis.__nexusApprovalTokens with backward-compatible non-enumerable accessor
+    try {
+      Object.defineProperty(globalThis, '__nexusApprovalTokens', {
+        get() {
+          return _internalTokenStore;
+        },
+        set(val) {
+          if (val && typeof val.forEach === 'function') {
+            _internalTokenStore.clear();
+            val.forEach((v, k) => _internalTokenStore.set(k, v));
+          }
+        },
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {}
   }
 
   function triggerApprovalGate(reason, onApprove, onReject) {
     const ui = getUiState();
     if (!Array.isArray(ui.pendingApprovalQueue)) ui.pendingApprovalQueue = [];
     let item;
-    const approvalId = (typeof secureRandomId === 'function'
-      ? secureRandomId('appr')
-      : ('appr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)));
+    const approvalId = secureRandomId('appr');
 
     if (typeof reason === 'object' && reason !== null) {
       const reasonText = String(reason.reason || reason.text || reason.message || '');
       const actionName = String(reason.action || reason.target || reason.targetAction || '');
-      const id = String(reason.id || approvalId);
+      const id = String(reason.id || reason.requestId || approvalId);
       item = Object.freeze({
         ...reason,
         id,
+        requestId: id,
         reason: reasonText,
         text: reasonText,
         action: actionName,
@@ -313,6 +459,7 @@
       const reasonText = String(reason || '');
       item = Object.freeze({
         id: approvalId,
+        requestId: approvalId,
         reason: reasonText,
         text: reasonText,
         action: '',
@@ -322,6 +469,18 @@
         onReject
       });
     }
+
+    // OWASP ACS 2026: Request lifecycle transitions: 'queued' -> 'awaiting_approval'
+    recordLifecycleEvent(item.id, 'queued', {
+      action: item.action,
+      providerId: item.providerId || item.id,
+      reason: item.reason
+    });
+    recordLifecycleEvent(item.id, 'awaiting_approval', {
+      action: item.action,
+      providerId: item.providerId || item.id
+    });
+
     ui.pendingApprovalQueue.push(item);
     const current = ui.pendingApprovalQueue[0];
     if (typeof document !== 'undefined') {
@@ -402,7 +561,8 @@
         }
 
         // Issue One-Time Capability Approval Token (TTL: 60,000ms)
-        approvalToken = issueApprovalToken({
+        approvalToken = issueApprovalTokenInternal({
+          requestId: item.id || item.requestId,
           providerId: item.providerId || item.id,
           action: item.action,
           params: item.params,
@@ -415,6 +575,13 @@
           }
         } catch (_) {}
 
+        // OWASP ACS 2026: State transition to 'approved'
+        recordLifecycleEvent(item.id || item.requestId, 'approved', {
+          approvalToken,
+          action: item.action,
+          providerId: item.providerId || item.id
+        });
+
         if (typeof item.onApprove === 'function') {
           const res = item.onApprove(approvalToken);
           if (res && typeof res.then === 'function') {
@@ -422,6 +589,13 @@
           }
         }
       } else if (!approved) {
+        // OWASP ACS 2026: State transition to 'rejected'
+        recordLifecycleEvent(item ? (item.id || item.requestId) : 'unknown', 'rejected', {
+          reason: 'User rejected approval gate',
+          action: item ? item.action : '',
+          providerId: item ? (item.providerId || item.id) : ''
+        });
+
         if (item && typeof item.onReject === 'function') {
           const res = item.onReject();
           if (res && typeof res.then === 'function') {
@@ -443,9 +617,31 @@
         });
         try {
           await Promise.race([executionPromise, timeoutPromise]);
+          if (approved && item) {
+            // OWASP ACS 2026: State transition to 'executed'
+            recordLifecycleEvent(item.id || item.requestId, 'executed', {
+              action: item.action,
+              providerId: item.providerId || item.id
+            });
+          }
+        } catch (execErr) {
+          if (item) {
+            recordLifecycleEvent(item.id || item.requestId, 'rejected', {
+              action: item.action,
+              providerId: item.providerId || item.id,
+              error: execErr?.message || String(execErr)
+            });
+          }
+          throw execErr;
         } finally {
           if (timer) clearTimeout(timer);
         }
+      } else if (approved && item) {
+        // Synchronous onApprove completed
+        recordLifecycleEvent(item.id || item.requestId, 'executed', {
+          action: item.action,
+          providerId: item.providerId || item.id
+        });
       }
     } catch (err) {
       if (typeof console !== 'undefined' && typeof console.error === 'function') {
@@ -475,9 +671,18 @@
     consumeApprovalToken,
     verifyApprovalToken,
     clearApprovalTokens,
+    _getApprovalTokenStoreInternal,
+    issueApprovalTokenInternal,
+    verifyApprovalTokenInternal,
+    consumeApprovalTokenInternal,
+    clearApprovalTokensInternal,
+    recordLifecycleEvent,
+    getRequestLifecycle,
     canonicalizeJson,
     _hashParams,
     _generateTokenNonce,
-    _sha256Pure
+    _sha256Pure,
+    secureRandomHex,
+    secureRandomId
   };
 });

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' blob: https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.2.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.2.2 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -24190,6 +24190,70 @@ function copySupabaseRlsSqlScript() {
   );
 }
 
+function checkSecretComplexity(secret) {
+  if (!secret || typeof secret !== 'string') return false;
+  const s = secret.trim();
+  if (s.length < 32) return false;
+
+  const freq = {};
+  for (let i = 0; i < s.length; i++) {
+    freq[s[i]] = (freq[s[i]] || 0) + 1;
+  }
+
+  if (Object.keys(freq).length < 8) return false;
+
+  let entropy = 0;
+  for (const key in freq) {
+    const p = freq[key] / s.length;
+    entropy -= p * Math.log2(p);
+  }
+
+  const totalEntropy = entropy * s.length;
+  return totalEntropy >= 80;
+}
+
+function generateStrongWorkerSecret() {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const arr = new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  if (typeof require === 'function') {
+    try {
+      const nodeCrypto = require('crypto');
+      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+        return nodeCrypto.randomBytes(32).toString('hex');
+      }
+    } catch (_) {}
+  }
+  let fallbackHex = '';
+  for (let i = 0; i < 64; i++) {
+    fallbackHex += Math.floor(Math.random() * 16).toString(16);
+  }
+  return fallbackHex;
+}
+
+if (typeof window !== 'undefined') {
+  window.checkSecretComplexity = checkSecretComplexity;
+  window.generateStrongWorkerSecret = generateStrongWorkerSecret;
+  if (typeof window.NexusCore === 'object' && window.NexusCore !== null) {
+    window.NexusCore.checkSecretComplexity = checkSecretComplexity;
+    window.NexusCore.generateStrongWorkerSecret = generateStrongWorkerSecret;
+  }
+}
+
+function generateAndSetWorkerSecret() {
+  const secret = typeof generateStrongWorkerSecret === 'function' ? generateStrongWorkerSecret() : '';
+  if (!secret) return;
+  if (appState && appState.cloudConfig) {
+    appState.cloudConfig.workerSecret = secret;
+  }
+  const inp = document.getElementById('cloudWorkerSecretInp');
+  if (inp) inp.value = secret;
+  if (typeof saveState === 'function') saveState();
+  showToast('🔑 کلید امنیتی ۲۵۶ بیتی CSPRNG با موفقیت تولید و ذخیره شد');
+}
+
 
 
 
@@ -24252,6 +24316,10 @@ function workerSecureHex(bytes = 16) {
 
 function workerSecureId(prefix = 'id') {
   return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + workerSecureHex(16);
+}
+
+function generateStrongWorkerSecret() {
+  return workerSecureHex(32);
 }
 
 
@@ -24991,7 +25059,7 @@ const expectedSecret = String(env.NEXUS_SECRET || "").trim();
 if (!checkSecretComplexity(expectedSecret)) {
   return new Response(JSON.stringify({
     ok: false,
-    error: "Fail-Closed Security: NEXUS_SECRET is too weak. Must be at least 32 characters with sufficient entropy."
+    error: "Fail-Closed Security: NEXUS_SECRET is too weak. Manual secrets require at least 80 bits of Shannon entropy (length >= 32 with diversity >= 8), while system-generated worker secrets provide full 256-bit CSPRNG entropy."
   }), {
     status: 503,
     headers: { ...cors, "Content-Type": "application/json" }
@@ -26162,7 +26230,15 @@ function ensurePhase4SettingsPanelHookAlive() {
               <span class="text-[10px] text-emerald-400 font-mono">آخرین سینک: ${escapeHtml(appState.cloudConfig.lastSyncAt)}</span>
             </div>
             <input id="cloudWorkerUrlInp" type="text" onkeydown="if(event.key==='Enter'){event.preventDefault();syncStateWithCloudWorker(true);}" value="${escapeHtml(displayedWorkerUrl)}" placeholder="https://eg-nexus-worker.yourname.workers.dev" class="code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-2 text-xs text-cyan-300 font-mono" />
-            <input id="cloudWorkerSecretInp" type="password" value="${escapeHtml(appState.cloudConfig.workerSecret || '')}" placeholder="کلید امنیتی اجباری Worker (X-Nexus-Secret - حداقل ۸ کاراکتر)" class="code-block-dir w-full bg-black/50 border border-cue-border rounded-xl px-3 py-1.5 text-[11px] text-slate-200 font-mono" />
+            <div class="space-y-1">
+              <div class="flex items-center gap-1.5">
+                <input id="cloudWorkerSecretInp" type="password" value="${escapeHtml(appState.cloudConfig.workerSecret || '')}" placeholder="کلید امنیتی اجباری Worker (حداقل ۳۲ کاراکتر با ۸۰ بیت آنتروپی یا ۲۵۶ بیتی خودکار)" title="کلیدهای دستی نیازمند حداقل ۸۰ بیت آنتروپی شانون (طول >= ۳۲ با تنوع کاراکتر >= ۸) هستند، در حالی که کلیدهای تولید خودکار ۲۵۶ بیت آنتروپی کامل CSPRNG دارند" class="code-block-dir flex-1 bg-black/50 border border-cue-border rounded-xl px-3 py-1.5 text-[11px] text-slate-200 font-mono" />
+                <button type="button" onclick="generateAndSetWorkerSecret()" class="px-2.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-[10px] text-cyan-300 font-bold shrink-0 border border-cyan-500/30" title="تولید کلید امنیتی ۲۵۶ بیتی CSPRNG">🎲 کلید ۲۵۶ بیت</button>
+              </div>
+              <p class="text-[9px] text-slate-400 px-1">
+                🛡️ الزام امنیتی کلید: کلیدهای دستی نیازمند حداقل ۸۰ بیت آنتروپی شانون (طول &ge; ۳۲ با تنوع کاراکتر &ge; ۸) هستند؛ کلیدهای تولید سیستمی با ۲۵۶ بیت آنتروپی کامل CSPRNG محافظت می‌شوند.
+              </p>
+            </div>
             <div class="grid grid-cols-2 gap-2">
               <input id="cloudSbUrlInp" type="text" value="${escapeHtml(displayedSbUrl)}" placeholder="Supabase HTTPS Project URL" class="code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono" />
               <input id="cloudSbKeyInp" type="password" value="${escapeHtml(appState.cloudConfig.supabaseKey)}" placeholder="Supabase publishable / anon key (نه service_role)" class="code-block-dir bg-black/50 border border-cue-border rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono" />
@@ -26402,6 +26478,7 @@ if (typeof window !== 'undefined') {
   window.restoreStateFromSupabase = restoreStateFromSupabase;
   window.generateSupabaseRlsSqlScript = generateSupabaseRlsSqlScript;
   window.copySupabaseRlsSqlScript = copySupabaseRlsSqlScript;
+  window.generateAndSetWorkerSecret = generateAndSetWorkerSecret;
   window.executeRoutineNow = executeRoutineNow;
   window.addNewRoutineFromModal = addNewRoutineFromModal;
   window.toggleRoutineItem = toggleRoutineItem;
@@ -29901,24 +29978,58 @@ if (typeof document !== 'undefined') {
     }
 
 
+    const TERMUX_CAPABILITY_MATRIX = Object.freeze({
+      git_status: { tool: 'git_status', bin: 'git', allowedArgs: ['status', '--short', '-s', '--branch', '-b'] },
+      git_diff: { tool: 'git_diff', bin: 'git', allowedArgs: ['diff', '--stat', '--name-only', '--shortstat'] },
+      git_branch: { tool: 'git_branch', bin: 'git', allowedArgs: ['branch', '--show-current', '--list'] },
+      git_log: { tool: 'git_log', bin: 'git', allowedArgs: ['log', '--oneline', '--stat', '-n'] },
+      git_push_verified: { tool: 'git_push_verified', bin: 'git', allowedArgs: ['push', '-u', '--set-upstream', '--tags'] },
+      npm_test: { tool: 'npm_test', bin: 'npm', allowedArgs: ['test', '--', '--runInBand', '-t', '--bail'] },
+      npm_audit: { tool: 'npm_audit', bin: 'npm', allowedArgs: ['audit', '--json', '--audit-level=high', '--audit-level=moderate'] },
+      npm_install_locked: { tool: 'npm_install_locked', bin: 'npm', allowedArgs: ['ci', '--ignore-scripts'] },
+      grep_search: { tool: 'grep_search', bin: 'grep', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'] },
+      rg_search: { tool: 'rg_search', bin: 'rg', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'] },
+      ffprobe_inspect: { tool: 'ffprobe_inspect', bin: 'ffprobe', safeFlags: ['-v', 'error', '-show_format', '-show_streams', '-of', 'json'] },
+      ffmpeg_preset: { tool: 'ffmpeg_preset', bin: 'ffmpeg', safeFlags: ['-i', '-y', '-vn', '-an', '-acodec', '-vcodec', '-c:a', '-c:v', '-b:a', '-b:v', '-vf', '-af', '-preset', '-crf', '-f'] },
+      python_audit: { tool: 'python_audit', bin: 'python', scripts: ['full_app_audit.py', 'test_full_app_audit.py', '--version'] },
+      python_workspace_script: { tool: 'python_workspace_script', bin: 'python', ext: '.py' },
+      node_workspace_script: { tool: 'node_workspace_script', bin: 'node', ext: ['.js', '.mjs', '.cjs'] },
+      read_workspace_file: { tool: 'read_workspace_file', bins: ['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'] }
+    });
+
     const TERMUX_ALLOWED_COMMANDS = Object.freeze([
       'git status', 'git log', 'git diff', 'git branch', 'git checkout', 'git pull', 'git add', 'git commit', 'git push',
-      'ls', 'dir', 'pwd', 'cat', 'head', 'tail', 'grep', 'stat', 'du', 'df', 'wc', 'file', 'tree',
-      'node --version', 'node -v', 'npm test', 'npm --version', 'npm run', 'npm test --', 'npm start', 'npm build',
+      'ls', 'dir', 'pwd', 'cat', 'head', 'tail', 'grep', 'rg', 'stat', 'du', 'df', 'wc', 'file', 'tree',
+      'node --version', 'node -v', 'npm test', 'npm --version', 'npm run', 'npm test --', 'npm start', 'npm build', 'npm ci --ignore-scripts',
       'python3 --version', 'python --version', 'python3 -m unittest', 'python -m unittest', 'pytest',
       'ffmpeg -version', 'ffprobe -version'
     ]);
     const SHELL_CHAINING_REGEX = /[;|\`$><]|&&|\|\||\$\(/;
-    const DANGEROUS_AGENT_FLAGS_REGEX = /(?:^|\s)(?:-c|-e|--eval|--prefix|push|run)(?:\s|$)/i;
+    const DANGEROUS_AGENT_FLAGS_REGEX = /(?:^|\s)(?:-c|-e|--eval|--prefix)(?:\s|$)/i;
+
+    function isUnsafeTermuxPath(pathStr) {
+      if (typeof pathStr !== 'string') return true;
+      const p = pathStr.trim();
+      if (!p) return false;
+      if (p.includes('..') || p.startsWith('/') || p.startsWith('\\') || p.startsWith('~') || p.startsWith('$')) {
+        return true;
+      }
+      return false;
+    }
 
     function validateStructuredTermuxCommand(rawCmd) {
-      const cmd = String(rawCmd || '').trim();
+      let cmd = '';
+      if (typeof rawCmd === 'string') {
+        cmd = rawCmd.trim();
+      } else if (rawCmd && typeof rawCmd === 'object') {
+        cmd = String(rawCmd.command || '').trim();
+      }
       if (!cmd) return { ok: false, error: 'دستور ترمینال خالی است' };
       if (SHELL_CHAINING_REGEX.test(cmd)) {
         return { ok: false, error: 'کاراکترهای زنجیره‌سازی شل (;, &&, ||, |, `, $()) در فراخوانی‌های خودکار ایجنت مسدود است' };
       }
       if (DANGEROUS_AGENT_FLAGS_REGEX.test(cmd)) {
-        return { ok: false, error: 'فلگ‌های خطرناک (-c, -e, --eval, --prefix, push, run) در حالت خودکار ایجنت مسدود است' };
+        return { ok: false, error: 'فلگ‌های خطرناک (-c, -e, --eval, --prefix) در حالت خودکار ایجنت مسدود است' };
       }
       if (/\bfind\b/i.test(cmd)) {
         return { ok: false, error: 'دستور find مسدود است؛ از ابزارهای فایل‌خوانی استاندارد (ls, dir, stat) استفاده کنید' };
@@ -29935,6 +30046,7 @@ if (typeof document !== 'undefined') {
         return { ok: false, error: 'دستور find در ابزارهای ساختاریافته مسدود است' };
       }
 
+      // 1. Git
       if (bin === 'git') {
         const sub = args[0] || '';
         if (sub === 'status') {
@@ -29944,9 +30056,12 @@ if (typeof document !== 'undefined') {
           return { ok: true, tool: 'git_status' };
         }
         if (sub === 'diff') {
-          const allowed = new Set(['diff', '--stat', '--name-only', '--shortstat']);
-          const bad = args.find(a => !allowed.has(a));
-          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای git diff: ${bad}` };
+          const allowedFlags = new Set(['diff', '--stat', '--name-only', '--shortstat']);
+          for (const arg of args) {
+            if (allowedFlags.has(arg)) continue;
+            if (arg.startsWith('-')) return { ok: false, error: `آرگومان غیرمجاز برای git diff: ${arg}` };
+            if (isUnsafeTermuxPath(arg)) return { ok: false, error: `مسیر فایل خارج از دایرکتوری کاری رد شد: ${arg}` };
+          }
           return { ok: true, tool: 'git_diff' };
         }
         if (sub === 'branch') {
@@ -29966,14 +30081,29 @@ if (typeof document !== 'undefined') {
           if (bad) return { ok: false, error: `آرگومان غیرمجاز برای git log: ${bad}` };
           return { ok: true, tool: 'git_log' };
         }
+        if (sub === 'push') {
+          if (/-(?:f|d|force|delete)\b|--(?:force|force-with-lease|delete|exec|receive-pack)\b/i.test(cmd)) {
+            return { ok: false, error: 'فلگ‌های فورس یا حذف در git push مسدود است' };
+          }
+          const allowedFlags = new Set(['push', '-u', '--set-upstream', '--tags', '--dry-run', '--porcelain']);
+          for (const arg of args) {
+            if (allowedFlags.has(arg)) continue;
+            if (arg.startsWith('-')) return { ok: false, error: `آرگومان غیرمجاز برای git push: ${arg}` };
+            if (!/^[a-zA-Z0-9_./-]+$/.test(arg)) {
+              return { ok: false, error: `نام ریموت یا برنچ نامعتبر برای git push: ${arg}` };
+            }
+          }
+          return { ok: true, tool: 'git_push_verified' };
+        }
         return { ok: false, error: `زیرفرمان git ${sub} در حالت خودکار مجاز نیست` };
       }
 
+      // 2. NPM
       if (bin === 'npm') {
         const sub = args[0] || '';
         if (sub === 'test') {
           const allowed = new Set(['test', '--', '--runInBand', '-t', '--bail']);
-          const bad = args.find(a => !allowed.has(a));
+          const bad = args.find(a => !allowed.has(a) && a.startsWith('-'));
           if (bad) return { ok: false, error: `آرگومان غیرمجاز برای npm test: ${bad}` };
           return { ok: true, tool: 'npm_test' };
         }
@@ -29983,21 +30113,184 @@ if (typeof document !== 'undefined') {
           if (bad) return { ok: false, error: `آرگومان غیرمجاز برای npm audit: ${bad}` };
           return { ok: true, tool: 'npm_audit' };
         }
+        if (sub === 'ci') {
+          if (!args.includes('--ignore-scripts')) {
+            return { ok: false, error: 'دستور npm ci بدون فلگ امنیتی --ignore-scripts مسدود است' };
+          }
+          const allowed = new Set(['ci', '--ignore-scripts', '--silent', '--prefer-offline', '--no-audit', '--production', '--omit=dev']);
+          const bad = args.find(a => !allowed.has(a));
+          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای npm ci: ${bad}` };
+          return { ok: true, tool: 'npm_install_locked' };
+        }
         return { ok: false, error: `دستور npm ${sub} در حالت خودکار مجاز نیست` };
       }
 
-      if (bin === 'python' || bin === 'python3') {
-        const script = args[0] || '';
-        if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py' || script === '--version') {
-          return { ok: true, tool: 'python_audit' };
+      // 3. Grep
+      if (bin === 'grep') {
+        const safeFlags = new Set(['-n', '-i', '-F', '--fixed-strings', '--max-count']);
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (arg.startsWith('-')) {
+            if (safeFlags.has(arg)) {
+              if (arg === '--max-count') {
+                i++;
+                if (!args[i] || !/^\d+$/.test(args[i])) {
+                  return { ok: false, error: 'مقدار عددی معتبر برای --max-count لازم است' };
+                }
+              }
+              continue;
+            }
+            if (arg.startsWith('--max-count=')) {
+              const val = arg.slice(12);
+              if (!/^\d+$/.test(val)) return { ok: false, error: 'مقدار عددی معتبر برای --max-count لازم است' };
+              continue;
+            }
+            if (/^-[niF]+$/.test(arg)) continue;
+            return { ok: false, error: `فلگ غیرمجاز برای grep: ${arg} (تنها -n, -i, -F, --fixed-strings, --max-count مجاز است)` };
+          } else {
+            if (isUnsafeTermuxPath(arg)) {
+              return { ok: false, error: `مسیر فایل خارج از دایرکتوری کاری رد شد: ${arg}` };
+            }
+          }
         }
-        return { ok: false, error: `اجرای اسکریپت پایتون به اسکریپت‌های ممیزی محدود است: ${script}` };
+        return { ok: true, tool: 'grep_search' };
       }
 
+      // 4. Ripgrep (rg)
+      if (bin === 'rg') {
+        if (/--pre(?:-glob)?\b/i.test(cmd)) {
+          return { ok: false, error: 'فلگ‌های اجرایی مانند --pre برای rg مسدود است' };
+        }
+        const safeFlags = new Set(['-n', '-i', '-F', '--fixed-strings', '--max-count']);
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (arg.startsWith('-')) {
+            if (safeFlags.has(arg)) {
+              if (arg === '--max-count') {
+                i++;
+                if (!args[i] || !/^\d+$/.test(args[i])) {
+                  return { ok: false, error: 'مقدار عددی معتبر برای --max-count لازم است' };
+                }
+              }
+              continue;
+            }
+            if (arg.startsWith('--max-count=')) {
+              const val = arg.slice(12);
+              if (!/^\d+$/.test(val)) return { ok: false, error: 'مقدار عددی معتبر برای --max-count لازم است' };
+              continue;
+            }
+            if (/^-[niF]+$/.test(arg)) continue;
+            return { ok: false, error: `فلگ غیرمجاز برای rg: ${arg} (تنها -n, -i, -F, --fixed-strings, --max-count مجاز است)` };
+          } else {
+            if (isUnsafeTermuxPath(arg)) {
+              return { ok: false, error: `مسیر فایل خارج از دایرکتوری کاری رد شد: ${arg}` };
+            }
+          }
+        }
+        return { ok: true, tool: 'rg_search' };
+      }
+
+      // 5. FFprobe
+      if (bin === 'ffprobe') {
+        if (/(?:https?|concat|subfile|pipe|ftp|gopher|data|crypto|tcp|udp|rtmp|rtsp|tls|hls):/i.test(cmd)) {
+          return { ok: false, error: 'پروتکل‌های شبکه‌ای یا خطرناک در ffprobe مسدود است' };
+        }
+        const safeTokens = new Set(['-v', 'error', '-show_format', '-show_streams', '-of', 'json', '-version', '--version']);
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (arg.startsWith('-')) {
+            if (safeTokens.has(arg)) continue;
+            if (arg === '-v' || arg === '-of') {
+              i++;
+              if (!args[i] || !safeTokens.has(args[i])) {
+                return { ok: false, error: `مقدار غیرمجاز برای ${arg}: ${args[i]}` };
+              }
+              continue;
+            }
+            return { ok: false, error: `فلگ غیرمجاز برای ffprobe: ${arg}` };
+          } else {
+            if (!safeTokens.has(arg)) {
+              if (isUnsafeTermuxPath(arg)) {
+                return { ok: false, error: `مسیر فایل رسانه خارج از دایرکتوری کاری رد شد: ${arg}` };
+              }
+            }
+          }
+        }
+        return { ok: true, tool: 'ffprobe_inspect' };
+      }
+
+      // 6. FFmpeg
+      if (bin === 'ffmpeg') {
+        if (/(?:https?|concat|subfile|pipe|ftp|gopher|data|crypto|tcp|udp|rtmp|rtsp|tls|hls):/i.test(cmd)) {
+          return { ok: false, error: 'پروتکل‌های شبکه‌ای یا خطرناک در ffmpeg اکیداً مسدود است' };
+        }
+        if (/\b(?:-f\s+lavfi|lavfi)\b/i.test(cmd) || args.some(a => a.toLowerCase() === 'lavfi')) {
+          return { ok: false, error: 'استفاده از lavfi در ffmpeg مسدود است' };
+        }
+        if (args.length === 1 && (args[0] === '-version' || args[0] === '--version')) {
+          return { ok: true, tool: 'ffmpeg_preset' };
+        }
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (!arg.startsWith('-')) {
+            if (isUnsafeTermuxPath(arg)) {
+              return { ok: false, error: `مسیر ورودی یا خروجی خارج از دایرکتوری کاری رد شد: ${arg}` };
+            }
+          }
+        }
+        return { ok: true, tool: 'ffmpeg_preset' };
+      }
+
+      // 7. Python
+      if (bin === 'python' || bin === 'python3') {
+        const script = args[0] || '';
+        if (script === '--version' || script === '-V') {
+          return { ok: true, tool: 'python_audit' };
+        }
+        if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py') {
+          return { ok: true, tool: 'python_audit' };
+        }
+        if (script.endsWith('.py')) {
+          if (isUnsafeTermuxPath(script)) {
+            return { ok: false, error: `مسیر اسکریپت پایتون خارج از دایرکتوری کاری رد شد: ${script}` };
+          }
+          for (let i = 1; i < args.length; i++) {
+            const arg = args[i];
+            if (isUnsafeTermuxPath(arg)) {
+              return { ok: false, error: `مسیر آرگومان خارج از دایرکتوری کاری رد شد: ${arg}` };
+            }
+          }
+          return { ok: true, tool: 'python_workspace_script' };
+        }
+        return { ok: false, error: `اجرای اسکریپت پایتون نامعتبر یا خارج از فضای کاری: ${script}` };
+      }
+
+      // 8. Node
+      if (bin === 'node') {
+        const script = args[0] || '';
+        if (script === '--version' || script === '-v') {
+          return { ok: true, tool: 'node_workspace_script' };
+        }
+        if (script.endsWith('.js') || script.endsWith('.mjs') || script.endsWith('.cjs')) {
+          if (isUnsafeTermuxPath(script)) {
+            return { ok: false, error: `مسیر اسکریپت Node.js خارج از دایرکتوری کاری رد شد: ${script}` };
+          }
+          for (let i = 1; i < args.length; i++) {
+            const arg = args[i];
+            if (isUnsafeTermuxPath(arg)) {
+              return { ok: false, error: `مسیر آرگومان خارج از دایرکتوری کاری رد شد: ${arg}` };
+            }
+          }
+          return { ok: true, tool: 'node_workspace_script' };
+        }
+        return { ok: false, error: `اجرای اسکریپت Node.js نامعتبر یا خارج از فضای کاری: ${script}` };
+      }
+
+      // 9. Read-only workspace inspection
       if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
         for (const arg of args) {
           if (arg.startsWith('-')) continue;
-          if (arg.includes('..') || arg.startsWith('/') || arg.startsWith('\\') || arg.startsWith('~')) {
+          if (isUnsafeTermuxPath(arg)) {
             return { ok: false, error: `مسیر فایل خارج از دایرکتوری کاری رد شد: ${arg}` };
           }
         }
@@ -30005,6 +30298,19 @@ if (typeof document !== 'undefined') {
       }
 
       return { ok: false, error: `دستور در ابزارهای ساختاریافته (TERMUX_STRUCTURED_TOOLS) مجاز نیست: ${bin}` };
+    }
+
+    if (typeof window !== 'undefined') {
+      window.TERMUX_CAPABILITY_MATRIX = TERMUX_CAPABILITY_MATRIX;
+      window.validateStructuredTermuxCommand = validateStructuredTermuxCommand;
+      window._nexusTermuxDaemonValidator = validateStructuredTermuxCommand;
+      window.validateServerTermuxRequest = validateStructuredTermuxCommand;
+      if (typeof window.NexusCore === 'object' && window.NexusCore !== null) {
+        window.NexusCore.TERMUX_CAPABILITY_MATRIX = TERMUX_CAPABILITY_MATRIX;
+        window.NexusCore._nexusTermuxDaemonValidator = validateStructuredTermuxCommand;
+        window.NexusCore.validateStructuredTermuxCommand = validateStructuredTermuxCommand;
+        window.NexusCore.validateServerTermuxRequest = validateStructuredTermuxCommand;
+      }
     }
 
     // پیش‌فرض Fail-Closed: isUserInitiated = false تا هیچ فراخوانی خودکاری بدون تأیید کاربر از سد if_requested عبور نکند!
@@ -30231,11 +30537,11 @@ const MAX_BODY_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const EXEC_TIMEOUT_MS = 120000;
 const MAX_CONCURRENT_JOBS = 2;
-const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'node', 'npm', 'python', 'python3', 'ffmpeg', 'ffprobe', 'cat', 'head', 'tail', 'grep', 'stat', 'du', 'df', 'wc', 'file', 'tree', 'pytest'];
+const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'node', 'npm', 'python', 'python3', 'ffmpeg', 'ffprobe', 'cat', 'head', 'tail', 'grep', 'rg', 'stat', 'du', 'df', 'wc', 'file', 'tree', 'pytest'];
 const SHELL_CHAINING_REGEX = /[;|\\\`$><]|&&|\\|\\||\\$\\(/;
 const BLOCKED_CMD_REGEX = /(?:\\b(?:busybox|toybox)\\s+)?\\brm\\b(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*r|\\s--recursive))(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*f|\\s--force))[^;&|\\r\\n]*\\s+(?:\\/|\\*|\\.\\.?\\/?\\*?|~|\\$HOME|\\$PREFIX|\\/sdcard|\\/storage|--no-preserve-root)(?:$|[\\s;&|><)'"])|\\brm\\b\\s+-[a-zA-Z]*(?:rf|fr)\\s+(?:\\.|\\.\\.)(?:$|[\\s/;&|><)'"])|\\bfind\\b.*\\s-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b|\\brg\\b.*--pre(?:-glob)?\\b|\\b(?:mkfs\\.[a-z0-9]+|wipefs|shred)\\b|\\bdd\\b\\s+.*\\bof=\\/dev\\/|\\btruncate\\b\\s+.*\\s+\\/(?:$|\\s)|\\bchmod\\b\\s+-R\\s+000\\s+(?:\\/|\\.|~)|\\bchown\\b\\s+-R\\s+.*\\s+\\/|\\b(?:shutil\\.rmtree|os\\.(?:remove|unlink|rmdir|removedirs|system|popen)|fs\\.(?:rmSync|rmdirSync|unlinkSync)|child_process)\\b|:(\\s*)\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:/i;
 const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env[a-zA-Z0-9_.*?-]*|id_rsa[a-zA-Z0-9_.*?-]*|id_ed25519[a-zA-Z0-9_.*?-]*|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
-const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|grep|rg|stat|du|df|pwd|wc|file|tree)\\b/i;
+const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|grep|rg|stat|du|df|pwd|wc|file|tree|ffprobe)\\b/i;
 const WORKSPACE_ESCAPE_REGEX = /(?:^|[\\s;&|])(?:cd|pushd)\\b(?:\\s+(?:\\/|~|\\$HOME|\\.\\.(?:\\/|$)|$))?|(?:^|[\\s"'=<>\/])\\/(?:etc|proc|sys|dev|data\\/data|root|sbin|system|vendor)\\b|(?:^|[\\s\\/])\\.\\.(?:\\/|$)/i;
 const activeChildProcs = new Set();
 const activeJobsMap = new Map();
@@ -30783,7 +31089,7 @@ http.createServer((req, res) => {
       const bin = spawnBin.toLowerCase();
 
       // Block dangerous agent flags
-      const dFlags = /^(?:-c|-e|--eval|--prefix|push|run)$/i;
+      const dFlags = /^(?:-c|-e|--eval|--prefix)$/i;
       for (let ai = 0; ai < spawnArgs.length; ai++) {
         if (dFlags.test(spawnArgs[ai])) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -30804,6 +31110,12 @@ http.createServer((req, res) => {
       let toolOk = false;
       let policyReason = '';
 
+      const isUnsafeDaemonPath = (p) => {
+        if (!p || typeof p !== 'string') return false;
+        const s = p.trim();
+        return s.includes('..') || s.startsWith('/') || s.startsWith('\\\\') || s.startsWith('~') || s.startsWith('$');
+      };
+
       if (bin === 'git') {
         const sub = spawnArgs[0] || '';
         if (sub === 'status') {
@@ -30812,10 +31124,17 @@ http.createServer((req, res) => {
           if (bad) policyReason = 'git status argument disallowed: ' + bad;
           else toolOk = true;
         } else if (sub === 'diff') {
-          const allowedArgs = new Set(['diff', '--stat', '--name-only', '--shortstat']);
-          const bad = spawnArgs.find(a => !allowedArgs.has(a));
-          if (bad) policyReason = 'git diff argument disallowed: ' + bad;
-          else toolOk = true;
+          const allowedFlags = new Set(['diff', '--stat', '--name-only', '--shortstat']);
+          let pathBad = false;
+          for (const arg of spawnArgs) {
+            if (allowedFlags.has(arg)) continue;
+            if (arg.startsWith('-') || isUnsafeDaemonPath(arg)) {
+              pathBad = true;
+              policyReason = 'git diff argument disallowed: ' + arg;
+              break;
+            }
+          }
+          if (!pathBad) toolOk = true;
         } else if (sub === 'branch') {
           const allowedArgs = new Set(['branch', '--show-current', '--list']);
           const bad = spawnArgs.find(a => !allowedArgs.has(a));
@@ -30833,6 +31152,22 @@ http.createServer((req, res) => {
             if (bad) policyReason = 'git log argument disallowed: ' + bad;
             else toolOk = true;
           }
+        } else if (sub === 'push') {
+          if (/-(?:f|d|force|delete)\\b|--(?:force|force-with-lease|delete|exec|receive-pack)\\b/i.test(command)) {
+            policyReason = 'git push force or delete flags are disallowed';
+          } else {
+            const allowedPushFlags = new Set(['push', '-u', '--set-upstream', '--tags', '--dry-run', '--porcelain']);
+            let pushBad = false;
+            for (const arg of spawnArgs) {
+              if (allowedPushFlags.has(arg)) continue;
+              if (arg.startsWith('-') || !/^[a-zA-Z0-9_./-]+$/.test(arg)) {
+                pushBad = true;
+                policyReason = 'git push argument disallowed: ' + arg;
+                break;
+              }
+            }
+            if (!pushBad) toolOk = true;
+          }
         } else {
           policyReason = 'git subcommand not in structured whitelist: ' + sub;
         }
@@ -30840,7 +31175,7 @@ http.createServer((req, res) => {
         const sub = spawnArgs[0] || '';
         if (sub === 'test') {
           const allowedArgs = new Set(['test', '--', '--runInBand', '-t', '--bail']);
-          const bad = spawnArgs.find(a => !allowedArgs.has(a));
+          const bad = spawnArgs.find(a => !allowedArgs.has(a) && a.startsWith('-'));
           if (bad) policyReason = 'npm test argument disallowed: ' + bad;
           else toolOk = true;
         } else if (sub === 'audit') {
@@ -30848,22 +31183,179 @@ http.createServer((req, res) => {
           const bad = spawnArgs.find(a => !allowedArgs.has(a));
           if (bad) policyReason = 'npm audit argument disallowed: ' + bad;
           else toolOk = true;
+        } else if (sub === 'ci') {
+          if (!spawnArgs.includes('--ignore-scripts')) {
+            policyReason = 'npm ci requires --ignore-scripts';
+          } else {
+            const allowedCi = new Set(['ci', '--ignore-scripts', '--silent', '--prefer-offline', '--no-audit', '--production', '--omit=dev']);
+            const bad = spawnArgs.find(a => !allowedCi.has(a));
+            if (bad) policyReason = 'npm ci argument disallowed: ' + bad;
+            else toolOk = true;
+          }
         } else {
           policyReason = 'npm command not in structured whitelist: ' + sub;
         }
+      } else if (bin === 'grep') {
+        const safeFlags = new Set(['-n', '-i', '-F', '--fixed-strings', '--max-count']);
+        let grepBad = false;
+        for (let gi = 0; gi < spawnArgs.length; gi++) {
+          const ga = spawnArgs[gi];
+          if (ga.startsWith('-')) {
+            if (safeFlags.has(ga)) {
+              if (ga === '--max-count') {
+                gi++;
+                if (!spawnArgs[gi] || !/^\\d+$/.test(spawnArgs[gi])) {
+                  grepBad = true; policyReason = 'grep --max-count requires integer value'; break;
+                }
+              }
+              continue;
+            }
+            if (ga.startsWith('--max-count=') && /^\\d+$/.test(ga.slice(12))) continue;
+            if (/^-[niF]+$/.test(ga)) continue;
+            grepBad = true;
+            policyReason = 'grep flag disallowed: ' + ga;
+            break;
+          } else {
+            if (isUnsafeDaemonPath(ga)) {
+              grepBad = true;
+              policyReason = 'grep path outside workspace disallowed: ' + ga;
+              break;
+            }
+          }
+        }
+        if (!grepBad) toolOk = true;
+      } else if (bin === 'rg') {
+        if (/--pre(?:-glob)?\\b/i.test(command)) {
+          policyReason = 'rg --pre flag disallowed';
+        } else {
+          const safeFlags = new Set(['-n', '-i', '-F', '--fixed-strings', '--max-count']);
+          let rgBad = false;
+          for (let ri = 0; ri < spawnArgs.length; ri++) {
+            const ra = spawnArgs[ri];
+            if (ra.startsWith('-')) {
+              if (safeFlags.has(ra)) {
+                if (ra === '--max-count') {
+                  ri++;
+                  if (!spawnArgs[ri] || !/^\\d+$/.test(spawnArgs[ri])) {
+                    rgBad = true; policyReason = 'rg --max-count requires integer value'; break;
+                  }
+                }
+                continue;
+              }
+              if (ra.startsWith('--max-count=') && /^\\d+$/.test(ra.slice(12))) continue;
+              if (/^-[niF]+$/.test(ra)) continue;
+              rgBad = true;
+              policyReason = 'rg flag disallowed: ' + ra;
+              break;
+            } else {
+              if (isUnsafeDaemonPath(ra)) {
+                rgBad = true;
+                policyReason = 'rg path outside workspace disallowed: ' + ra;
+                break;
+              }
+            }
+          }
+          if (!rgBad) toolOk = true;
+        }
+      } else if (bin === 'ffprobe') {
+        if (/(?:https?|concat|subfile|pipe|ftp|gopher|data|crypto|tcp|udp|rtmp|rtsp|tls|hls):/i.test(command)) {
+          policyReason = 'ffprobe dangerous or network protocol scheme disallowed';
+        } else {
+          const safeProbeTokens = new Set(['-v', 'error', '-show_format', '-show_streams', '-of', 'json', '-version', '--version']);
+          let probeBad = false;
+          for (let pi = 0; pi < spawnArgs.length; pi++) {
+            const pa = spawnArgs[pi];
+            if (pa.startsWith('-')) {
+              if (safeProbeTokens.has(pa)) continue;
+              if (pa === '-v' || pa === '-of') {
+                pi++;
+                if (!spawnArgs[pi] || !safeProbeTokens.has(spawnArgs[pi])) {
+                  probeBad = true; policyReason = 'ffprobe argument disallowed: ' + pa + ' ' + spawnArgs[pi]; break;
+                }
+                continue;
+              }
+              probeBad = true;
+              policyReason = 'ffprobe flag disallowed: ' + pa;
+              break;
+            } else {
+              if (!safeProbeTokens.has(pa) && isUnsafeDaemonPath(pa)) {
+                probeBad = true;
+                policyReason = 'ffprobe media path outside workspace disallowed: ' + pa;
+                break;
+              }
+            }
+          }
+          if (!probeBad) toolOk = true;
+        }
+      } else if (bin === 'ffmpeg') {
+        if (/(?:https?|concat|subfile|pipe|ftp|gopher|data|crypto|tcp|udp|rtmp|rtsp|tls|hls):/i.test(command)) {
+          policyReason = 'ffmpeg dangerous or network protocol scheme disallowed';
+        } else if (/\\b(?:-f\\s+lavfi|lavfi)\\b/i.test(command) || spawnArgs.some(a => a.toLowerCase() === 'lavfi')) {
+          policyReason = 'ffmpeg lavfi filter/format disallowed';
+        } else {
+          let ffmpegBad = false;
+          for (let fi = 0; fi < spawnArgs.length; fi++) {
+            const fa = spawnArgs[fi];
+            if (!fa.startsWith('-')) {
+              if (isUnsafeDaemonPath(fa)) {
+                ffmpegBad = true;
+                policyReason = 'ffmpeg media path outside workspace disallowed: ' + fa;
+                break;
+              }
+            }
+          }
+          if (!ffmpegBad) toolOk = true;
+        }
       } else if (bin === 'python' || bin === 'python3') {
         const script = spawnArgs[0] || '';
-        if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py' || script === '--version') {
+        if (script === '--version' || script === '-V') {
           toolOk = true;
+        } else if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py') {
+          toolOk = true;
+        } else if (script.endsWith('.py')) {
+          if (isUnsafeDaemonPath(script)) {
+            policyReason = 'Python script outside workspace disallowed: ' + script;
+          } else {
+            let pyBad = false;
+            for (let pi = 1; pi < spawnArgs.length; pi++) {
+              if (isUnsafeDaemonPath(spawnArgs[pi])) {
+                pyBad = true;
+                policyReason = 'Python argument path outside workspace disallowed: ' + spawnArgs[pi];
+                break;
+              }
+            }
+            if (!pyBad) toolOk = true;
+          }
         } else {
-          policyReason = 'Python script execution restricted to audit scripts: ' + script;
+          policyReason = 'Python script must be a valid .py workspace file: ' + script;
+        }
+      } else if (bin === 'node') {
+        const script = spawnArgs[0] || '';
+        if (script === '--version' || script === '-v') {
+          toolOk = true;
+        } else if (script.endsWith('.js') || script.endsWith('.mjs') || script.endsWith('.cjs')) {
+          if (isUnsafeDaemonPath(script)) {
+            policyReason = 'Node.js script outside workspace disallowed: ' + script;
+          } else {
+            let nodeBad = false;
+            for (let ni = 1; ni < spawnArgs.length; ni++) {
+              if (isUnsafeDaemonPath(spawnArgs[ni])) {
+                nodeBad = true;
+                policyReason = 'Node.js argument path outside workspace disallowed: ' + spawnArgs[ni];
+                break;
+              }
+            }
+            if (!nodeBad) toolOk = true;
+          }
+        } else {
+          policyReason = 'Node.js script must be a valid .js workspace file: ' + script;
         }
       } else if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
         let pathEscape = false;
         for (let ai = 0; ai < spawnArgs.length; ai++) {
           const arg = spawnArgs[ai];
           if (arg.startsWith('-')) continue;
-          if (arg.includes('..') || arg.startsWith('/') || arg.startsWith('\\\\') || arg.startsWith('~')) {
+          if (isUnsafeDaemonPath(arg)) {
             pathEscape = true;
             policyReason = 'External or relative path traversal rejected: ' + arg;
             break;
@@ -31612,6 +32104,11 @@ jobs:
       window.executeLocalTermuxCommand = executeLocalTermuxCommand;
       window.regenerateTermuxBridgeToken = regenerateTermuxBridgeToken;
       window.generateTermuxBridgeScript = generateTermuxBridgeScript;
+      window.validateStructuredTermuxCommand = validateStructuredTermuxCommand;
+      window._nexusTermuxDaemonValidator = validateStructuredTermuxCommand;
+      window.validateServerTermuxRequest = validateStructuredTermuxCommand;
+      window.TERMUX_CAPABILITY_MATRIX = TERMUX_CAPABILITY_MATRIX;
+      window.generateStrongWorkerSecret = generateStrongWorkerSecret;
       window.generateCapacitorApkBuildScript = generateCapacitorApkBuildScript;
       window.generateGitHubActionsApkWorkflow = generateGitHubActionsApkWorkflow;
       window.copyTermuxBridgeCode = copyTermuxBridgeCode;

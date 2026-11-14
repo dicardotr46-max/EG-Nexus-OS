@@ -28,6 +28,8 @@
       target.migrateKeyToStrongBox = exports.migrateKeyToStrongBox;
       target.commitKeyMigration = exports.commitKeyMigration;
       target.rollbackKeyMigration = exports.rollbackKeyMigration;
+      target.getMigrationJournalState = exports.getMigrationJournalState;
+      target.recoverInterruptedMigration = exports.recoverInterruptedMigration;
     }
     if (typeof exports.isHardwareKeystoreAvailable === 'function') {
       target.isHardwareKeystoreAvailable = exports.isHardwareKeystoreAvailable;
@@ -448,6 +450,7 @@
     _degradedPersistence = false;
     _moduleEncryptionCount = 0;
     _cachedSessionSecrets = null;
+    _cachedKeySecurityInfo = null;
     resetSessionWriteQueue();
   }
 
@@ -514,10 +517,14 @@
       if (res.hardwareBacked === false) return false;
       const secLevel = res.securityLevel || (res.hardwareBacked === false ? 'software' : 'tee');
       const isHw = Boolean(secLevel === 'strongbox' || secLevel === 'tee');
+      const activeAlias = res.alias || (secLevel === 'strongbox' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+      const journalState = res.journalState || (secLevel === 'strongbox' ? 'ACTIVE_V2' : 'ACTIVE_V1');
       _cachedKeySecurityInfo = {
         available: true,
         hardwareBacked: isHw,
         securityLevel: secLevel,
+        alias: activeAlias,
+        journalState: journalState,
         backend: 'AndroidKeyStore'
       };
       return isHw;
@@ -535,6 +542,7 @@
         available: false,
         hardwareBacked: false,
         securityLevel: 'software',
+        journalState: 'ACTIVE_V1',
         backend: getKeystoreBackend()
       };
       return _cachedKeySecurityInfo;
@@ -548,11 +556,14 @@
       }
       const rawLevel = res?.securityLevel || (res?.hardwareBacked ? 'tee' : 'software');
       const isHw = Boolean(res && res.hardwareBacked && (rawLevel === 'strongbox' || rawLevel === 'tee'));
+      const activeAlias = res?.alias || (rawLevel === 'strongbox' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_key_v1');
+      const journalState = res?.journalState || (rawLevel === 'strongbox' ? 'ACTIVE_V2' : 'ACTIVE_V1');
       _cachedKeySecurityInfo = {
         available: Boolean(res && res.available),
         hardwareBacked: isHw,
         securityLevel: rawLevel,
-        alias: res?.alias || 'eg_nexus_master_key_v1',
+        alias: activeAlias,
+        journalState: journalState,
         backend: 'AndroidKeyStore'
       };
       return _cachedKeySecurityInfo;
@@ -561,6 +572,7 @@
         available: false,
         hardwareBacked: false,
         securityLevel: 'software',
+        journalState: 'ACTIVE_V1',
         error: err.message,
         backend: 'AndroidKeyStore'
       };
@@ -573,7 +585,7 @@
     if (!ks || typeof ks.migrateKeyToStrongBox !== 'function') {
       return { migrated: false, reason: 'Native Android KeyStore StrongBox plugin not available' };
     }
-    const store = _getStorage(options && options.storage ? options.storage : undefined);
+    const store = _getStorage(options && (options.storage || options.store) ? (options.storage || options.store) : undefined);
     try {
       let payload = {};
       let storageKey = null;
@@ -582,15 +594,24 @@
       if (store && typeof store.getItem === 'function') {
         storageKey = _resolveSecretsStorageKey(store);
         const existingRaw = store.getItem(storageKey);
-        if (existingRaw) {
+        if (existingRaw !== null && existingRaw !== undefined && existingRaw !== '') {
           try {
             existingEnvelope = JSON.parse(existingRaw);
-            if (existingEnvelope && existingEnvelope.ciphertext && existingEnvelope.iv) {
-              payload.ciphertext = existingEnvelope.ciphertext;
-              payload.iv = existingEnvelope.iv;
-              if (existingEnvelope.aad) payload.aad = existingEnvelope.aad;
+          } catch (parseErr) {
+            throw new Error('CORRUPTED_STORAGE_ENVELOPE: existing session secrets payload cannot be parsed; aborting migration to prevent data loss');
+          }
+          if (!existingEnvelope || typeof existingEnvelope !== 'object' || Array.isArray(existingEnvelope)) {
+            throw new Error('CORRUPTED_STORAGE_ENVELOPE: existing session secrets payload cannot be parsed; aborting migration to prevent data loss');
+          }
+          if (Object.keys(existingEnvelope).length > 0) {
+            if (typeof existingEnvelope.ciphertext !== 'string' || !existingEnvelope.ciphertext.trim() ||
+                typeof existingEnvelope.iv !== 'string' || !existingEnvelope.iv.trim()) {
+              throw new Error('CORRUPTED_STORAGE_ENVELOPE: existing session secrets payload cannot be parsed; aborting migration to prevent data loss');
             }
-          } catch (_) {}
+            payload.ciphertext = existingEnvelope.ciphertext;
+            payload.iv = existingEnvelope.iv;
+            if (existingEnvelope.aad) payload.aad = existingEnvelope.aad;
+          }
         }
       }
 
@@ -603,9 +624,13 @@
             hardwareBacked: true,
             securityLevel: 'strongbox',
             alias: res.alias || 'eg_nexus_master_aes_key_sb_v2',
+            journalState: res.journalState || 'ACTIVE_V2',
             backend: 'AndroidKeyStore'
           };
-          return res;
+          return {
+            ...res,
+            journalState: res.journalState || 'ACTIVE_V2'
+          };
         }
         return res || { migrated: false, error: 'Migration failed' };
       }
@@ -621,34 +646,53 @@
           throw new Error('StrongBox re-encrypted payload roundtrip verification failed');
         }
 
-        // Persist new ciphertext into storage
-        if (existingEnvelope && store && typeof store.setItem === 'function' && storageKey) {
-          existingEnvelope.ciphertext = res.newCiphertext;
-          existingEnvelope.iv = res.newIv;
-          if (res.aad) existingEnvelope.aad = res.aad;
-          existingEnvelope.keySource = 'AndroidKeyStore';
-          existingEnvelope.migratedAt = Date.now();
-          store.setItem(storageKey, JSON.stringify(existingEnvelope));
+        // Persist new ciphertext into storage with committed journal states
+        if (store && typeof store.setItem === 'function' && storageKey) {
+          const envelopeToStore = existingEnvelope || {
+            version: SESSION_SECRETS_SCHEMA_VERSION,
+            encrypted: true,
+            algorithm: 'AES-GCM-256'
+          };
+          envelopeToStore.ciphertext = res.newCiphertext;
+          envelopeToStore.iv = res.newIv;
+          if (res.aad) envelopeToStore.aad = res.aad;
+          envelopeToStore.keySource = 'AndroidKeyStore';
+          envelopeToStore.migratedAt = Date.now();
+          envelopeToStore.migrationState = 'STORAGE_COMMITTED';
+          envelopeToStore.journalState = 'ACTIVE_V2';
+          store.setItem(storageKey, JSON.stringify(envelopeToStore));
         }
       }
 
       // Step 3: Commit the migration natively (safe to delete old keys now)
+      let commitRes = null;
       if (typeof ks.commitKeyMigration === 'function') {
-        await ks.commitKeyMigration();
+        commitRes = await ks.commitKeyMigration();
       }
 
       const secLevel = res.securityLevel || 'strongbox';
       const isHw = Boolean(secLevel === 'strongbox' || secLevel === 'tee');
+      const finalJournalState = (commitRes && commitRes.journalState) || res.journalState || 'ACTIVE_V2';
+      const finalAlias = (commitRes && commitRes.activeAlias) || res.alias || 'eg_nexus_master_aes_key_sb_v2';
       _cachedKeySecurityInfo = {
         available: true,
         hardwareBacked: isHw,
         securityLevel: secLevel,
-        alias: res.alias || 'eg_nexus_master_aes_key_sb_v2',
+        alias: finalAlias,
+        journalState: finalJournalState,
         backend: 'AndroidKeyStore'
       };
 
-      return res;
+      return {
+        ...res,
+        journalState: finalJournalState,
+        migrationState: 'STORAGE_COMMITTED',
+        committed: commitRes ? Boolean(commitRes.committed) : true
+      };
     } catch (err) {
+      if (err && err.message && err.message.includes('CORRUPTED_STORAGE_ENVELOPE')) {
+        throw err;
+      }
       // Step 4: Rollback uncommitted StrongBox migration on any failure
       if (ks && typeof ks.rollbackKeyMigration === 'function') {
         try {
@@ -664,7 +708,14 @@
     if (!ks || typeof ks.commitKeyMigration !== 'function') {
       return { committed: false, reason: 'Native Android KeyStore commitKeyMigration not available' };
     }
-    return await ks.commitKeyMigration();
+    const res = await ks.commitKeyMigration();
+    if (res && res.committed) {
+      if (_cachedKeySecurityInfo) {
+        _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V2';
+        _cachedKeySecurityInfo.alias = res.activeAlias || 'eg_nexus_master_aes_key_sb_v2';
+      }
+    }
+    return res;
   }
 
   async function rollbackKeyMigration() {
@@ -672,7 +723,86 @@
     if (!ks || typeof ks.rollbackKeyMigration !== 'function') {
       return { rolledBack: false, reason: 'Native Android KeyStore rollbackKeyMigration not available' };
     }
-    return await ks.rollbackKeyMigration();
+    const res = await ks.rollbackKeyMigration();
+    if (res && res.rolledBack) {
+      if (_cachedKeySecurityInfo) {
+        _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V1';
+        _cachedKeySecurityInfo.alias = res.activeAlias || 'eg_nexus_master_aes_key';
+      }
+    }
+    return res;
+  }
+
+  async function getMigrationJournalState() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks || typeof ks.getMigrationJournalState !== 'function') {
+      return {
+        available: false,
+        journalState: 'ACTIVE_V1',
+        activeAlias: 'eg_nexus_master_aes_key',
+        recovered: false,
+        backend: getKeystoreBackend()
+      };
+    }
+    try {
+      const res = await ks.getMigrationJournalState();
+      const state = res?.journalState || 'ACTIVE_V1';
+      const alias = res?.activeAlias || (state === 'ACTIVE_V2' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+      if (_cachedKeySecurityInfo) {
+        _cachedKeySecurityInfo.journalState = state;
+        _cachedKeySecurityInfo.alias = alias;
+      }
+      return {
+        available: true,
+        journalState: state,
+        activeAlias: alias,
+        recovered: Boolean(res?.recovered),
+        backend: 'AndroidKeyStore'
+      };
+    } catch (err) {
+      return {
+        available: false,
+        journalState: 'ACTIVE_V1',
+        activeAlias: 'eg_nexus_master_aes_key',
+        recovered: false,
+        error: err.message,
+        backend: 'AndroidKeyStore'
+      };
+    }
+  }
+
+  async function recoverInterruptedMigration() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks || typeof ks.recoverInterruptedMigration !== 'function') {
+      return {
+        recovered: false,
+        reason: 'Native Android KeyStore recoverInterruptedMigration not available',
+        journalState: 'ACTIVE_V1',
+        activeAlias: 'eg_nexus_master_aes_key'
+      };
+    }
+    try {
+      const res = await ks.recoverInterruptedMigration();
+      const state = res?.journalState || 'ACTIVE_V1';
+      const alias = res?.activeAlias || (state === 'ACTIVE_V2' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+      if (_cachedKeySecurityInfo) {
+        _cachedKeySecurityInfo.journalState = state;
+        _cachedKeySecurityInfo.alias = alias;
+      }
+      return {
+        recovered: Boolean(res?.recovered),
+        journalState: state,
+        activeAlias: alias,
+        ...res
+      };
+    } catch (err) {
+      return {
+        recovered: false,
+        error: err.message,
+        journalState: 'ACTIVE_V1',
+        activeAlias: 'eg_nexus_master_aes_key'
+      };
+    }
   }
 
   function getKeystoreBackend() {
@@ -1224,6 +1354,7 @@
           return SESSION_SECRETS_KEY;
         }
         if (store.getItem('eg_nexus_session_secrets_v1') !== null) return 'eg_nexus_session_secrets_v1';
+        if (store.getItem('eg_nexus_os_v5_master_state') !== null) return 'eg_nexus_os_v5_master_state';
       } catch (_) {}
     }
     if (typeof globalThis !== 'undefined' && typeof globalThis.SESSION_SECRETS_KEY === 'string' && globalThis.SESSION_SECRETS_KEY) {
@@ -2750,6 +2881,8 @@
     migrateKeyToStrongBox,
     commitKeyMigration,
     rollbackKeyMigration,
+    getMigrationJournalState,
+    recoverInterruptedMigration,
     isHardwareKeystoreAvailable,
     getKeystoreBackend,
     applySessionSecrets,

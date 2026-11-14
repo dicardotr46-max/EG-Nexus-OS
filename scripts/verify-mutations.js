@@ -2,13 +2,15 @@
 'use strict';
 
 /**
- * Security Mutation & Regression Verification Test Harness
+ * Security Invariant & Fault-Injection Regression Suite
  * Directly exercises core security modules (SecretVault, Policy Engine, Token Map,
  * Structured Commands, and Canonical SHA-256 Hashing) against real mutant states.
+ * Distinguished from general Stryker AST mutations by focusing specifically on
+ * cryptographic, policy, capability, and boundary security invariants.
  */
 const assert = require('assert');
 
-console.log('🧬 Running Security Mutation & Regression Verification...');
+console.log('🧬 Running Security Invariant & Fault-Injection Regression Suite...');
 
 let killedCount = 0;
 let survivedCount = 0;
@@ -205,13 +207,13 @@ async function runAll() {
     }
   );
 
-  console.log(`\nMutation Results: ${killedCount} killed, ${survivedCount} survived.`);
+  console.log(`\nSecurity Invariant Verification Results: ${killedCount} killed, ${survivedCount} survived.`);
   if (survivedCount > 0) {
-    console.error(`❌ Security Mutation verification failed! ${survivedCount} mutant(s) survived.`);
+    console.error(`❌ Security Invariant & Fault-Injection verification failed! ${survivedCount} mutant(s) survived.`);
     process.exit(1);
   }
 
-  console.log('✅ 100% of core security mutants were successfully killed.');
+  console.log('✅ 100% of core security invariants verified (all mutants successfully killed).');
   process.exit(0);
 }
 

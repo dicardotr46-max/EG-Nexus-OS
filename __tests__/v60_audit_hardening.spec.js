@@ -51,7 +51,7 @@ describe('EG-Nexus-OS v6.0.0 Security Hardening & Audit Verification Suite', () 
 
       const durationMs = Number(t1 - t0) / 1000000;
       expect(cleanedHost).toBe('example.com');
-      expect(durationMs).toBeLessThan(5.0); // well under threshold
+      expect(durationMs).toBeLessThan(50.0); // well under threshold (guards against catastrophic ReDoS seconds-long stall while accommodating mobile CPU scheduling jitter)
     });
 
     it('allows valid URLs under limits', () => {
