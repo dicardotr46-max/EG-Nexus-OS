@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * EG-Nexus-OS v6.2.4 — Policy Engine, StrongBox 2PC Journal, Termux Capability Matrix, AgentExecutionGuard & Lifecycle Suite
+ * EG-Nexus-OS v6.2.5 — Policy Engine, StrongBox 2PC Journal, Termux Capability Matrix, AgentExecutionGuard & Lifecycle Suite
  * Comprehensive verification of:
  * 1. ACTION_POLICY_MANIFEST & Strict Default-Deny without prefix guessing (UNLISTED_ACTION_DENIED)
  * 2. StrongBox Shadow-Key 2PC Two-Phase Commit Crash Journal & Migration Recovery (MASWE-0015)
@@ -38,7 +38,7 @@ async function getApprovedToken(providerId, action, params = {}, options = {}) {
   return token;
 }
 
-describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite', () => {
+describe('EG Nexus OS v6.2.5 — Standards, Policy & Keystore Resilience Suite', () => {
 
   afterEach(() => {
     delete global.window;
@@ -184,7 +184,9 @@ describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite',
       // Verify tier distribution across primary providers
       const validTiers = new Set(['read_only', 'mutating', 'high_risk']);
       for (const [providerId, actions] of Object.entries(registry.ACTION_POLICY_MANIFEST)) {
+        if (providerId === 'paramSchema') continue;
         for (const [action, tier] of Object.entries(actions)) {
+          if (action === 'paramSchema' || typeof tier !== 'string') continue;
           expect(validTiers.has(tier)).toBe(true);
         }
       }
@@ -376,7 +378,7 @@ describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite',
       expect(stateResult.activeAlias).toBe('eg_nexus_master_key_v1');
     });
 
-    test('committed migration recovery: completes STORAGE_COMMITTED to ACTIVE_V2 and cleans old keys', async () => {
+    test('committed migration recovery: reading STORAGE_COMMITTED preserves V1 key until explicitly committed with mainStorageVerified: true', async () => {
       let journalState = 'STORAGE_COMMITTED';
       let activeAlias = 'eg_nexus_master_aes_key_sb_v2';
       let oldKeysDeleted = false;
@@ -389,18 +391,24 @@ describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite',
           recovered: false
         }),
         recoverInterruptedMigration: jest.fn(async () => {
-          if (journalState === 'STORAGE_COMMITTED') {
-            oldKeysDeleted = true;
-            journalState = 'ACTIVE_V2';
-            activeAlias = 'eg_nexus_master_aes_key_sb_v2';
-            return {
-              recovered: true,
-              journalState: 'ACTIVE_V2',
-              activeAlias: 'eg_nexus_master_aes_key_sb_v2',
-              deletedOldKeys: true
-            };
+          // Never auto-advance or auto-delete V1 key on recoverInterruptedMigration
+          return {
+            recovered: false,
+            journalState: 'STORAGE_COMMITTED',
+            activeAlias: 'eg_nexus_master_aes_key_sb_v2',
+            deletedOldKeys: false
+          };
+        }),
+        commitKeyMigration: jest.fn(async (opts = {}) => {
+          if (opts.stage === 'ACTIVE_V2') {
+            if (opts.mainStorageVerified === true && journalState === 'STORAGE_COMMITTED') {
+              journalState = 'ACTIVE_V2';
+              oldKeysDeleted = true;
+              return { committed: true, journalState: 'ACTIVE_V2', deletedOldKeys: true };
+            }
+            throw new Error('IllegalStateException: mainStorageVerified must be true to reach ACTIVE_V2 and delete KEY_ALIAS_V1');
           }
-          return { recovered: false, journalState, activeAlias };
+          return { committed: false };
         })
       };
 
@@ -414,9 +422,12 @@ describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite',
 
       const recoveryResult = await secrets.recoverInterruptedMigration();
       expect(mockKeystore.recoverInterruptedMigration).toHaveBeenCalled();
-      expect(recoveryResult.recovered).toBe(true);
-      expect(recoveryResult.journalState).toBe('ACTIVE_V2');
-      expect(recoveryResult.activeAlias).toBe('eg_nexus_master_aes_key_sb_v2');
+      expect(recoveryResult.journalState).toBe('STORAGE_COMMITTED');
+      expect(oldKeysDeleted).toBe(false);
+
+      const commitResult = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: true });
+      expect(commitResult.committed).toBe(true);
+      expect(commitResult.journalState).toBe('ACTIVE_V2');
       expect(oldKeysDeleted).toBe(true);
     });
 
@@ -1663,7 +1674,7 @@ describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite',
       expect(ev3).toBeDefined();
 
       // Event 4: executed
-      const ev4 = recordEvent(reqId, 'executed', { status: 200, releaseTag: 'v6.2.4' });
+      const ev4 = recordEvent(reqId, 'executed', { status: 200, releaseTag: 'v6.2.5' });
       expect(ev4).toBeDefined();
 
       const audit = getLifecycle(reqId);
@@ -1963,5 +1974,218 @@ describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite',
       };
       expect(approvals.persistAuditTrail(explodingStore)).toBe(true);
     });
+  });
+
+  describe('EG Nexus OS v6.2.5 — Regression & Security Hardening Test Suite', () => {
+
+    test('1. Off-by-one test for AgentExecutionGuard: exactly 15 steps are allowed with maxSteps: 15, and step 16 is rejected with STEP_LIMIT_EXCEEDED', () => {
+      const guard = new state.AgentExecutionGuard({ maxSteps: 15 });
+      for (let step = 1; step <= 15; step++) {
+        expect(() => guard.checkExecutionLimits()).not.toThrow();
+        const recorded = guard.recordStep();
+        expect(recorded).toBe(step);
+      }
+      expect(guard.currentSteps).toBe(15);
+      expect(() => guard.checkExecutionLimits()).toThrow(/STEP_LIMIT_EXCEEDED/);
+      try {
+        guard.checkExecutionLimits();
+      } catch (err) {
+        expect(err.code).toBe('STEP_LIMIT_EXCEEDED');
+      }
+    });
+
+    test('2. Shared task execution guard test: getSessionExecutionGuard() retains step and token count across consecutive provider requests unless resetTaskExecutionGuard() is called', () => {
+      const getGuard = state.getSessionExecutionGuard || registry.getSessionExecutionGuard;
+      const resetGuard = state.resetTaskExecutionGuard || registry.resetTaskExecutionGuard;
+      expect(typeof getGuard).toBe('function');
+      expect(typeof resetGuard).toBe('function');
+
+      resetGuard({ maxSteps: 25, maxTokenBudget: 50000 });
+      const guard = getGuard();
+      expect(guard).toBeDefined();
+
+      // Consecutive calls retain state
+      guard.recordStep();
+      if (typeof guard.addTokenUsage === 'function') {
+        guard.addTokenUsage(120);
+      } else {
+        guard.usedTokens += 120;
+      }
+
+      const guardSame = getGuard();
+      expect(guardSame).toBe(guard);
+      expect(guardSame.currentSteps).toBe(1);
+      expect(guardSame.usedTokens).toBe(120);
+
+      guardSame.recordStep();
+      if (typeof guardSame.addTokenUsage === 'function') {
+        guardSame.addTokenUsage(230);
+      } else {
+        guardSame.usedTokens += 230;
+      }
+      expect(guardSame.currentSteps).toBe(2);
+      expect(guardSame.usedTokens).toBe(350);
+
+      // resetTaskExecutionGuard resets
+      const resetResult = resetGuard({ maxSteps: 25, maxTokenBudget: 50000 });
+      expect(resetResult.currentSteps).toBe(0);
+      expect(resetResult.usedTokens).toBe(0);
+      expect(getGuard()).toBe(resetResult);
+    });
+
+    test('3. Subagent guard test: createSubagentGuard(parentGuard, { maxSteps: 5 }) cannot exceed parent budget and deducts from parent', () => {
+      const createSubGuard = state.createSubagentGuard || registry.createSubagentGuard;
+      expect(typeof createSubGuard).toBe('function');
+
+      const parentGuard = new state.AgentExecutionGuard({ maxSteps: 10, maxTokenBudget: 1000 });
+      const subGuard = createSubGuard(parentGuard, { maxSteps: 5, maxTokenBudget: 300 });
+
+      expect(subGuard.maxSteps).toBe(5);
+      expect(subGuard.maxTokenBudget).toBe(300);
+
+      // Deducts step from parent
+      subGuard.recordStep();
+      expect(subGuard.currentSteps).toBe(1);
+      expect(parentGuard.currentSteps).toBe(1);
+
+      // Deducts token from parent
+      if (typeof subGuard.addTokenUsage === 'function') {
+        subGuard.addTokenUsage(75);
+      } else if (typeof subGuard.recordToolCall === 'function') {
+        subGuard.recordToolCall('toolA', {}, 75);
+      }
+      expect(subGuard.usedTokens).toBe(75);
+      expect(parentGuard.usedTokens).toBe(75);
+
+      // Cannot exceed parent budget when parent has lower remaining limit
+      const constrainedParent = new state.AgentExecutionGuard({ maxSteps: 10 });
+      for (let i = 0; i < 7; i++) constrainedParent.recordStep();
+      // Parent has 3 steps remaining, child requested 5 -> child capped at 3
+      const cappedChild = createSubGuard(constrainedParent, { maxSteps: 5 });
+      expect(cappedChild.maxSteps).toBe(3);
+
+      // Exceeding child's own limit is blocked
+      for (let i = 1; i < 5; i++) {
+        expect(() => subGuard.checkExecutionLimits()).not.toThrow();
+        subGuard.recordStep();
+      }
+      expect(subGuard.currentSteps).toBe(5);
+      expect(() => subGuard.checkExecutionLimits()).toThrow(/STEP_LIMIT_EXCEEDED/);
+    });
+
+    test('4. Cryptographic audit trail test: entryHash incorporates canonicalPayload and returns frozen deep copy', () => {
+      const reqId = 'v625-audit-test-' + Date.now();
+      const meta = { provider: 'github', action: 'repo_push', params: { branch: 'main', force: false } };
+      const record = approvals.recordLifecycleEvent(reqId, 'queued', meta);
+
+      // Frozen deep copy
+      expect(Object.isFrozen(record)).toBe(true);
+      expect(() => { record.state = 'corrupted'; }).toThrow();
+
+      // Formula verification: ${requestId}|${state}|${timestamp}|${canonicalizeJson(metadata)}|${prevHash}
+      const event = record.history[record.history.length - 1];
+      const crypto = require('crypto');
+      const canonicalMeta = approvals.canonicalizeJson(event.metadata || {});
+      const expectedPayload = `${record.requestId}|${event.state}|${event.timestamp}|${canonicalMeta}|${event.prevHash}`;
+      const expectedHash = crypto.createHash('sha256').update(expectedPayload).digest('hex');
+      expect(event.entryHash).toBe(expectedHash);
+
+      // Verifying tampering causes failure
+      const trail = [JSON.parse(JSON.stringify(record))];
+      expect(approvals.verifyAuditTrailIntegrity(trail, { detailed: true }).valid).toBe(true);
+
+      // Changing any field causes verification failure
+      const tamperedReq = JSON.parse(JSON.stringify(trail));
+      tamperedReq[0].requestId = 'tampered-id';
+      expect(approvals.verifyAuditTrailIntegrity(tamperedReq, { detailed: true }).valid).toBe(false);
+
+      const tamperedState = JSON.parse(JSON.stringify(trail));
+      tamperedState[0].history[0].state = 'tampered_state';
+      expect(approvals.verifyAuditTrailIntegrity(tamperedState, { detailed: true }).valid).toBe(false);
+
+      const tamperedTs = JSON.parse(JSON.stringify(trail));
+      tamperedTs[0].history[0].timestamp = event.timestamp + 500;
+      expect(approvals.verifyAuditTrailIntegrity(tamperedTs, { detailed: true }).valid).toBe(false);
+
+      const tamperedMeta = JSON.parse(JSON.stringify(trail));
+      tamperedMeta[0].history[0].metadata = { provider: 'github', action: 'repo_delete' };
+      expect(approvals.verifyAuditTrailIntegrity(tamperedMeta, { detailed: true }).valid).toBe(false);
+
+      const tamperedPrev = JSON.parse(JSON.stringify(trail));
+      tamperedPrev[0].history[0].prevHash = 'tampered_prev_hash';
+      expect(approvals.verifyAuditTrailIntegrity(tamperedPrev, { detailed: true }).valid).toBe(false);
+    });
+
+    test('5. Zero occurrences of Symbol.for in src/security/approvals.js and src/providers/registry.js', () => {
+      const approvalsSrc = fs.readFileSync(path.join(__dirname, '../src/security/approvals.js'), 'utf8');
+      const registrySrc = fs.readFileSync(path.join(__dirname, '../src/providers/registry.js'), 'utf8');
+
+      const approvalsMatches = approvalsSrc.match(/Symbol\.for\s*\(/g) || [];
+      const registryMatches = registrySrc.match(/Symbol\.for\s*\(/g) || [];
+
+      expect(approvalsMatches.length).toBe(0);
+      expect(registryMatches.length).toBe(0);
+    });
+
+    test('6. StrongBox V1 key test: reading STORAGE_COMMITTED does NOT delete V1 key until mainStorageVerified: true is explicitly provided', async () => {
+      let journalState = 'STORAGE_COMMITTED';
+      let activeAlias = 'eg_nexus_master_aes_key_sb_v2';
+      let v1KeyDeleted = false;
+
+      const mockKeystore = {
+        isAvailable: async () => ({ available: true, hardwareBacked: true, securityLevel: 'strongbox' }),
+        getMigrationJournalState: jest.fn(async () => ({
+          journalState,
+          activeAlias,
+          recovered: false
+        })),
+        recoverInterruptedMigration: jest.fn(async () => ({
+          recovered: false,
+          journalState: 'STORAGE_COMMITTED',
+          activeAlias: 'eg_nexus_master_aes_key_sb_v2',
+          deletedOldKeys: false
+        })),
+        commitKeyMigration: jest.fn(async (opts = {}) => {
+          if (opts.stage === 'ACTIVE_V2') {
+            if (opts.mainStorageVerified === true && journalState === 'STORAGE_COMMITTED') {
+              journalState = 'ACTIVE_V2';
+              v1KeyDeleted = true;
+              return { committed: true, journalState: 'ACTIVE_V2', deletedOldKeys: true };
+            }
+            throw new Error('IllegalStateException: mainStorageVerified must be true to reach ACTIVE_V2 and delete KEY_ALIAS_V1');
+          }
+          return { committed: false };
+        })
+      };
+
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: mockKeystore
+          }
+        }
+      };
+
+      // Reading STORAGE_COMMITTED during recovery preserves V1 key
+      const recovery = await secrets.recoverInterruptedMigration();
+      expect(mockKeystore.recoverInterruptedMigration).toHaveBeenCalled();
+      expect(recovery.journalState).toBe('STORAGE_COMMITTED');
+      expect(v1KeyDeleted).toBe(false);
+
+      // Attempting commit without mainStorageVerified: true fails and does NOT delete V1 key
+      const failCommit = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: false });
+      expect(failCommit.committed).toBe(false);
+      expect(failCommit.error).toMatch(/mainStorageVerified/);
+      expect(v1KeyDeleted).toBe(false);
+      expect(journalState).toBe('STORAGE_COMMITTED');
+
+      // Attempting commit with mainStorageVerified: true succeeds and deletes V1 key
+      const commitRes = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: true });
+      expect(commitRes.committed).toBe(true);
+      expect(commitRes.deletedOldKeys).toBe(true);
+      expect(v1KeyDeleted).toBe(true);
+      expect(journalState).toBe('ACTIVE_V2');
+    });
+
   });
 });

@@ -67,23 +67,37 @@ async function assertMutantKilled(description, baselineFn, mutantFn) {
 }
 
 async function runAll() {
-  const registry = require('../src/providers/registry.js');
   const approvals = require('../src/security/approvals.js');
+  const registry = require('../src/providers/registry.js');
   const secrets = require('../src/security/secrets.js');
 
   // 1. Mutant: Replay of One-Time Approval Token
   await assertMutantKilled(
     'Replay of One-Time Approval Token must be blocked (consumeApprovalToken)',
     async () => {
-      registry.clearApprovalTokens();
-      const token = registry.issueApprovalToken({ providerId: 'github', action: 'push', params: { ref: 'main' } });
+      registry.clearApprovalTokens && registry.clearApprovalTokens();
+      let token = null;
+      approvals.triggerApprovalGate({
+        providerId: 'github',
+        action: 'push',
+        params: { ref: 'main' },
+        onApprove: (t) => { token = t; }
+      });
+      await approvals.resolveApprovalGate(true);
       const firstUse = registry.consumeApprovalToken(token, { providerId: 'github', action: 'push', params: { ref: 'main' } });
       return firstUse === true;
     },
     async () => {
-      registry.clearApprovalTokens();
-      const token = registry.issueApprovalToken({ providerId: 'github', action: 'push', params: { ref: 'main' } });
-      registry.consumeApprovalToken(token, { providerId: 'github', action: 'push', params: { ref: 'main' } });
+      registry.clearApprovalTokens && registry.clearApprovalTokens();
+      let token = null;
+      approvals.triggerApprovalGate({
+        providerId: 'github',
+        action: 'push',
+        params: { ref: 'main' },
+        onApprove: (t) => { token = t; }
+      });
+      await approvals.resolveApprovalGate(true);
+      const firstUse = registry.consumeApprovalToken(token, { providerId: 'github', action: 'push', params: { ref: 'main' } });
       const secondUse = registry.consumeApprovalToken(token, { providerId: 'github', action: 'push', params: { ref: 'main' } });
       if (secondUse === true) {
         throw new assert.AssertionError({ message: 'Replay succeeded', actual: secondUse, expected: false });

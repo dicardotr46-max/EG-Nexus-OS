@@ -507,42 +507,49 @@
   }
 
   // Private One-Time Boot Link Between Registry and Approvals (Closure-Locked)
-  const _BOOT_HOOK = typeof Symbol === 'function' && Symbol.for
-    ? Symbol.for('__nexus_boot_verifier_hook__')
-    : '__nexus_boot_verifier_hook__';
-
   let _approvalVerifier = null;
   let _verifierLocked = false;
 
   function _registerTokenVerifier(verifier) {
     if (_verifierLocked) return;
-    if (typeof verifier === 'function') {
+    if (verifier && typeof verifier.consume === 'function') {
       _approvalVerifier = verifier;
       _verifierLocked = true;
-      if (typeof globalThis !== 'undefined' && globalThis[_BOOT_HOOK]) {
-        try { delete globalThis[_BOOT_HOOK]; } catch (_) { globalThis[_BOOT_HOOK] = null; }
-      }
+    } else if (typeof verifier === 'function') {
+      _approvalVerifier = { consume: verifier };
+      _verifierLocked = true;
     }
+  }
+
+  // Pre-attach to module.exports if in CommonJS to resolve circular require during boot link
+  if (typeof module === 'object' && module.exports) {
+    try {
+      module.exports._registerTokenVerifier = _registerTokenVerifier;
+    } catch (_) {}
+  }
+
+  if (typeof globalThis !== 'undefined') {
+    try {
+      Object.defineProperty(globalThis, 'bindApprovalVerifierOnce', {
+        value: function bindApprovalVerifierOnce(verifierObj) {
+          _registerTokenVerifier(verifierObj);
+          try {
+            Object.defineProperty(globalThis, 'bindApprovalVerifierOnce', {
+              value: undefined,
+              writable: false,
+              configurable: false
+            });
+          } catch (_) {}
+        },
+        writable: true,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_) {}
   }
 
   function _ensureBootLink() {
     if (_verifierLocked) return;
-    if (typeof globalThis !== 'undefined') {
-      if (typeof globalThis[_BOOT_HOOK] === 'function' && globalThis[_BOOT_HOOK] !== _registerTokenVerifier) {
-        _registerTokenVerifier(globalThis[_BOOT_HOOK]);
-      } else if (!globalThis[_BOOT_HOOK]) {
-        try {
-          Object.defineProperty(globalThis, _BOOT_HOOK, {
-            value: function(fn) { _registerTokenVerifier(fn); },
-            configurable: true,
-            writable: true,
-            enumerable: false
-          });
-        } catch (_) {
-          globalThis[_BOOT_HOOK] = function(fn) { _registerTokenVerifier(fn); };
-        }
-      }
-    }
     if (!_approvalVerifier && typeof require === 'function') {
       try {
         require('../security/approvals.js');
@@ -696,9 +703,6 @@
   }
 
   function consumeApprovalToken(token, context = {}) {
-    if (typeof _approvalVerifier === 'function') {
-      return _approvalVerifier(token, context);
-    }
     if (_approvalVerifier && typeof _approvalVerifier.consume === 'function') {
       return _approvalVerifier.consume(token, context);
     }
@@ -706,22 +710,13 @@
   }
 
   function verifyApprovalToken(token) {
-    if (_approvalVerifier && typeof _approvalVerifier.verify === 'function') {
-      return _approvalVerifier.verify(token);
-    }
     return false;
   }
 
   function clearApprovalTokens() {
-    if (_approvalVerifier && typeof _approvalVerifier.clear === 'function') {
-      _approvalVerifier.clear();
-    }
   }
 
   function issueApprovalToken(spec) {
-    if (_approvalVerifier && typeof _approvalVerifier.issue === 'function') {
-      return _approvalVerifier.issue(spec);
-    }
     return null;
   }
 
@@ -796,25 +791,31 @@
       _lifecycleAuditTrail.set(requestId, record);
     }
 
+    const timestamp = Date.now();
+    record.state = normState;
+    record.currentState = normState;
+    record.timestamp = timestamp;
+    record.metadata = sanitizedData;
+    record.updatedAt = timestamp;
+
     // Cryptographic Hash Chain: prevHash -> entryHash
     const lastEntry = record.history.length > 0 ? record.history[record.history.length - 1] : null;
     const prevHash = lastEntry ? lastEntry.entryHash : 'GENESIS';
-    const entryHash = _sha256Hex(prevHash + '|' + JSON.stringify(sanitizedData));
+    const canonicalPayload = `${record.requestId}|${record.state}|${record.timestamp}|${canonicalizeJson(record.metadata || {})}|${prevHash}`;
+    const entryHash = _sha256Hex(canonicalPayload);
 
     const event = {
       state: normState,
-      timestamp: Date.now(),
+      timestamp,
       metadata: sanitizedData,
       prevHash,
       entryHash
     };
 
-    record.state = normState;
-    record.currentState = normState;
-    record.updatedAt = Date.now();
     record.history.push(event);
 
-    return record;
+    persistAuditTrail();
+    return Object.freeze(typeof structuredClone === 'function' ? structuredClone(record) : JSON.parse(JSON.stringify(record)));
   }
 
   function getRequestLifecycle(requestId) {
@@ -893,6 +894,56 @@
     execute: 'mutating',
     test: 'mutating',
     debug: 'read_only'
+  });
+
+  // MCP Tool Param Schema (Allowed/Required Keys)
+  const MCP_PARAM_SCHEMA = Object.freeze({
+    allowed: Object.freeze(['name', 'arguments', 'server', 'cursor', 'uri', 'query']),
+    required: Object.freeze(['name']),
+    call_tool: Object.freeze({
+      allowed: Object.freeze(['name', 'arguments', 'server']),
+      required: Object.freeze(['name'])
+    }),
+    'tools/call': Object.freeze({
+      allowed: Object.freeze(['name', 'arguments', 'server']),
+      required: Object.freeze(['name'])
+    }),
+    list_tools: Object.freeze({
+      allowed: Object.freeze(['cursor']),
+      required: Object.freeze([])
+    }),
+    'tools/list': Object.freeze({
+      allowed: Object.freeze(['cursor']),
+      required: Object.freeze([])
+    }),
+    list_resources: Object.freeze({
+      allowed: Object.freeze(['cursor']),
+      required: Object.freeze([])
+    }),
+    'resources/list': Object.freeze({
+      allowed: Object.freeze(['cursor']),
+      required: Object.freeze([])
+    }),
+    read_resource: Object.freeze({
+      allowed: Object.freeze(['uri']),
+      required: Object.freeze(['uri'])
+    }),
+    'resources/read': Object.freeze({
+      allowed: Object.freeze(['uri']),
+      required: Object.freeze(['uri'])
+    }),
+    query: Object.freeze({
+      allowed: Object.freeze(['query', 'arguments']),
+      required: Object.freeze(['query'])
+    }),
+    search: Object.freeze({
+      allowed: Object.freeze(['query']),
+      required: Object.freeze(['query'])
+    }),
+    fetch: Object.freeze({
+      allowed: Object.freeze(['uri', 'id']),
+      required: Object.freeze(['uri'])
+    })
   });
 
   // OWASP Agent Control Standard (ACS 2026) Action Policy Manifest
@@ -1220,7 +1271,16 @@
       search: 'read_only',
       query_database: 'read_only'
     }),
-    mcp: STANDARD_MCP_ACTIONS,
+    mcp: Object.freeze(Object.defineProperties({
+      ...STANDARD_MCP_ACTIONS
+    }, {
+      paramSchema: {
+        value: MCP_PARAM_SCHEMA,
+        enumerable: false,
+        configurable: false,
+        writable: false
+      }
+    })),
     tailscale: Object.freeze({
       ...STANDARD_MCP_ACTIONS,
       disconnect: 'mutating',
@@ -1304,10 +1364,19 @@
     })
   });
 
+  try {
+    Object.defineProperty(ACTION_POLICY_MANIFEST, 'paramSchema', {
+      value: MCP_PARAM_SCHEMA,
+      enumerable: false,
+      configurable: false,
+      writable: false
+    });
+  } catch (_) {}
+
   function getActionPolicyCategory(providerId, action) {
     const pid = String(providerId || '').trim().toLowerCase();
     const act = String(action || '').trim().toLowerCase();
-    if (!pid || !act) {
+    if (!pid || !act || act === 'paramschema') {
       return null;
     }
 
@@ -1336,7 +1405,8 @@
     }
 
     // STRICT LAW OF DEFAULT-DENY: Absolutely NO prefix guessing (read_*, list_*, get_*, search_*, fetch_*, view_*)
-    return tier || null;
+    const validTiers = ['read_only', 'mutating', 'high_risk'];
+    return (tier && typeof tier === 'string' && validTiers.includes(tier)) ? tier : null;
   }
 
   function isSensitiveProviderAction(providerId, action) {
@@ -1466,14 +1536,80 @@
     }
   }
 
+  let _activeTaskExecutionGuard = null;
+
+  function _resolveAgentExecutionGuardClass() {
+    if (typeof AgentExecutionGuard === 'function') return AgentExecutionGuard;
+    if (typeof require === 'function') {
+      try {
+        const stateMod = require('../core/state.js');
+        if (stateMod && stateMod.AgentExecutionGuard) return stateMod.AgentExecutionGuard;
+      } catch (_) {}
+    }
+    if (typeof globalThis !== 'undefined' && globalThis.AgentExecutionGuard) {
+      return globalThis.AgentExecutionGuard;
+    }
+    return null;
+  }
+
   function getSessionExecutionGuard(options = {}) {
-    const GuardCls = AgentExecutionGuard || (function() {
+    if (!_activeTaskExecutionGuard) {
       if (typeof require === 'function') {
-        try { return require('../core/state.js').AgentExecutionGuard; } catch (_) {}
+        try {
+          const stateMod = require('../core/state.js');
+          if (stateMod && typeof stateMod.getSessionExecutionGuard === 'function') {
+            _activeTaskExecutionGuard = stateMod.getSessionExecutionGuard(options);
+            return _activeTaskExecutionGuard;
+          }
+        } catch (_) {}
       }
-      return (typeof globalThis !== 'undefined' && globalThis.AgentExecutionGuard) || null;
-    })();
-    return GuardCls ? new GuardCls(options) : null;
+      const GuardCls = _resolveAgentExecutionGuardClass();
+      _activeTaskExecutionGuard = GuardCls ? new GuardCls(options) : null;
+    }
+    return _activeTaskExecutionGuard;
+  }
+
+  function resetTaskExecutionGuard(options = {}) {
+    if (typeof require === 'function') {
+      try {
+        const stateMod = require('../core/state.js');
+        if (stateMod && typeof stateMod.resetTaskExecutionGuard === 'function') {
+          _activeTaskExecutionGuard = stateMod.resetTaskExecutionGuard(options);
+          return _activeTaskExecutionGuard;
+        }
+      } catch (_) {}
+    }
+    const GuardCls = _resolveAgentExecutionGuardClass();
+    _activeTaskExecutionGuard = GuardCls ? new GuardCls(options) : null;
+    return _activeTaskExecutionGuard;
+  }
+
+  function _resolveStateModule() {
+    if (typeof require === 'function') {
+      try {
+        const stateMod = require('../core/state.js');
+        if (stateMod && typeof stateMod.createSubagentGuard === 'function') return stateMod;
+      } catch (_) {}
+      try {
+        const stateMod = require('./src/core/state.js');
+        if (stateMod && typeof stateMod.createSubagentGuard === 'function') return stateMod;
+      } catch (_) {}
+    }
+    if (typeof globalThis !== 'undefined' && globalThis._nexusCoreState && typeof globalThis._nexusCoreState.createSubagentGuard === 'function') {
+      return globalThis._nexusCoreState;
+    }
+    return null;
+  }
+
+  function createSubagentGuard(parentGuard, subBudget = {}) {
+    if (!parentGuard) {
+      throw new Error('parentGuard is required to create a subagent guard');
+    }
+    const stateMod = _resolveStateModule();
+    if (stateMod && typeof stateMod.createSubagentGuard === 'function') {
+      return stateMod.createSubagentGuard(parentGuard, subBudget);
+    }
+    return null;
   }
 
   async function executeProviderRequest(request) {
@@ -1515,7 +1651,20 @@
       options.guard ||
       getSessionExecutionGuard();
 
-    let signal = null;
+    let combinedSignal = guard?.abortController?.signal || request.signal || options.signal || null;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+      const signals = [guard?.abortController?.signal, request.signal, options.signal].filter(Boolean);
+      if (signals.length > 1) {
+        try {
+          combinedSignal = AbortSignal.any(signals);
+        } catch (_) {
+          combinedSignal = signals[0];
+        }
+      } else if (signals.length === 1) {
+        combinedSignal = signals[0];
+      }
+    }
+
     if (guard) {
       const isCancelled = (typeof guard.isCancelled === 'function')
         ? guard.isCancelled()
@@ -1530,16 +1679,10 @@
         };
       }
 
-      signal = guard.abortController?.signal;
-      if (options && typeof options === 'object') options.signal = signal;
-      if (request && typeof request === 'object') request.signal = signal;
+      if (options && typeof options === 'object') options.signal = combinedSignal;
+      if (request && typeof request === 'object') request.signal = combinedSignal;
 
-      if (typeof guard.recordStep === 'function') {
-        guard.recordStep();
-      }
-
-      const tokens = Number(request.tokensUsed || options.tokensUsed || 0);
-
+      // Check execution limits BEFORE step execution (fixes off-by-one error: exactly 15 steps allowed when maxSteps: 15, step 16 blocked)
       try {
         if (typeof guard.checkExecutionLimits === 'function') {
           guard.checkExecutionLimits(action, params);
@@ -1554,24 +1697,15 @@
         };
       }
 
+      if (typeof guard.recordStep === 'function') {
+        guard.recordStep();
+      }
+
+      const tokens = Number(request.tokensUsed || options.tokensUsed || 0);
       if (typeof guard.recordToolCall === 'function') {
         try {
           guard.recordToolCall(action, params, tokens);
         } catch (_) {}
-      }
-
-      try {
-        if (typeof guard.checkExecutionLimits === 'function') {
-          guard.checkExecutionLimits();
-        }
-      } catch (guardErr) {
-        const errCode = guardErr.code || 'EXECUTION_LIMIT_EXCEEDED';
-        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: errCode });
-        return {
-          status: 429,
-          error: errCode,
-          message: guardErr.message
-        };
       }
     }
 
@@ -1678,22 +1812,18 @@
       }
 
       // Enforce atomic verification and single-use consumption of One-Time Capability Approval Token
-      let valid = false;
-      if (typeof _approvalVerifier === 'function') {
-        valid = _approvalVerifier(approvalToken, {
+      let valid = consumeApprovalToken(approvalToken, {
+        providerId,
+        action,
+        params
+      });
+      if (!valid) {
+        _ensureBootLink();
+        valid = consumeApprovalToken(approvalToken, {
           providerId,
           action,
           params
         });
-      } else {
-        _ensureBootLink();
-        if (typeof _approvalVerifier === 'function') {
-          valid = _approvalVerifier(approvalToken, {
-            providerId,
-            action,
-            params
-          });
-        }
       }
       if (!valid) {
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'INVALID_APPROVAL_TOKEN' });
@@ -1716,13 +1846,46 @@
 
     // Step 5: Execute with retry and handle standard HTTP errors
     if (typeof executeFn !== 'function') {
+      const estimatedTokens = Number(request.tokensUsed || options.tokensUsed || request.estimatedTokens || options.estimatedTokens || 0);
+      if (guard && estimatedTokens > 0) {
+        if (typeof guard.addTokenUsage === 'function') {
+          guard.addTokenUsage(estimatedTokens);
+        } else if (typeof guard.usedTokens === 'number') {
+          guard.usedTokens += estimatedTokens;
+        }
+      }
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, message: 'Request validated successfully' };
     }
 
     try {
-      const runFn = executeFn.length > 0 ? () => executeFn({ ...params, signal }) : () => executeFn();
-      const result = await executeWithRetry(runFn, retryOptions);
+      const runFn = () => executeFn(params, { signal: combinedSignal, guard, providerId, action });
+      let result = await executeWithRetry(runFn, retryOptions);
+
+      const estimatedTokens = Number(request.tokensUsed || options.tokensUsed || request.estimatedTokens || options.estimatedTokens || 0);
+      const actualTokens = result?.usage?.total_tokens || ((result?.usage?.input_tokens || 0) + (result?.usage?.output_tokens || 0)) || estimatedTokens;
+      if (guard && actualTokens > 0) {
+        if (typeof guard.addTokenUsage === 'function') {
+          guard.addTokenUsage(actualTokens);
+        } else if (typeof guard.usedTokens === 'number') {
+          guard.usedTokens += actualTokens;
+        }
+      }
+
+      if (catalogItem?.type === 'MCP' || providerDef?.type === 'MCP' || catalogItem?.type === 'Search' || providerDef?.type === 'Search') {
+        if (result && typeof result === 'object' && !result._provenance) {
+          try {
+            result._provenance = { trusted: false, source: providerId, instructionsAllowed: false };
+          } catch (_) {
+            try {
+              result = Object.assign({}, result, {
+                _provenance: { trusted: false, source: providerId, instructionsAllowed: false }
+              });
+            } catch (_) {}
+          }
+        }
+      }
+
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, data: result };
     } catch (err) {
@@ -2267,6 +2430,11 @@
         this.callHistory.push(entry);
         return entry;
       }
+      addTokenUsage(tokens) {
+        const tok = Math.max(0, Number(tokens) || 0);
+        this.usedTokens += tok;
+        return this.usedTokens;
+      }
       cancelTask(reason = 'Task cancelled by user') {
         this.cancelled = true;
         this.cancelReason = String(reason || 'Task cancelled');
@@ -2364,6 +2532,11 @@
     isSensitiveProviderAction,
     getActionPolicyCategory,
     AgentExecutionGuard,
+    get _activeTaskExecutionGuard() { return _activeTaskExecutionGuard; },
+    set _activeTaskExecutionGuard(v) { _activeTaskExecutionGuard = v; },
+    getSessionExecutionGuard,
+    resetTaskExecutionGuard,
+    createSubagentGuard,
     _withTimeout,
     formatProviderError,
     executeWithRetry,
@@ -2392,6 +2565,7 @@
     isAppGenuinelyConnected,
     secureRandomId,
     ACTION_POLICY_MANIFEST,
+    MCP_PARAM_SCHEMA,
     _registerTokenVerifier,
     issueApprovalToken,
     consumeApprovalToken,

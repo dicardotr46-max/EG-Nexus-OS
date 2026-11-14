@@ -96,12 +96,12 @@ describe('Coverage Boost Suite', () => {
     });
 
     test('One-Time Capability Approval Token enforces single-use atomic consumption and replay prevention', async () => {
-      registry.clearApprovalTokens();
+      approvals.clearApprovalTokens();
 
       const token = await getApprovedToken('github', 'push', { branch: 'main' });
 
       expect(typeof token).toBe('string');
-      expect(registry.verifyApprovalToken(token)).toBe(true);
+      expect(approvals.verifyApprovalToken(token)).toBe(true);
 
       // First execution with token succeeds and consumes token
       const res1 = await registry.executeProviderRequest({
@@ -1022,6 +1022,288 @@ describe('Coverage Boost Suite', () => {
       const readBadVersion = secrets.readSessionSecrets(mockStore);
       expect(quarantineHit).toBe(true);
       expect(readBadVersion.initialized).toBe(false);
+    });
+
+    test('v6.2.5 comprehensive branch booster for state.js, registry.js, and secrets.js', async () => {
+      // -------------------------------------------------------------
+      // A. state.js AgentExecutionGuard & Subagent Hierarchy Branches
+      // -------------------------------------------------------------
+      const GuardClass = state.AgentExecutionGuard;
+      expect(GuardClass).toBeDefined();
+
+      const guard = new GuardClass({
+        maxSteps: 3,
+        maxToolCalls: 5,
+        maxTokenBudget: 500,
+        maxDurationMs: 5000
+      });
+
+      // _fingerprint edge branches
+      expect(guard._fingerprint(undefined, null)).toBe('::');
+      expect(guard._fingerprint('', 'simple')).toBe('::simple');
+      expect(guard._fingerprint('tool', { a: 1 })).toBe('tool::{"a":1}');
+
+      // detectLoop edge branches
+      expect(guard.detectLoop('tool1', { a: 1 })).toBe(false);
+      guard.recordToolCall('tool1', { a: 1 }, 10);
+      expect(guard.detectLoop('tool1', { a: 1 })).toBe(false);
+      guard.recordToolCall('tool1', { a: 1 }, 10);
+      expect(() => guard.detectLoop('tool1', { a: 1 })).toThrow(/LOOP_DETECTED/);
+
+      // addTokenUsage branches
+      guard.addTokenUsage(50);
+      expect(guard.usedTokens).toBe(70);
+      guard.addTokenUsage(-10);
+      guard.addTokenUsage('not_a_num');
+
+      // checkExecutionLimits step limit branch
+      guard.currentSteps = 3;
+      expect(() => guard.checkExecutionLimits('tool1', {})).toThrow(/STEP_LIMIT_EXCEEDED/);
+      guard.currentSteps = 0;
+
+      // checkExecutionLimits tool calls limit branch
+      guard.currentToolCalls = 5;
+      expect(() => guard.checkExecutionLimits('tool1', {})).toThrow(/TOOL_CALL_LIMIT_EXCEEDED/);
+      guard.currentToolCalls = 0;
+
+      // checkExecutionLimits token budget limit branch
+      guard.usedTokens = 600;
+      expect(() => guard.checkExecutionLimits('tool1', {})).toThrow(/TOKEN_BUDGET_EXCEEDED/);
+      guard.usedTokens = 0;
+
+      // checkExecutionLimits duration limit branch
+      guard.startTime = Date.now() - 10000;
+      expect(() => guard.checkExecutionLimits('tool1', {})).toThrow(/DURATION_LIMIT_EXCEEDED/);
+      guard.startTime = Date.now();
+
+      // cancelTask branch
+      guard.cancelTask('Manual task cancellation');
+      expect(guard.isCancelled()).toBe(true);
+      expect(() => guard.checkExecutionLimits('tool1', {})).toThrow(/EXECUTION_CANCELLED/);
+
+      // createSubagentGuard edge cases & delegation branches
+      expect(() => state.createSubagentGuard(null)).toThrow(/parentGuard is required/);
+
+      const parentGuard = new GuardClass({
+        maxSteps: 10,
+        maxToolCalls: 10,
+        maxTokenBudget: 1000,
+        maxDurationMs: 60000
+      });
+      parentGuard.recordStep();
+      parentGuard.recordToolCall('parent_call', { q: 1 }, 20);
+
+      // Child with default (infinite / parent remaining) subBudget
+      const childDefault = state.createSubagentGuard(parentGuard, {});
+      expect(childDefault.maxSteps).toBe(9);
+      expect(childDefault.maxToolCalls).toBe(9);
+      expect(childDefault.maxTokenBudget).toBe(980);
+
+      // Child with explicit subBudget capped by parent
+      const childCustom = state.createSubagentGuard(parentGuard, {
+        maxSteps: 4,
+        maxToolCalls: 4,
+        maxTokenBudget: 200,
+        maxDurationMs: 10000
+      });
+      expect(childCustom.maxSteps).toBe(4);
+      expect(childCustom.maxToolCalls).toBe(4);
+      expect(childCustom.maxTokenBudget).toBe(200);
+
+      // Child step / tool call / token delegation to parent
+      childCustom.recordStep();
+      expect(parentGuard.currentSteps).toBe(2);
+
+      childCustom.recordToolCall('child_tool', { x: 1 }, 30);
+      expect(parentGuard.currentToolCalls).toBe(2);
+      expect(parentGuard.usedTokens).toBe(50);
+
+      childCustom.addTokenUsage(20);
+      expect(parentGuard.usedTokens).toBe(70);
+
+      // Child limits check delegates to parent
+      expect(childCustom.checkExecutionLimits('child_tool', { x: 2 })).toBe(true);
+
+      // Parent cancellation propagates to child
+      parentGuard.cancelTask('Parent cancelled');
+      expect(() => childCustom.checkExecutionLimits('child_tool', {})).toThrow(/EXECUTION_CANCELLED/);
+
+      // AbortController event listener propagation
+      const abortableParent = new GuardClass({ maxSteps: 10 });
+      const abortableChild = state.createSubagentGuard(abortableParent, { maxSteps: 5 });
+      if (abortableParent.abortController && typeof abortableParent.abortController.abort === 'function') {
+        abortableParent.abortController.abort('Abort signal');
+        expect(abortableChild.isCancelled()).toBe(true);
+      }
+
+      // Parent without addTokenUsage method
+      const plainParent = {
+        maxSteps: 10,
+        currentSteps: 0,
+        maxToolCalls: 10,
+        currentToolCalls: 0,
+        maxTokenBudget: 500,
+        usedTokens: 10,
+        startTime: Date.now(),
+        maxDurationMs: 30000,
+        isCancelled: () => false,
+        recordStep: jest.fn(),
+        recordToolCall: jest.fn()
+      };
+      const plainChild = state.createSubagentGuard(plainParent, { maxSteps: 3 });
+      plainChild.addTokenUsage(40);
+      expect(plainParent.usedTokens).toBe(50);
+
+      // state.js Task Guard accessor branches
+      const activeGuard = state.getSessionExecutionGuard();
+      expect(activeGuard).toBeDefined();
+      const freshGuard = state.resetTaskExecutionGuard({ maxSteps: 7 });
+      expect(freshGuard.maxSteps).toBe(7);
+      const defaultGuard = state.getDefaultSessionExecutionGuard({ maxSteps: 8 });
+      expect(defaultGuard.maxSteps).toBe(8);
+
+      // state.js GenAISpan and Audit delegates
+      const stateSpan = state.createGenAISpan('execute_tool', { 'gen_ai.tool.name': 'grep' });
+      expect(stateSpan).toBeDefined();
+      stateSpan.setAttribute('test.attr', 'value').setAttributes({ k: 'v' }).addEvent().setStatus().end();
+      expect(typeof stateSpan.toJSON()).toBe('object');
+      expect(state.persistAuditTrail({})).toBe(true);
+      expect(state.verifyAuditTrailIntegrity({}, {})).toBe(true);
+
+      // -------------------------------------------------------------
+      // B. registry.js Delegations, GenAISpan & Helper Branches
+      // -------------------------------------------------------------
+      expect(() => registry.createSubagentGuard(null)).toThrow(/parentGuard is required/);
+      const regChild = registry.createSubagentGuard(freshGuard, { maxSteps: 2 });
+      expect(regChild).toBeDefined();
+      expect(regChild.maxSteps).toBe(2);
+
+      const regSpan = registry.createGenAISpan('plan', { 'gen_ai.request.model': 'gemini-1.5-pro' });
+      expect(regSpan).toBeDefined();
+      regSpan.setAttribute('custom', 123).setAttributes({ a: 1 }).addEvent().setStatus().end();
+      expect(regSpan.toJSON()).toBeDefined();
+      expect(registry.persistAuditTrail({})).toBe(true);
+      expect(registry.verifyAuditTrailIntegrity({}, {})).toBe(true);
+
+      // registry token methods fail-closed / no-op
+      registry._registerTokenVerifier(null);
+      registry._registerTokenVerifier({ consume: () => false });
+      expect(registry.consumeApprovalToken('nonexistent')).toBe(false);
+      expect(registry.verifyApprovalToken('tok')).toBe(false);
+      expect(registry.issueApprovalToken({})).toBeNull();
+      registry.clearApprovalTokens();
+
+      // registry canonicalizeJson branches
+      expect(registry.canonicalizeJson(null)).toBe('null');
+      expect(registry.canonicalizeJson(42)).toBe('42');
+      expect(registry.canonicalizeJson('str')).toBe('"str"');
+      expect(registry.canonicalizeJson([1, null, 'two'])).toBe('[1,null,"two"]');
+      expect(registry.canonicalizeJson({ b: 2, a: 1, c: undefined, fn: () => {} })).toBe('{"a":1,"b":2}');
+
+      // registry hashing branches
+      expect(registry._hashParams(null)).toBe('');
+      expect(registry._hashParams('raw_string')).toBeTruthy();
+      expect(registry._hashParams({ x: 10, y: 20 })).toBeTruthy();
+      expect(registry._sha256Hex(null)).toBe('');
+      expect(registry._sha256Hex(undefined)).toBe('');
+      expect(registry._sha256Hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+      expect(registry._sha256Hex('test')).toBeTruthy();
+
+      // registry pure SHA256 branches
+      expect(registry._sha256Pure([])).toBeDefined();
+      expect(registry._sha256Pure(new Uint8Array([1, 2, 3]))).toBeDefined();
+
+      // registry deepFreeze branches
+      expect(registry.deepFreeze(null)).toBeNull();
+      expect(registry.deepFreeze(123)).toBe(123);
+      const frozenObj = registry.deepFreeze({ x: { y: 2 } });
+      expect(Object.isFrozen(frozenObj)).toBe(true);
+      expect(Object.isFrozen(frozenObj.x)).toBe(true);
+
+      // registry action policy category branches
+      expect(registry.getActionPolicyCategory(null, null)).toBeNull();
+      expect(registry.getActionPolicyCategory('google', 'paramschema')).toBeNull();
+      expect(registry.getActionPolicyCategory('unknown_provider', 'unknown_action')).toBeNull();
+      expect(registry.isSensitiveProviderAction('unknown_provider', 'unknown_action')).toBe(true);
+
+      // -------------------------------------------------------------
+      // C. secrets.js Migration, 2PC & Keystore Edge Branches
+      // -------------------------------------------------------------
+      // secrets.commitKeyMigration without native plugin
+      const origWin = global.window;
+      delete global.window;
+      const noKsCommit = await secrets.commitKeyMigration();
+      expect(noKsCommit.committed).toBe(false);
+
+      // secrets.rollbackKeyMigration without native plugin
+      const noKsRollback = await secrets.rollbackKeyMigration();
+      expect(noKsRollback.rolledBack).toBe(false);
+
+      // secrets.forwardCompleteMigration without native plugin
+      const noKsFwd = await secrets.forwardCompleteMigration();
+      expect(noKsFwd.forwardCompleted).toBe(false);
+
+      // secrets.recoverInterruptedMigration without native plugin
+      const noKsRec = await secrets.recoverInterruptedMigration();
+      expect(noKsRec.recovered).toBe(false);
+
+      // secrets.getMigrationJournalState without native plugin
+      const noKsState = await secrets.getMigrationJournalState();
+      expect(noKsState.available).toBe(false);
+      expect(noKsState.journalState).toBe('ACTIVE_V1');
+
+      // Restore window with mock keystore
+      global.window = origWin || {};
+      global.window.Capacitor = {
+        Plugins: {
+          NexusKeystore: {
+            getMigrationJournalState: async () => ({ journalState: 'STORAGE_COMMITTED', activeAlias: 'v2' }),
+            commitKeyMigration: async (opts) => {
+              if (opts && opts.stage === 'ACTIVE_V2' && !opts.mainStorageVerified) {
+                return { committed: false, error: 'mainStorageVerified required' };
+              }
+              return { committed: true, journalState: 'ACTIVE_V2' };
+            },
+            rollbackKeyMigration: async () => ({ rolledBack: true, journalState: 'ACTIVE_V1' }),
+            recoverInterruptedMigration: async () => ({ recovered: true, journalState: 'ACTIVE_V1' })
+          }
+        }
+      };
+
+      // rollbackKeyMigration with explicit options
+      const rb1 = await secrets.rollbackKeyMigration(true);
+      expect(rb1.rolledBack).toBe(false);
+      expect(rb1.error).toContain('COMMIT_POINT_PASSED');
+
+      const rb2 = await secrets.rollbackKeyMigration({ commitPointPassed: true });
+      expect(rb2.rolledBack).toBe(false);
+      expect(rb2.error).toContain('COMMIT_POINT_PASSED');
+
+      const rb3 = await secrets.rollbackKeyMigration({ journalState: 'STORAGE_COMMITTED' });
+      expect(rb3.rolledBack).toBe(false);
+
+      const rb4 = await secrets.rollbackKeyMigration({ journalState: 'ACTIVE_V2' });
+      expect(rb4.rolledBack).toBe(false);
+
+      // commitKeyMigration with error
+      const cmFail = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: false });
+      expect(cmFail.committed).toBe(false);
+
+      // getMigrationJournalState with native plugin
+      const jsNative = await secrets.getMigrationJournalState();
+      expect(jsNative.available).toBe(true);
+      expect(jsNative.journalState).toBe('STORAGE_COMMITTED');
+
+      // recoverInterruptedMigration with native plugin
+      const recNative = await secrets.recoverInterruptedMigration();
+      expect(recNative.recovered).toBe(true);
+
+      // exportEncryptedBackup and importEncryptedBackup error branches
+      await expect(secrets.exportEncryptedBackup(null, '')).rejects.toThrow();
+      await expect(secrets.importEncryptedBackup(null, 'invalid', 'pwd')).rejects.toThrow();
+
+      // Clean up window
+      if (origWin) global.window = origWin;
     });
   });
 });

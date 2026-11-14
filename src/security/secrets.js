@@ -456,6 +456,7 @@
     _moduleEncryptionCount = 0;
     _cachedSessionSecrets = null;
     _cachedKeySecurityInfo = null;
+    _commitPointPassed = false;
     resetSessionWriteQueue();
   }
 
@@ -539,6 +540,7 @@
   }
 
   let _cachedKeySecurityInfo = null;
+  let _commitPointPassed = false;
 
   async function getKeySecurityInfo() {
     const ks = _getNativeAndroidKeystore();
@@ -593,6 +595,7 @@
     const store = _getStorage(options && (options.storage || options.store) ? (options.storage || options.store) : undefined);
     let stagingKey = null;
     let commitPointPassed = false;
+    _commitPointPassed = false;
     try {
       let payload = {};
       let storageKey = null;
@@ -712,14 +715,29 @@
         }
       }
 
+      // POINT OF NO RETURN PASSED!
+      // Immediately upon ks.commitKeyMigration({ stage: 'STORAGE_COMMITTED' }) returning successfully,
+      // on the VERY NEXT line set commitPointPassed = true; BEFORE writing the primary key SESSION_SECRETS_KEY.
+      commitPointPassed = true;
+      _commitPointPassed = true;
+
       // 2PC Step e: Once STORAGE_COMMITTED is confirmed, copy the staging envelope to storageKey (SESSION_SECRETS_KEY)
       if (store && typeof store.setItem === 'function' && storageKey && envelopeToStore) {
-        store.setItem(storageKey, JSON.stringify(envelopeToStore));
+        try {
+          store.setItem(storageKey, JSON.stringify(envelopeToStore));
+        } catch (firstWriteErr) {
+          // If writing to SESSION_SECRETS_KEY fails on the first attempt:
+          // Because commitPointPassed === true (data safely encrypted in _v2_staging), DO NOT call rollbackKeyMigration()!
+          // Instead, repeat and complete the promotion of _v2_staging to SESSION_SECRETS_KEY by calling forwardCompleteMigration(options)!
+          console.warn && console.warn('Writing to SESSION_SECRETS_KEY failed on first attempt; forward-completing promotion via forwardCompleteMigration:', firstWriteErr);
+          const fwdResult = await forwardCompleteMigration(options);
+          return {
+            migrated: true,
+            warning: 'Primary key write failed on first attempt; forward-completed promotion: ' + firstWriteErr.message,
+            ...fwdResult
+          };
+        }
       }
-
-      // POINT OF NO RETURN PASSED!
-      // Once payload is written to SESSION_SECRETS_KEY and commitKeyMigration({ stage: 'STORAGE_COMMITTED' }) is confirmed
-      commitPointPassed = true;
 
       // Clean up staging key from storage (errors here must NOT trigger rollback)
       if (store && stagingKey && typeof store.removeItem === 'function') {
@@ -809,7 +827,7 @@
       if (err && err.message && err.message.includes('CORRUPTED_STORAGE_ENVELOPE')) {
         throw err;
       }
-      if (commitPointPassed) {
+      if (commitPointPassed || _commitPointPassed) {
         // Point-of-no-return has been passed! NEVER rollbackKeyMigration()!
         // Instead, log/record and enter forwardCompleteMigration() or fail-forward retaining V2 as primary.
         console.error && console.error('Error occurred after StrongBox commit point passed; rollback is forbidden. Entering forward recovery:', err);
@@ -851,29 +869,82 @@
     if (!ks || typeof ks.commitKeyMigration !== 'function') {
       return { committed: false, reason: 'Native Android KeyStore commitKeyMigration not available' };
     }
-    const res = await ks.commitKeyMigration(options);
-    if (res && res.committed) {
-      if (_cachedKeySecurityInfo) {
-        _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V2';
+    try {
+      const res = await ks.commitKeyMigration(options);
+      if (res && res.committed) {
+        if (!_cachedKeySecurityInfo) {
+          _cachedKeySecurityInfo = {};
+        }
+        const st = res.journalState || (options && options.stage) || 'ACTIVE_V2';
+        _cachedKeySecurityInfo.journalState = st;
         _cachedKeySecurityInfo.alias = res.activeAlias || 'eg_nexus_master_aes_key_sb_v2';
+        if (st === 'STORAGE_COMMITTED' || st === 'ACTIVE_V2') {
+          _commitPointPassed = true;
+        }
       }
+      return res;
+    } catch (err) {
+      return {
+        committed: false,
+        error: err.message || 'commitKeyMigration failed'
+      };
     }
-    return res;
   }
 
-  async function rollbackKeyMigration() {
+  async function rollbackKeyMigration(options = {}) {
     const ks = _getNativeAndroidKeystore();
+
+    const isBoolPassed = typeof options === 'boolean' && options === true;
+    const isOptPassed = Boolean(options && typeof options === 'object' && options.commitPointPassed);
+
+    let journalState = (options && typeof options === 'object' && options.journalState) ||
+      (_cachedKeySecurityInfo && _cachedKeySecurityInfo.journalState) || null;
+
+    if (!journalState && ks && typeof ks.getMigrationJournalState === 'function') {
+      try {
+        const stateRes = await ks.getMigrationJournalState();
+        if (stateRes && stateRes.journalState) {
+          journalState = stateRes.journalState;
+        }
+      } catch (_) {}
+    }
+
+    const isCommitPassed = Boolean(
+      _commitPointPassed ||
+      isBoolPassed ||
+      isOptPassed ||
+      journalState === 'STORAGE_COMMITTED' ||
+      journalState === 'ACTIVE_V2'
+    );
+
+    if (isCommitPassed || journalState === 'STORAGE_COMMITTED' || journalState === 'ACTIVE_V2') {
+      return {
+        rolledBack: false,
+        error: 'COMMIT_POINT_PASSED: Cannot rollback after STORAGE_COMMITTED',
+        journalState: journalState || 'STORAGE_COMMITTED'
+      };
+    }
+
     if (!ks || typeof ks.rollbackKeyMigration !== 'function') {
       return { rolledBack: false, reason: 'Native Android KeyStore rollbackKeyMigration not available' };
     }
-    const res = await ks.rollbackKeyMigration();
-    if (res && res.rolledBack) {
-      if (_cachedKeySecurityInfo) {
-        _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V1';
-        _cachedKeySecurityInfo.alias = res.activeAlias || 'eg_nexus_master_aes_key';
+
+    try {
+      const res = await ks.rollbackKeyMigration();
+      if (res && res.rolledBack) {
+        if (_cachedKeySecurityInfo) {
+          _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V1';
+          _cachedKeySecurityInfo.alias = res.activeAlias || 'eg_nexus_master_aes_key';
+        }
+        _commitPointPassed = false;
       }
+      return res;
+    } catch (err) {
+      return {
+        rolledBack: false,
+        error: err.message || 'Rollback failed'
+      };
     }
-    return res;
   }
 
   async function forwardCompleteMigration(options = {}) {
@@ -958,6 +1029,10 @@
     const finalState = (commitRes && commitRes.journalState) || (commitRes?.deletedOldKeys ? 'ACTIVE_V2' : (journalState || 'STORAGE_COMMITTED'));
     const finalAlias = (commitRes && commitRes.activeAlias) || activeAlias || 'eg_nexus_master_aes_key_sb_v2';
 
+    if (finalState === 'STORAGE_COMMITTED' || finalState === 'ACTIVE_V2') {
+      _commitPointPassed = true;
+    }
+
     if (_cachedKeySecurityInfo) {
       _cachedKeySecurityInfo.journalState = finalState;
       _cachedKeySecurityInfo.alias = finalAlias;
@@ -966,6 +1041,7 @@
     }
 
     return {
+      migrated: true,
       forwardCompleted: Boolean(commitRes && commitRes.committed),
       journalState: finalState,
       activeAlias: finalAlias,
@@ -1047,12 +1123,19 @@
       }
 
       const res = await ks.recoverInterruptedMigration();
-      const finalState = res?.journalState || (priorState === 'STORAGE_COMMITTED' ? 'ACTIVE_V2' : 'ACTIVE_V1');
-      const alias = res?.activeAlias || (finalState === 'ACTIVE_V2' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+      const finalState = res?.journalState || (priorState === 'STORAGE_COMMITTED' ? 'STORAGE_COMMITTED' : 'ACTIVE_V1');
+      const alias = res?.activeAlias || (finalState === 'ACTIVE_V2' || finalState === 'STORAGE_COMMITTED' ? 'eg_nexus_master_aes_key_sb_v2' : 'eg_nexus_master_aes_key');
+
+      if (finalState === 'STORAGE_COMMITTED' || finalState === 'ACTIVE_V2') {
+        _commitPointPassed = true;
+      } else if (finalState === 'ACTIVE_V1') {
+        _commitPointPassed = false;
+      }
 
       // Storage-side cleanups based on journal state
       if (store && typeof store.getItem === 'function' && storageKey) {
         const isCommittedCrash = priorState === 'STORAGE_COMMITTED' ||
+          finalState === 'STORAGE_COMMITTED' ||
           finalState === 'ACTIVE_V2' ||
           Boolean(res?.deletedOldKeys);
 
@@ -3233,6 +3316,12 @@
         _hasCustomNodeCrypto = true;
         _customNodeCrypto = fn;
       }
+    },
+    get commitPointPassed() {
+      return _commitPointPassed;
+    },
+    set commitPointPassed(val) {
+      _commitPointPassed = Boolean(val);
     },
     _normalizeSecretsPayload
   };

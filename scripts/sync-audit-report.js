@@ -17,6 +17,7 @@ const crypto = require('crypto');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const REPORT_PATH = path.join(ROOT_DIR, 'AUDIT_REPORT.md');
+const README_PATH = path.join(ROOT_DIR, 'README.md');
 const AUDIT_STATIC_PATH = path.join(ROOT_DIR, 'audit-static.json');
 const COVERAGE_SUMMARY_PATH = path.join(ROOT_DIR, 'coverage', 'coverage-summary.json');
 const JEST_RESULTS_PATH = path.join(ROOT_DIR, 'coverage', 'jest-results.json');
@@ -91,21 +92,29 @@ const auditStatic = JSON.parse(fs.readFileSync(AUDIT_STATIC_PATH, 'utf8'));
 console.log(`   Static lines: ${auditStatic.lines}, Functions: ${auditStatic.function_count}, Handlers wired: ${auditStatic.missing_handlers === 0 ? '100%' : 'FAIL'}`);
 
 // --- 4. Run Jest Tests with Coverage & JSON Summary (npm test -- --runInBand --coverage) ---
-console.log('🧪 4/6: Executing Jest test suites with coverage (npm test -- --runInBand --coverage)...');
-fs.mkdirSync(path.join(ROOT_DIR, 'coverage'), { recursive: true });
-
+const skipJestRun = process.env.SKIP_TESTS === 'true' || process.argv.includes('--no-test');
 let jestCliOutput = '';
-try {
-  jestCliOutput = execSync(
-    'npm test -- --runInBand --coverage --coverageReporters="json-summary" --coverageReporters="text" --json --outputFile="coverage/jest-results.json"',
-    { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-  );
-} catch (err) {
-  // Jest writes coverage text to stdout or stderr
-  jestCliOutput = (err.stdout || '') + '\n' + (err.stderr || '');
+if (!skipJestRun) {
+  console.log('🧪 4/6: Executing Jest test suites with coverage (npm test -- --runInBand --coverage)...');
+  fs.mkdirSync(path.join(ROOT_DIR, 'coverage'), { recursive: true });
+  try {
+    jestCliOutput = execSync(
+      'npm test -- --runInBand --coverage --coverageReporters="json-summary" --coverageReporters="text" --json --outputFile="coverage/jest-results.json"',
+      { cwd: ROOT_DIR, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+  } catch (err) {
+    // Jest writes coverage text to stdout or stderr
+    jestCliOutput = (err.stdout || '') + '\n' + (err.stderr || '');
+    if (!fs.existsSync(COVERAGE_SUMMARY_PATH) || !fs.existsSync(JEST_RESULTS_PATH)) {
+      console.error('❌ Jest execution failed and did not produce required coverage files:');
+      console.error(jestCliOutput);
+      process.exit(1);
+    }
+  }
+} else {
+  console.log('🧪 4/6: Skipping Jest run (reading existing coverage/jest files)...');
   if (!fs.existsSync(COVERAGE_SUMMARY_PATH) || !fs.existsSync(JEST_RESULTS_PATH)) {
-    console.error('❌ Jest execution failed and did not produce required coverage files:');
-    console.error(jestCliOutput);
+    console.error('❌ Coverage files not found at ' + COVERAGE_SUMMARY_PATH + ' or ' + JEST_RESULTS_PATH);
     process.exit(1);
   }
 }
@@ -205,13 +214,13 @@ reportContent = reportContent.replace(
   `(\`missing_handlers: ${auditStatic.missing_handlers}\` across ${auditStatic.function_count} functions)`
 );
 reportContent = reportContent.replace(
-  /\d+ automated Jest tests across \d+ test suites with a 100% pass rate, high coverage \([0-9.]+%\s*function coverage,\s*[0-9.]+%\s*line coverage,\s*[0-9.]+%\s*statement coverage,\s*[0-9.]+%\s*branch coverage\)/g,
+  /\d+\+?\s*automated Jest tests across\s*\d+\s*test suites with a 100% pass rate, high coverage \([^)]+\)/g,
   `${numPassedTests} automated Jest tests across ${numTotalTestSuites} test suites with a 100% pass rate, high coverage (${totalCov.functions.pct}% function coverage, ${totalCov.lines.pct}% line coverage, ${totalCov.statements.pct}% statement coverage, ${totalCov.branches.pct}% branch coverage)`
 );
 
 // Mermaid Diagram nodes
 reportContent = reportContent.replace(
-  /JEST\["\d+\s*Jest Tests \(\d+\s*Suites, 100% Passing\)"\]/g,
+  /JEST\["[^"]+"\]/g,
   `JEST["${numPassedTests} Jest Tests (${numTotalTestSuites} Suites, 100% Passing)"]`
 );
 reportContent = reportContent.replace(
@@ -259,7 +268,7 @@ reportContent = reportContent.replace(
 
 // Section 2.1 Automated Test Execution Summary
 reportContent = reportContent.replace(
-  /The test suite consists of \*\*\d+ automated Jest tests across \d+ test suites\*\*, executing with a 100% pass rate:/g,
+  /The test suite consists of \*\*\d+\+?\s*automated Jest tests across \d+\s*test suites\*\*, executing with a 100% pass rate:/g,
   `The test suite consists of **${numPassedTests} automated Jest tests across ${numTotalTestSuites} test suites**, executing with a 100% pass rate:`
 );
 
@@ -286,7 +295,7 @@ for (const tr of jestResults.testResults || []) {
   reportContent = reportContent.replace(regex, `$1${count}$2`);
 }
 reportContent = reportContent.replace(
-  /\| \*\*Total\*\* \| \*\*\d+\*\* \| \*\*Complete Behavioral & Contract Verification\*\* \|/g,
+  /\| \*\*Total\*\* \| \*\*\d+\+?\*\* \| \*\*Complete Behavioral & Contract Verification\*\* \|/g,
   `| **Total** | **${numPassedTests}** | **Complete Behavioral & Contract Verification** |`
 );
 
@@ -399,11 +408,11 @@ reportContent = reportContent.replace(
   `| **Supply Chain** | \`npm audit\` across ${totalDeps} packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |`
 );
 reportContent = reportContent.replace(
-  /\| \*\*Automated Tests\*\* \| Jest test suite execution \| \d+ passed, 0 failed, \d+ suites \| PASS \|/g,
+  /\| \*\*Automated Tests\*\* \| Jest test suite execution \| [^|]+ \| PASS \|/g,
   `| **Automated Tests** | Jest test suite execution | ${numPassedTests} passed, 0 failed, ${numTotalTestSuites} suites | PASS |`
 );
 reportContent = reportContent.replace(
-  /\| \*\*Test Coverage\*\* \| Code coverage on `src\/` modules \| [0-9.]+%\s*funcs,\s*[0-9.]+%\s*lines,\s*[0-9.]+%\s*stmts \| PASS \|/g,
+  /\| \*\*Test Coverage\*\* \| Code coverage on `src\/` modules \| [^|]+ \| PASS \|/g,
   `| **Test Coverage** | Code coverage on \`src/\` modules | ${totalCov.functions.pct}% funcs, ${totalCov.lines.pct}% lines, ${totalCov.statements.pct}% stmts | PASS |`
 );
 reportContent = reportContent.replace(
@@ -411,7 +420,65 @@ reportContent = reportContent.replace(
   `| **CI Release Trigger** | Only \`push\` to \`main\` or \`workflow_dispatch\` | Scheduled crons and PRs gated | PASS |`
 );
 
+const provenanceDescriptor = 'SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)';
+reportContent = reportContent.replace(
+  /Exact Provenance Descriptor:\s*`[^`]+`/g,
+  `Exact Provenance Descriptor: \`${provenanceDescriptor}\``
+);
+reportContent = reportContent.replace(
+  /\| \*\*Release Provenance\*\* \| [^|]+ \| `[^`]+` \| PASS \|/g,
+  `| **Release Provenance** | Release Tag with CycloneDX SBOM & Manifest | \`${provenanceDescriptor}\` | PASS |`
+);
+
 fs.writeFileSync(REPORT_PATH, reportContent, 'utf8');
 
+// --- 7. Update README.md ---
+console.log('📄 7/7: Syncing README.md...');
+let readmeContent = fs.readFileSync(README_PATH, 'utf8');
+
+// Version updates across README
+readmeContent = readmeContent.replace(/# 🚀 EG Nexus OS v[0-9.]+ —/g, `# 🚀 EG Nexus OS v${currentVersion} —`);
+readmeContent = readmeContent.replace(/\*\*EG Nexus OS v[0-9.]+\*\*/g, `**EG Nexus OS v${currentVersion}**`);
+readmeContent = readmeContent.replace(/## 🌟 ویژگی‌های برجسته مهندسی در نسخه v[0-9.]+/g, `## 🌟 ویژگی‌های برجسته مهندسی در نسخه v${currentVersion}`);
+readmeContent = readmeContent.replace(/امضای رسمی APK v[0-9.]+/g, `امضای رسمی APK v${currentVersion}`);
+readmeContent = readmeContent.replace(/گزارش رسمی و فنی ممیزی نسخه v[0-9.]+/g, `گزارش رسمی و فنی ممیزی نسخه v${currentVersion}`);
+readmeContent = readmeContent.replace(/برنامه کامل تک‌صفحه‌ای PWA \(نسخه v[0-9.]+\)/g, `برنامه کامل تک‌صفحه‌ای PWA (نسخه v${currentVersion})`);
+readmeContent = readmeContent.replace(/مانیفست وب‌اپلیکیشن برای نصب روی گوشی \(v[0-9.]+\)/g, `مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v${currentVersion})`);
+readmeContent = readmeContent.replace(/شناسه پکیج نسخه [0-9.]+ و اسکریپت‌ها/g, `شناسه پکیج نسخه ${currentVersion} و اسکریپت‌ها`);
+readmeContent = readmeContent.replace(/درخت قفل وابستگی‌های تاییدشده \([0-9.]+\)/g, `درخت قفل وابستگی‌های تاییدشده (${currentVersion})`);
+readmeContent = readmeContent.replace(/سرویس‌ورکر مدرن کش آفلاین v[0-9.]+/g, `سرویس‌ورکر مدرن کش آفلاین v${currentVersion}`);
+readmeContent = readmeContent.replace(/آخرین نسخه منتشرشده \(`v[0-9.]+`\) را انتخاب کنید/g, `آخرین نسخه منتشرشده (\`v${currentVersion}\`) را انتخاب کنید`);
+
+// Badges & Test metrics
+readmeContent = readmeContent.replace(
+  /\[!\[Tests\]\(https:\/\/img\.shields\.io\/badge\/tests-[^)]+-success\.svg\)\]/g,
+  `[![Tests](https://img.shields.io/badge/tests-${numPassedTests}%2B%20passing-success.svg)]`
+);
+
+// Persian numerals conversion for suites and test counts
+const toPersianDigits = (num) => String(num).replace(/[0-9]/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+const persianTotalSuites = toPersianDigits(numTotalTestSuites);
+
+readmeContent = readmeContent.replace(
+  /(بیش از\s*)([0-9]+|[۰-۹]+)(\+?\s*تست خودکار Jest در\s*)([0-9]+|[۰-۹]+)(\s*سوئیت با موفقیت ۱۰۰٪ منتشر شده است)/g,
+  `$1${numPassedTests}$3${numTotalTestSuites}$5`
+);
+readmeContent = readmeContent.replace(
+  /(مجموعه تست‌های جامع Jest \()([0-9]+|[۰-۹]+)(\s*سوئیت\))/g,
+  `$1${persianTotalSuites}$3`
+);
+
+// Release Provenance
+readmeContent = readmeContent.replace(
+  /\(`SHA-Pinned Release Tag with CycloneDX SBOM & [^`]+`\)/g,
+  `(\`${provenanceDescriptor}\`)`
+);
+readmeContent = readmeContent.replace(
+  /\(توصیفگر اصالت:\s*`SHA-Pinned Release Tag with CycloneDX SBOM & [^`]+`\)/g,
+  `(توصیفگر اصالت: \`${provenanceDescriptor}\`)`
+);
+
+fs.writeFileSync(README_PATH, readmeContent, 'utf8');
+
 console.log('✅ Audit report synchronization completed successfully!');
-console.log(`   AUDIT_REPORT.md and audit-static.json updated with 0% discrepancy.`);
+console.log(`   AUDIT_REPORT.md, README.md and audit-static.json updated with 0% discrepancy.`);

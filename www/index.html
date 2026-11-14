@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.2.4 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.2.5 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -31604,41 +31604,14 @@ http.createServer((req, res) => {
         activeChildProcs.delete(child);
       });
 
-      // Hook into request abortion / client disconnect (req.on('close', ...) or req.on('aborted', ...))
-      const onClientDisconnectOrAbort = () => {
-        if (!finished) {
-          finished = true;
-          activeJobsMap.delete(activeJobId);
-          activeChildProcs.delete(child);
-          clearTimeout(execTimer);
-          if (clientAbortCtrl && !clientAbortCtrl.signal.aborted) {
-            try { clientAbortCtrl.abort(); } catch (_) {}
-          }
-          if (!child.killed) {
-            try { child.kill('SIGKILL'); } catch (_) {}
-          }
-          killProcessTreeSafe(child, true);
+      const onClientDisconnect = () => {
+        if (!res.writableEnded && child && !child.killed) {
+          try { process.kill(-child.pid, 'SIGKILL'); } catch (_) {}
+          try { child.kill('SIGKILL'); } catch (_) {}
         }
       };
-
-      req.on('aborted', onClientDisconnectOrAbort);
-      req.on('close', () => {
-        if (!finished && !res.writableEnded) {
-          onClientDisconnectOrAbort();
-        }
-      });
-      res.on('close', () => {
-        if (!finished && !res.writableEnded) {
-          onClientDisconnectOrAbort();
-        }
-      });
-      if (clientAbortCtrl && clientAbortCtrl.signal) {
-        clientAbortCtrl.signal.addEventListener('abort', () => {
-          if (!child.killed) {
-            try { child.kill('SIGKILL'); } catch (_) {}
-          }
-        });
-      }
+      res.on('close', onClientDisconnect);
+      if (req.socket) req.socket.on('close', onClientDisconnect);
 
       const appendChunk = (chunk) => {
         if (outLen >= MAX_OUTPUT_BYTES) return;

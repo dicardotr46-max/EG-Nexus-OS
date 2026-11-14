@@ -404,25 +404,31 @@
       _lifecycleAuditTrail.set(requestId, record);
     }
 
+    const timestamp = Date.now();
+    record.state = normState;
+    record.currentState = normState;
+    record.timestamp = timestamp;
+    record.metadata = sanitizedData;
+    record.updatedAt = timestamp;
+
     // Cryptographic Hash Chain: prevHash -> entryHash
     const lastEntry = record.history.length > 0 ? record.history[record.history.length - 1] : null;
     const prevHash = lastEntry ? lastEntry.entryHash : 'GENESIS';
-    const entryHash = _sha256Hex(prevHash + '|' + JSON.stringify(sanitizedData));
+    const canonicalPayload = `${record.requestId}|${record.state}|${record.timestamp}|${canonicalizeJson(record.metadata || {})}|${prevHash}`;
+    const entryHash = _sha256Hex(canonicalPayload);
 
     const event = {
       state: normState,
-      timestamp: Date.now(),
+      timestamp,
       metadata: sanitizedData,
       prevHash,
       entryHash
     };
 
-    record.state = normState;
-    record.currentState = normState;
-    record.updatedAt = Date.now();
     record.history.push(event);
 
-    return record;
+    persistAuditTrail();
+    return Object.freeze(typeof structuredClone === 'function' ? structuredClone(record) : JSON.parse(JSON.stringify(record)));
   }
 
   function getRequestLifecycle(requestId) {
@@ -434,48 +440,27 @@
   }
 
   // Private One-Time Boot Link Between Approvals and Registry (Closure-Locked)
-  const _BOOT_HOOK = typeof Symbol === 'function' && Symbol.for
-    ? Symbol.for('__nexus_boot_verifier_hook__')
-    : '__nexus_boot_verifier_hook__';
-
   function _linkWithRegistry() {
-    const handler = function(token, context) {
-      return consumeApprovalTokenInternal(token, context);
-    };
-    handler.consume = consumeApprovalTokenInternal;
-    handler.verify = verifyApprovalTokenInternal;
-    handler.clear = clearApprovalTokensInternal;
-    handler.issue = issueApprovalTokenInternal;
+    const verifierObj = Object.freeze({
+      consume: (token, context) => consumeApprovalTokenInternal(token, context)
+    });
 
-    if (typeof globalThis !== 'undefined') {
-      if (typeof globalThis[_BOOT_HOOK] === 'function') {
-        try {
-          globalThis[_BOOT_HOOK](handler);
-        } catch (_) {}
-      } else {
-        try {
-          Object.defineProperty(globalThis, _BOOT_HOOK, {
-            value: handler,
-            configurable: true,
-            writable: true,
-            enumerable: false
-          });
-        } catch (_) {
-          globalThis[_BOOT_HOOK] = handler;
-        }
-      }
+    if (typeof globalThis !== 'undefined' && typeof globalThis.bindApprovalVerifierOnce === 'function') {
+      try {
+        globalThis.bindApprovalVerifierOnce(verifierObj);
+      } catch (_) {}
     }
 
     if (typeof require === 'function') {
       try {
         const reg = require('../providers/registry.js');
         if (reg && typeof reg._registerTokenVerifier === 'function') {
-          reg._registerTokenVerifier(handler);
+          reg._registerTokenVerifier(verifierObj);
         }
       } catch (_) {}
     }
   }
-  _linkWithRegistry();
+  // _linkWithRegistry will be invoked right before export below
 
   function triggerApprovalGate(reason, onApprove, onReject) {
     const ui = getUiState();
@@ -904,7 +889,8 @@
 
         // 2. Verify SHA-256 entryHash computation
         const metadata = (event.metadata && typeof event.metadata === 'object') ? event.metadata : {};
-        const expectedEntryHash = _sha256Hex(event.prevHash + '|' + JSON.stringify(metadata));
+        const canonicalPayload = `${record.requestId}|${event.state}|${event.timestamp}|${canonicalizeJson(metadata)}|${expectedPrevHash}`;
+        const expectedEntryHash = _sha256Hex(canonicalPayload);
         if (event.entryHash !== expectedEntryHash) {
           return options.detailed ? {
             valid: false,
@@ -931,7 +917,7 @@
     return true;
   }
 
-  return {
+  const _approvalsExports = {
     STORAGE_KEYS,
     STORAGE_KEY,
     getUiState,
@@ -959,4 +945,14 @@
     persistAuditTrail,
     verifyAuditTrailIntegrity
   };
+
+  if (typeof module === 'object' && module.exports) {
+    try {
+      Object.assign(module.exports, _approvalsExports);
+    } catch (_) {}
+  }
+
+  _linkWithRegistry();
+
+  return _approvalsExports;
 });

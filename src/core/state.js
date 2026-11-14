@@ -486,6 +486,12 @@
       return entry;
     }
 
+    addTokenUsage(tokens) {
+      const tok = Math.max(0, Number(tokens) || 0);
+      this.usedTokens += tok;
+      return this.usedTokens;
+    }
+
     cancelTask(reason = 'Task cancelled by user') {
       this.cancelled = true;
       this.cancelReason = String(reason || 'Task cancelled');
@@ -501,10 +507,117 @@
     }
   }
 
-  // Default Session Execution Guard
+  // Persistent Task / Session Execution Guard
+  let _activeTaskExecutionGuard = null;
+
+  function getSessionExecutionGuard(options = {}) {
+    if (!_activeTaskExecutionGuard) {
+      _activeTaskExecutionGuard = new AgentExecutionGuard(options);
+    }
+    return _activeTaskExecutionGuard;
+  }
+
+  function resetTaskExecutionGuard(options = {}) {
+    _activeTaskExecutionGuard = new AgentExecutionGuard(options);
+    return _activeTaskExecutionGuard;
+  }
+
+  // Backwards compatibility for _defaultSessionExecutionGuard and getDefaultSessionExecutionGuard
   let _defaultSessionExecutionGuard = new AgentExecutionGuard();
   function getDefaultSessionExecutionGuard(options = {}) {
     return new AgentExecutionGuard(options);
+  }
+
+  function createSubagentGuard(parentGuard, subBudget = {}) {
+    if (!parentGuard) {
+      throw new Error('parentGuard is required to create a subagent guard');
+    }
+
+    const parentRemainingSteps = Math.max(0, (parentGuard.maxSteps ?? Infinity) - (parentGuard.currentSteps ?? 0));
+    const parentRemainingToolCalls = Math.max(0, (parentGuard.maxToolCalls ?? Infinity) - (parentGuard.currentToolCalls ?? 0));
+    const parentRemainingTokens = Math.max(0, (parentGuard.maxTokenBudget ?? Infinity) - (parentGuard.usedTokens ?? 0));
+    const parentRemainingDuration = (parentGuard.maxDurationMs !== undefined && parentGuard.startTime !== undefined)
+      ? Math.max(0, (parentGuard.startTime + parentGuard.maxDurationMs) - Date.now())
+      : Infinity;
+
+    const childMaxSteps = subBudget.maxSteps !== undefined
+      ? Math.min(Number(subBudget.maxSteps), parentRemainingSteps)
+      : parentRemainingSteps;
+
+    const childMaxToolCalls = subBudget.maxToolCalls !== undefined
+      ? Math.min(Number(subBudget.maxToolCalls), parentRemainingToolCalls)
+      : parentRemainingToolCalls;
+
+    const childMaxTokenBudget = subBudget.maxTokenBudget !== undefined
+      ? Math.min(Number(subBudget.maxTokenBudget), parentRemainingTokens)
+      : parentRemainingTokens;
+
+    const childMaxDurationMs = subBudget.maxDurationMs !== undefined
+      ? Math.min(Number(subBudget.maxDurationMs), parentRemainingDuration)
+      : (parentRemainingDuration !== Infinity ? parentRemainingDuration : 120000);
+
+    const child = new AgentExecutionGuard({
+      maxSteps: childMaxSteps,
+      maxToolCalls: childMaxToolCalls,
+      maxTokenBudget: childMaxTokenBudget,
+      maxDurationMs: childMaxDurationMs
+    });
+
+    child.parentGuard = parentGuard;
+
+    // Propagate abort from parent to child
+    if (parentGuard.abortController?.signal) {
+      if (parentGuard.abortController.signal.aborted) {
+        child.cancelTask(parentGuard.cancelReason || 'Parent task cancelled');
+      } else if (typeof parentGuard.abortController.signal.addEventListener === 'function') {
+        parentGuard.abortController.signal.addEventListener('abort', () => {
+          child.cancelTask(parentGuard.cancelReason || 'Parent task cancelled');
+        }, { once: true });
+      }
+    }
+
+    const origCheckExecutionLimits = child.checkExecutionLimits.bind(child);
+    child.checkExecutionLimits = function(toolName, params) {
+      if (parentGuard.isCancelled && parentGuard.isCancelled()) {
+        const err = new Error(`EXECUTION_CANCELLED: ${parentGuard.cancelReason || 'Parent task was cancelled'}`);
+        err.code = 'EXECUTION_CANCELLED';
+        throw err;
+      }
+      if (typeof parentGuard.checkExecutionLimits === 'function') {
+        parentGuard.checkExecutionLimits(toolName, params);
+      }
+      return origCheckExecutionLimits(toolName, params);
+    };
+
+    const origRecordStep = child.recordStep.bind(child);
+    child.recordStep = function() {
+      if (typeof parentGuard.recordStep === 'function') {
+        parentGuard.recordStep();
+      }
+      return origRecordStep();
+    };
+
+    const origRecordToolCall = child.recordToolCall.bind(child);
+    child.recordToolCall = function(toolName, params, tokens = 0) {
+      if (typeof parentGuard.recordToolCall === 'function') {
+        try {
+          parentGuard.recordToolCall(toolName, params, tokens);
+        } catch (_) {}
+      }
+      return origRecordToolCall(toolName, params, tokens);
+    };
+
+    const origAddTokenUsage = child.addTokenUsage.bind(child);
+    child.addTokenUsage = function(tokens) {
+      if (typeof parentGuard.addTokenUsage === 'function') {
+        parentGuard.addTokenUsage(tokens);
+      } else if (typeof parentGuard.usedTokens === 'number') {
+        parentGuard.usedTokens += Math.max(0, Number(tokens) || 0);
+      }
+      return origAddTokenUsage(tokens);
+    };
+
+    return child;
   }
 
   // OpenTelemetry GenAI Semantic Conventions & Audit Persistence delegates
@@ -585,6 +698,11 @@
     appState,
     uiState,
     AgentExecutionGuard,
+    get _activeTaskExecutionGuard() { return _activeTaskExecutionGuard; },
+    set _activeTaskExecutionGuard(v) { _activeTaskExecutionGuard = v; },
+    getSessionExecutionGuard,
+    resetTaskExecutionGuard,
+    createSubagentGuard,
     _defaultSessionExecutionGuard,
     getDefaultSessionExecutionGuard,
     createGenAISpan,

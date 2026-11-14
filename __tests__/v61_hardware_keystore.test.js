@@ -754,8 +754,10 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
       };
       const c2 = await secrets.commitKeyMigration();
       expect(c2.committed).toBe(true);
+      // Once committed, rollback is strictly forbidden by commit point
       const r2 = await secrets.rollbackKeyMigration();
-      expect(r2.rolledBack).toBe(true);
+      expect(r2.rolledBack).toBe(false);
+      expect(r2.error).toContain('COMMIT_POINT_PASSED');
 
       const mFail = await secrets.migrateKeyToStrongBox();
       expect(mFail.migrated).toBe(false);

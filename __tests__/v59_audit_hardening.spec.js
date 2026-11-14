@@ -390,6 +390,12 @@ describe('EG-Nexus-OS v5.9.0 Audit Hardening & Feature Suite', () => {
   // 6. Scope Checking in executeProviderRequest Returning 403
   // =========================================================================
   describe('6. Exact scope checking in executeProviderRequest', () => {
+    beforeEach(() => {
+      if (typeof registry.resetTaskExecutionGuard === 'function') {
+        registry.resetTaskExecutionGuard();
+      }
+    });
+
     it('returns 403 SCOPE_INSUFFICIENT when grantedScopes is missing or empty for scoped action', async () => {
       // gmail send requires 'https://www.googleapis.com/auth/gmail.send'
       const resMissing = await registry.executeProviderRequest({

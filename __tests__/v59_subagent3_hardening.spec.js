@@ -37,6 +37,12 @@ describe('EG-Nexus-OS v5.9.0 Subagent 3 Hardening Suite', () => {
   // 1. Provider Registry Scope Checking
   // =========================================================================
   describe('1. executeProviderRequest scope checking', () => {
+    beforeEach(() => {
+      if (typeof registry.resetTaskExecutionGuard === 'function') {
+        registry.resetTaskExecutionGuard();
+      }
+    });
+
     test('retrieves required scope via getRequiredScope and fails closed when grantedScopes is missing or empty', async () => {
       // gmail send requires https://www.googleapis.com/auth/gmail.send
       const missingRes = await registry.executeProviderRequest({
