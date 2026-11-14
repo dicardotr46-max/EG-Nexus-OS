@@ -14,6 +14,7 @@ import android.util.Base64;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.Arrays;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -24,43 +25,60 @@ import javax.crypto.spec.GCMParameterSpec;
  * Native Capacitor Plugin for AndroidKeyStore Hardware-Backed Key Protection.
  * Ensures master session keys are protected inside the Android hardware-backed
  * keystore (StrongBox Keymaster / Standard TEE) using 256-bit AES-GCM non-extractable keys.
+ * Supports transactional, zero-data-loss migration to StrongBox with rollback capability.
  */
 @CapacitorPlugin(name = "NexusKeystore")
 public class NexusKeystorePlugin extends Plugin {
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
-    private static final String KEY_ALIAS = "eg_nexus_master_key_v1";
+    public static final String KEY_ALIAS_V1 = "eg_nexus_master_aes_key";
+    public static final String KEY_ALIAS_STRONGBOX_V2 = "eg_nexus_master_aes_key_sb_v2";
+    public static final String KEY_ALIAS_LEGACY = "eg_nexus_master_key_v1";
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int GCM_TAG_LENGTH = 128;
+
+    private synchronized String getActiveKeyAlias(KeyStore keyStore) throws Exception {
+        if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+            return KEY_ALIAS_STRONGBOX_V2;
+        }
+        if (keyStore.containsAlias(KEY_ALIAS_V1)) {
+            return KEY_ALIAS_V1;
+        }
+        if (keyStore.containsAlias(KEY_ALIAS_LEGACY)) {
+            return KEY_ALIAS_LEGACY;
+        }
+        return KEY_ALIAS_V1;
+    }
 
     private synchronized SecretKey getOrCreateSecretKey() throws Exception {
         KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
         keyStore.load(null);
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                try {
-                    return generateSecretKey(true);
-                } catch (Exception e) {
-                    // StrongBoxUnavailableException or hardware limitation -> automatic fallback to standard TEE
-                    return generateSecretKey(false);
-                }
-            } else {
-                return generateSecretKey(false);
-            }
+        String activeAlias = getActiveKeyAlias(keyStore);
+        if (keyStore.containsAlias(activeAlias)) {
+            return (SecretKey) keyStore.getKey(activeAlias, null);
         }
-        return (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                return generateSecretKey(KEY_ALIAS_STRONGBOX_V2, true);
+            } catch (Exception e) {
+                // Fallback to standard TEE with V1 alias if StrongBox unavailable
+                return generateSecretKey(KEY_ALIAS_V1, false);
+            }
+        } else {
+            return generateSecretKey(KEY_ALIAS_V1, false);
+        }
     }
 
     private synchronized SecretKey getOrCreateKey() throws Exception {
         return getOrCreateSecretKey();
     }
 
-    private SecretKey generateSecretKey(boolean useStrongBox) throws Exception {
+    private SecretKey generateSecretKey(String alias, boolean useStrongBox) throws Exception {
         KeyGenerator keyGenerator = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES,
             ANDROID_KEYSTORE
         );
         KeyGenParameterSpec.Builder builder = new KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
+            alias,
             KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
         )
         .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -75,6 +93,10 @@ public class NexusKeystorePlugin extends Plugin {
 
         keyGenerator.init(builder.build());
         return keyGenerator.generateKey();
+    }
+
+    private SecretKey generateSecretKey(boolean useStrongBox) throws Exception {
+        return generateSecretKey(KEY_ALIAS_V1, useStrongBox);
     }
 
     private JSObject inspectKeySecurity(SecretKey secretKey) {
@@ -112,13 +134,16 @@ public class NexusKeystorePlugin extends Plugin {
     public void isAvailable(PluginCall call) {
         JSObject ret = new JSObject();
         try {
+            KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
+            keyStore.load(null);
             SecretKey secretKey = getOrCreateSecretKey();
             JSObject sec = inspectKeySecurity(secretKey);
+            String activeAlias = getActiveKeyAlias(keyStore);
             ret.put("available", true);
             ret.put("hardwareBacked", Boolean.TRUE.equals(sec.getBool("hardwareBacked")));
             String secLevel = sec.getString("securityLevel");
             ret.put("securityLevel", secLevel != null ? secLevel : "software");
-            ret.put("alias", KEY_ALIAS);
+            ret.put("alias", activeAlias);
             ret.put("provider", ANDROID_KEYSTORE);
             call.resolve(ret);
         } catch (Exception e) {
@@ -134,13 +159,16 @@ public class NexusKeystorePlugin extends Plugin {
     public void getKeySecurityInfo(PluginCall call) {
         JSObject ret = new JSObject();
         try {
+            KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
+            keyStore.load(null);
             SecretKey secretKey = getOrCreateSecretKey();
             JSObject sec = inspectKeySecurity(secretKey);
+            String activeAlias = getActiveKeyAlias(keyStore);
             ret.put("available", true);
             ret.put("hardwareBacked", Boolean.TRUE.equals(sec.getBool("hardwareBacked")));
             String secLevel = sec.getString("securityLevel");
             ret.put("securityLevel", secLevel != null ? secLevel : "software");
-            ret.put("alias", KEY_ALIAS);
+            ret.put("alias", activeAlias);
             ret.put("provider", ANDROID_KEYSTORE);
             call.resolve(ret);
         } catch (Exception e) {
@@ -152,6 +180,12 @@ public class NexusKeystorePlugin extends Plugin {
         }
     }
 
+    /**
+     * Transactional zero-data-loss migration to StrongBox.
+     * Decrypts old ciphertext with existing key, creates new StrongBox key, re-encrypts,
+     * and performs roundtrip verification without deleting the old key.
+     * Deletion of old key is deferred to commitKeyMigration.
+     */
     @PluginMethod
     public synchronized void migrateKeyToStrongBox(PluginCall call) {
         JSObject ret = new JSObject();
@@ -161,48 +195,165 @@ public class NexusKeystorePlugin extends Plugin {
             call.resolve(ret);
             return;
         }
+        KeyStore keyStore = null;
         try {
-            KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
+            keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
             keyStore.load(null);
-            if (keyStore.containsAlias(KEY_ALIAS)) {
-                SecretKey currentKey = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+
+            // If StrongBox V2 alias already exists, verify its level
+            if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                SecretKey currentKey = (SecretKey) keyStore.getKey(KEY_ALIAS_STRONGBOX_V2, null);
                 JSObject sec = inspectKeySecurity(currentKey);
                 String currentLevel = sec.getString("securityLevel");
                 if ("strongbox".equalsIgnoreCase(currentLevel)) {
                     ret.put("migrated", false);
                     ret.put("alreadyStrongBox", true);
                     ret.put("securityLevel", "strongbox");
+                    ret.put("alias", KEY_ALIAS_STRONGBOX_V2);
                     call.resolve(ret);
                     return;
                 }
-                // Attempt upgrade: delete old non-StrongBox key and generate new StrongBox-backed key
-                keyStore.deleteEntry(KEY_ALIAS);
-                try {
-                    SecretKey newKey = generateSecretKey(true);
-                    JSObject newSec = inspectKeySecurity(newKey);
-                    ret.put("migrated", true);
-                    ret.put("securityLevel", newSec.getString("securityLevel"));
-                    ret.put("hardwareBacked", Boolean.TRUE.equals(newSec.getBool("hardwareBacked")));
-                    call.resolve(ret);
-                    return;
-                } catch (Exception ex) {
-                    SecretKey fallbackKey = generateSecretKey(false);
-                    JSObject fbSec = inspectKeySecurity(fallbackKey);
-                    ret.put("migrated", false);
-                    ret.put("error", "StrongBox upgrade failed: " + ex.getMessage());
-                    ret.put("securityLevel", fbSec.getString("securityLevel"));
-                    call.resolve(ret);
-                    return;
+            }
+
+            String activeAlias = getActiveKeyAlias(keyStore);
+            String ciphertextB64 = call.getString("ciphertext");
+            String ivB64 = call.getString("iv");
+            String aad = call.getString("aad");
+
+            SecretKey newStrongBoxKey;
+
+            if (ciphertextB64 != null && ivB64 != null) {
+                // 1. Decrypt existing ciphertext using old active key
+                if (!keyStore.containsAlias(activeAlias)) {
+                    throw new IllegalStateException("Active key not found for alias: " + activeAlias);
+                }
+                SecretKey oldKey = (SecretKey) keyStore.getKey(activeAlias, null);
+                Cipher oldCipher = Cipher.getInstance(TRANSFORMATION);
+                byte[] ivOld = Base64.decode(ivB64, Base64.NO_WRAP);
+                byte[] ctOld = Base64.decode(ciphertextB64, Base64.NO_WRAP);
+                GCMParameterSpec oldSpec = new GCMParameterSpec(GCM_TAG_LENGTH, ivOld);
+                oldCipher.init(Cipher.DECRYPT_MODE, oldKey, oldSpec);
+                if (aad != null && !aad.isEmpty()) {
+                    oldCipher.updateAAD(aad.getBytes(StandardCharsets.UTF_8));
+                }
+                byte[] decryptedBytes = oldCipher.doFinal(ctOld);
+
+                // 2. Generate new StrongBox-backed key without touching the old key
+                newStrongBoxKey = generateSecretKey(KEY_ALIAS_STRONGBOX_V2, true);
+
+                // 3. Re-encrypt with new StrongBox key
+                Cipher newCipher = Cipher.getInstance(TRANSFORMATION);
+                newCipher.init(Cipher.ENCRYPT_MODE, newStrongBoxKey);
+                if (aad != null && !aad.isEmpty()) {
+                    newCipher.updateAAD(aad.getBytes(StandardCharsets.UTF_8));
+                }
+                byte[] newIv = newCipher.getIV();
+                byte[] newCiphertext = newCipher.doFinal(decryptedBytes);
+
+                // 4. Verify roundtrip decryption with new StrongBox key
+                Cipher testCipher = Cipher.getInstance(TRANSFORMATION);
+                GCMParameterSpec newSpec = new GCMParameterSpec(GCM_TAG_LENGTH, newIv);
+                testCipher.init(Cipher.DECRYPT_MODE, newStrongBoxKey, newSpec);
+                if (aad != null && !aad.isEmpty()) {
+                    testCipher.updateAAD(aad.getBytes(StandardCharsets.UTF_8));
+                }
+                byte[] roundtripBytes = testCipher.doFinal(newCiphertext);
+
+                if (!Arrays.equals(decryptedBytes, roundtripBytes)) {
+                    throw new IllegalStateException("StrongBox migration roundtrip verification failed");
+                }
+
+                ret.put("newCiphertext", Base64.encodeToString(newCiphertext, Base64.NO_WRAP));
+                ret.put("newIv", Base64.encodeToString(newIv, Base64.NO_WRAP));
+                if (aad != null) {
+                    ret.put("aad", aad);
                 }
             } else {
-                SecretKey newKey = getOrCreateSecretKey();
-                JSObject newSec = inspectKeySecurity(newKey);
-                ret.put("migrated", true);
-                ret.put("securityLevel", newSec.getString("securityLevel"));
-                call.resolve(ret);
+                // No existing ciphertext to re-encrypt; generate and verify new StrongBox key
+                newStrongBoxKey = generateSecretKey(KEY_ALIAS_STRONGBOX_V2, true);
+                Cipher testEnc = Cipher.getInstance(TRANSFORMATION);
+                testEnc.init(Cipher.ENCRYPT_MODE, newStrongBoxKey);
+                byte[] tIv = testEnc.getIV();
+                byte[] tCt = testEnc.doFinal("nexus_strongbox_probe".getBytes(StandardCharsets.UTF_8));
+                Cipher testDec = Cipher.getInstance(TRANSFORMATION);
+                testDec.init(Cipher.DECRYPT_MODE, newStrongBoxKey, new GCMParameterSpec(GCM_TAG_LENGTH, tIv));
+                byte[] tDec = testDec.doFinal(tCt);
+                if (!Arrays.equals("nexus_strongbox_probe".getBytes(StandardCharsets.UTF_8), tDec)) {
+                    throw new IllegalStateException("StrongBox probe roundtrip test failed");
+                }
             }
+
+            JSObject newSec = inspectKeySecurity(newStrongBoxKey);
+            ret.put("migrated", true);
+            ret.put("securityLevel", newSec.getString("securityLevel"));
+            ret.put("hardwareBacked", Boolean.TRUE.equals(newSec.getBool("hardwareBacked")));
+            ret.put("alias", KEY_ALIAS_STRONGBOX_V2);
+            call.resolve(ret);
         } catch (Exception e) {
+            // Rollback: delete uncommitted StrongBox key if created, leaving old key intact
+            if (keyStore != null) {
+                try {
+                    if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                        keyStore.deleteEntry(KEY_ALIAS_STRONGBOX_V2);
+                    }
+                } catch (Exception ignored) {}
+            }
             ret.put("migrated", false);
+            ret.put("error", "StrongBox migration failed: " + e.getMessage());
+            call.resolve(ret);
+        }
+    }
+
+    /**
+     * Commits the key migration by deleting old keys only after JS layer
+     * confirms new data is safely persisted.
+     */
+    @PluginMethod
+    public synchronized void commitKeyMigration(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
+            keyStore.load(null);
+            boolean deletedOld = false;
+            if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                if (keyStore.containsAlias(KEY_ALIAS_V1)) {
+                    keyStore.deleteEntry(KEY_ALIAS_V1);
+                    deletedOld = true;
+                }
+                if (keyStore.containsAlias(KEY_ALIAS_LEGACY)) {
+                    keyStore.deleteEntry(KEY_ALIAS_LEGACY);
+                    deletedOld = true;
+                }
+            }
+            ret.put("committed", true);
+            ret.put("deletedOldKeys", deletedOld);
+            ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
+            call.resolve(ret);
+        } catch (Exception e) {
+            ret.put("committed", false);
+            ret.put("error", e.getMessage());
+            call.resolve(ret);
+        }
+    }
+
+    /**
+     * Rolls back uncommitted StrongBox key migration if client storage fails.
+     */
+    @PluginMethod
+    public synchronized void rollbackKeyMigration(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
+            keyStore.load(null);
+            if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                keyStore.deleteEntry(KEY_ALIAS_STRONGBOX_V2);
+            }
+            String activeAlias = getActiveKeyAlias(keyStore);
+            ret.put("rolledBack", true);
+            ret.put("activeAlias", activeAlias);
+            call.resolve(ret);
+        } catch (Exception e) {
+            ret.put("rolledBack", false);
             ret.put("error", e.getMessage());
             call.resolve(ret);
         }

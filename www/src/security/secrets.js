@@ -26,6 +26,8 @@
     }
     if (typeof exports.migrateKeyToStrongBox === 'function') {
       target.migrateKeyToStrongBox = exports.migrateKeyToStrongBox;
+      target.commitKeyMigration = exports.commitKeyMigration;
+      target.rollbackKeyMigration = exports.rollbackKeyMigration;
     }
     if (typeof exports.isHardwareKeystoreAvailable === 'function') {
       target.isHardwareKeystoreAvailable = exports.isHardwareKeystoreAvailable;
@@ -566,26 +568,111 @@
     }
   }
 
-  async function migrateKeyToStrongBox() {
+  async function migrateKeyToStrongBox(options = {}) {
     const ks = _getNativeAndroidKeystore();
     if (!ks || typeof ks.migrateKeyToStrongBox !== 'function') {
       return { migrated: false, reason: 'Native Android KeyStore StrongBox plugin not available' };
     }
+    const store = _getStorage(options && options.storage ? options.storage : undefined);
     try {
-      const res = await ks.migrateKeyToStrongBox();
-      const secLevel = res?.securityLevel || 'software';
-      const isHw = Boolean(res && (secLevel === 'strongbox' || secLevel === 'tee'));
+      let payload = {};
+      let storageKey = null;
+      let existingEnvelope = null;
+
+      if (store && typeof store.getItem === 'function') {
+        storageKey = _resolveSecretsStorageKey(store);
+        const existingRaw = store.getItem(storageKey);
+        if (existingRaw) {
+          try {
+            existingEnvelope = JSON.parse(existingRaw);
+            if (existingEnvelope && existingEnvelope.ciphertext && existingEnvelope.iv) {
+              payload.ciphertext = existingEnvelope.ciphertext;
+              payload.iv = existingEnvelope.iv;
+              if (existingEnvelope.aad) payload.aad = existingEnvelope.aad;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Step 1: Request transactional migration from native keystore
+      const res = await ks.migrateKeyToStrongBox(payload);
+      if (!res || !res.migrated) {
+        if (res && res.alreadyStrongBox) {
+          _cachedKeySecurityInfo = {
+            available: true,
+            hardwareBacked: true,
+            securityLevel: 'strongbox',
+            alias: res.alias || 'eg_nexus_master_aes_key_sb_v2',
+            backend: 'AndroidKeyStore'
+          };
+          return res;
+        }
+        return res || { migrated: false, error: 'Migration failed' };
+      }
+
+      // Step 2: If re-encrypted ciphertext was produced, verify it roundtrip with native decrypt
+      if (res.newCiphertext && res.newIv && typeof ks.decrypt === 'function') {
+        const verifyRes = await ks.decrypt({
+          ciphertext: res.newCiphertext,
+          iv: res.newIv,
+          aad: res.aad || payload.aad || ''
+        });
+        if (!verifyRes || typeof verifyRes.data !== 'string') {
+          throw new Error('StrongBox re-encrypted payload roundtrip verification failed');
+        }
+
+        // Persist new ciphertext into storage
+        if (existingEnvelope && store && typeof store.setItem === 'function' && storageKey) {
+          existingEnvelope.ciphertext = res.newCiphertext;
+          existingEnvelope.iv = res.newIv;
+          if (res.aad) existingEnvelope.aad = res.aad;
+          existingEnvelope.keySource = 'AndroidKeyStore';
+          existingEnvelope.migratedAt = Date.now();
+          store.setItem(storageKey, JSON.stringify(existingEnvelope));
+        }
+      }
+
+      // Step 3: Commit the migration natively (safe to delete old keys now)
+      if (typeof ks.commitKeyMigration === 'function') {
+        await ks.commitKeyMigration();
+      }
+
+      const secLevel = res.securityLevel || 'strongbox';
+      const isHw = Boolean(secLevel === 'strongbox' || secLevel === 'tee');
       _cachedKeySecurityInfo = {
         available: true,
         hardwareBacked: isHw,
         securityLevel: secLevel,
-        alias: 'eg_nexus_master_key_v1',
+        alias: res.alias || 'eg_nexus_master_aes_key_sb_v2',
         backend: 'AndroidKeyStore'
       };
+
       return res;
     } catch (err) {
-      return { migrated: false, error: err.message };
+      // Step 4: Rollback uncommitted StrongBox migration on any failure
+      if (ks && typeof ks.rollbackKeyMigration === 'function') {
+        try {
+          await ks.rollbackKeyMigration();
+        } catch (_) {}
+      }
+      return { migrated: false, error: err.message || 'StrongBox migration aborted' };
     }
+  }
+
+  async function commitKeyMigration() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks || typeof ks.commitKeyMigration !== 'function') {
+      return { committed: false, reason: 'Native Android KeyStore commitKeyMigration not available' };
+    }
+    return await ks.commitKeyMigration();
+  }
+
+  async function rollbackKeyMigration() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks || typeof ks.rollbackKeyMigration !== 'function') {
+      return { rolledBack: false, reason: 'Native Android KeyStore rollbackKeyMigration not available' };
+    }
+    return await ks.rollbackKeyMigration();
   }
 
   function getKeystoreBackend() {
@@ -2661,6 +2748,8 @@
     getSecretVaultHealth,
     getKeySecurityInfo,
     migrateKeyToStrongBox,
+    commitKeyMigration,
+    rollbackKeyMigration,
     isHardwareKeystoreAvailable,
     getKeystoreBackend,
     applySessionSecrets,

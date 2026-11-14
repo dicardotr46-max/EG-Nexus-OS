@@ -1,18 +1,18 @@
-# 🚀 EG Nexus OS v6.2.0 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.2.1 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-579%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-580%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**EG Nexus OS v6.2.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md))، قفل کامل موتور خط‌مشی محلی با CSPRNG غیرقابل‌نفوذ و هش قطعی پارامترها با الگوریتم استاندارد Canonical JSON SHA-256، حذف هرگونه روزنه دور زدن تاییدات در ارائه‌دهندگان، ابزارهای ساختاریافته امن Termux (`TERMUX_STRUCTURED_TOOLS`) با مسدودسازی پرچم‌های خطرناک شل، مهاجرت خودکار کلیدها به StrongBox سخت‌افزاری (`migrateKeyToStrongBox`)، آزمون‌های جهش جامع هسته امنیتی، انتشار خودکار ریلیز و فایل APK امضاشده توسط پایپلاین CI/CD و دقیقاً **۵۷۹ تست خودکار Jest در ۲۶ سوئیت** و پوشش بالای ۸۰٪ شاخه‌ها منتشر شده است.
+**EG Nexus OS v6.2.1** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md))، بستن قطعی راه فرار requireApproval: false در Policy Engine، قفل سروری سرور دیمن Termux Bridge، مهاجرت تراکنشی، بدون خطر از دست رفتن داده (Zero Data-Loss) به StrongBox سخت‌افزاری با قابلیت Rollback و Commit امن، ارتقای آنتروپی و پیچیدگی اسرار به ۱۲۸ بیت، حذف 'unsafe-eval' از CSP، آزمون‌های جهش جامع هسته امنیتی، انتشار خودکار ریلیز و فایل APK امضاشده توسط پایپلاین CI/CD و تست‌های خودکار Jest در ۲۶ سوئیت و پوشش بالای ۸۰٪ شاخه‌ها منتشر شده است.
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.2.0
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.2.1
 
 ### ۱. منشور معماری حاکمیتی محلی-محور (Sovereign Local-First Architecture - ADR-001)
 - **سند رسمی ADR-001:** تدوین سند رسمی تصمیم‌گیری معماری در `docs/ADR-001-sovereign-local-first.md` شامل مرزهای آفلاین، مدل تهدید، اولویت پردازش لوکال و استقلال کامل داده‌ها.
@@ -43,8 +43,8 @@
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.2.0 (تمام اکشن‌ها با SHA پین شده)
-├── __tests__/                      # مجموعه تست‌های ۵۷۹ تایی Jest (۲۶ سوئیت)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.2.1 (تمام اکشن‌ها با SHA پین شده)
+├── __tests__/                      # مجموعه تست‌های جامع Jest (۲۶ سوئیت)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
 │   ├── generateUniqueId.spec.js   # تست‌های شناسه تصادفی و آزمون‌های یکتا
@@ -71,16 +71,16 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها و مدیریت حالت
 │   ├── providers/                 # رجیستری ارتباط با مدل‌های هوش مصنوعی
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی و تاییدات
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.2.0
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.2.1
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.2.0)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.2.0)
-├── package.json                   # شناسه پکیج نسخه 6.2.0 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.2.0)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.2.1)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.2.1)
+├── package.json                   # شناسه پکیج نسخه 6.2.1 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.2.1)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.2.0
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.2.1
 ```
 
 ---
@@ -89,7 +89,7 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.2.0`) را انتخاب کنید.
+2. آخرین نسخه منتشرشده (`v6.2.1`) را انتخاب کنید.
 3. فایل **`EG-Nexus-OS-v6.2.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است.
 

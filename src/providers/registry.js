@@ -910,7 +910,8 @@
     }
 
     // Step 3: Check Approval Queue requirement for mutating or sensitive actions
-    const needsApproval = requireApproval === true || (requireApproval !== false && isSensitiveProviderAction(providerId, action));
+    // Unbypassable: isSensitiveProviderAction always forces approval; requireApproval: false can never override it
+    const needsApproval = isSensitiveProviderAction(providerId, action) || requireApproval === true;
     if (needsApproval) {
       if (!approvalToken) {
         const reason = `Sensitive operation: ${rawAct || action} on ${rawPid || providerId} requires user confirmation.`;

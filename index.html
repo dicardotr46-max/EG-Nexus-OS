@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' blob: https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.2.0 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.2.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -24251,7 +24251,7 @@ function workerSecureHex(bytes = 16) {
 }
 
 function workerSecureId(prefix = 'id') {
-  return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + workerSecureHex(4);
+  return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + workerSecureHex(16);
 }
 
 
@@ -24275,13 +24275,16 @@ function checkSecretComplexity(secret) {
 
   const freq = {};
   for (let i = 0; i < s.length; i++) {
-freq[s[i]] = (freq[s[i]] || 0) + 1;
+    freq[s[i]] = (freq[s[i]] || 0) + 1;
   }
+
+  // Enforce character diversity (at least 8 distinct characters) to reject repeating strings like 'aaaa...'
+  if (Object.keys(freq).length < 8) return false;
 
   let entropy = 0;
   for (const key in freq) {
-const p = freq[key] / s.length;
-entropy -= p * Math.log2(p);
+    const p = freq[key] / s.length;
+    entropy -= p * Math.log2(p);
   }
 
   const totalEntropy = entropy * s.length;
@@ -24293,6 +24296,10 @@ entropy -= p * Math.log2(p);
 
 function verifyWorkerSecretTimingSafe(provided, expected) {
   if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 32) {
+    return false;
+  }
+  // Shannon entropy and character diversity guard: reject low-entropy repeating strings
+  if (!checkSecretComplexity(expected)) {
     return false;
   }
   const enc = new TextEncoder();
@@ -29913,10 +29920,20 @@ if (typeof document !== 'undefined') {
       if (DANGEROUS_AGENT_FLAGS_REGEX.test(cmd)) {
         return { ok: false, error: 'فلگ‌های خطرناک (-c, -e, --eval, --prefix, push, run) در حالت خودکار ایجنت مسدود است' };
       }
+      if (/\bfind\b/i.test(cmd)) {
+        return { ok: false, error: 'دستور find مسدود است؛ از ابزارهای فایل‌خوانی استاندارد (ls, dir, stat) استفاده کنید' };
+      }
+      if (/-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\b/i.test(cmd)) {
+        return { ok: false, error: 'فلگ‌های اجرایی یا حذفی مسدود است' };
+      }
       const tokens = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
       const cleanTokens = tokens.map(t => (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")) ? t.slice(1, -1) : t);
       const bin = (cleanTokens[0] || '').toLowerCase();
       const args = cleanTokens.slice(1);
+
+      if (bin === 'find') {
+        return { ok: false, error: 'دستور find در ابزارهای ساختاریافته مسدود است' };
+      }
 
       if (bin === 'git') {
         const sub = args[0] || '';
@@ -29932,8 +29949,22 @@ if (typeof document !== 'undefined') {
           if (bad) return { ok: false, error: `آرگومان غیرمجاز برای git diff: ${bad}` };
           return { ok: true, tool: 'git_diff' };
         }
-        if (sub === 'log' || sub === 'branch') {
-          return { ok: true, tool: 'git_' + sub };
+        if (sub === 'branch') {
+          const allowed = new Set(['branch', '--show-current', '--list']);
+          const bad = args.find(a => !allowed.has(a));
+          if (bad || /-(?:d|D|m|M|c|C|f|force|delete)\b/.test(cmd)) {
+            return { ok: false, error: `فلگ‌های تغییر یا حذف برای git branch مسدود است: ${bad || 'mutation flag'}` };
+          }
+          return { ok: true, tool: 'git_branch' };
+        }
+        if (sub === 'log') {
+          if (/--(?:output|exec)\b/i.test(cmd)) {
+            return { ok: false, error: 'فلگ‌های --output و --exec برای git log مسدود است' };
+          }
+          const allowedLogRegex = /^(?:log|--oneline|--stat|-n|\d+|-\d+)$/;
+          const bad = args.find(a => !allowedLogRegex.test(a));
+          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای git log: ${bad}` };
+          return { ok: true, tool: 'git_log' };
         }
         return { ok: false, error: `زیرفرمان git ${sub} در حالت خودکار مجاز نیست` };
       }
@@ -30204,7 +30235,7 @@ const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'node', 'npm', 'pyth
 const SHELL_CHAINING_REGEX = /[;|\\\`$><]|&&|\\|\\||\\$\\(/;
 const BLOCKED_CMD_REGEX = /(?:\\b(?:busybox|toybox)\\s+)?\\brm\\b(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*r|\\s--recursive))(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*f|\\s--force))[^;&|\\r\\n]*\\s+(?:\\/|\\*|\\.\\.?\\/?\\*?|~|\\$HOME|\\$PREFIX|\\/sdcard|\\/storage|--no-preserve-root)(?:$|[\\s;&|><)'"])|\\brm\\b\\s+-[a-zA-Z]*(?:rf|fr)\\s+(?:\\.|\\.\\.)(?:$|[\\s/;&|><)'"])|\\bfind\\b.*\\s-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b|\\brg\\b.*--pre(?:-glob)?\\b|\\b(?:mkfs\\.[a-z0-9]+|wipefs|shred)\\b|\\bdd\\b\\s+.*\\bof=\\/dev\\/|\\btruncate\\b\\s+.*\\s+\\/(?:$|\\s)|\\bchmod\\b\\s+-R\\s+000\\s+(?:\\/|\\.|~)|\\bchown\\b\\s+-R\\s+.*\\s+\\/|\\b(?:shutil\\.rmtree|os\\.(?:remove|unlink|rmdir|removedirs|system|popen)|fs\\.(?:rmSync|rmdirSync|unlinkSync)|child_process)\\b|:(\\s*)\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:/i;
 const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env[a-zA-Z0-9_.*?-]*|id_rsa[a-zA-Z0-9_.*?-]*|id_ed25519[a-zA-Z0-9_.*?-]*|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
-const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|find|grep|rg|stat|du|df|pwd|wc|file|tree)\\b/i;
+const SAFE_READONLY_CMD_REGEX = /^\\s*(ls|cat|head|tail|grep|rg|stat|du|df|pwd|wc|file|tree)\\b/i;
 const WORKSPACE_ESCAPE_REGEX = /(?:^|[\\s;&|])(?:cd|pushd)\\b(?:\\s+(?:\\/|~|\\$HOME|\\.\\.(?:\\/|$)|$))?|(?:^|[\\s"'=<>\/])\\/(?:etc|proc|sys|dev|data\\/data|root|sbin|system|vendor)\\b|(?:^|[\\s\\/])\\.\\.(?:\\/|$)/i;
 const activeChildProcs = new Set();
 const activeJobsMap = new Map();
@@ -30614,10 +30645,10 @@ http.createServer((req, res) => {
         return res.end(JSON.stringify({ ok: false, error: 'Blocked destructive or workspace-escape command pattern' }));
       }
 
-      const isAutomatedAgent = parsed.isAutomatedAgent === true || (!parsed.userConfirmed && !isLoopbackIp);
-      if (isAutomatedAgent && SHELL_CHAINING_REGEX.test(command)) {
+      // Unconditional shell chaining and metacharacter check (never trust client booleans)
+      if (SHELL_CHAINING_REGEX.test(command) || /[|;&\`\\$><(){}\\r\\n]/.test(command)) {
         res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-        return res.end(JSON.stringify({ ok: false, error: 'Shell chaining characters (;, &&, ||, |, backtick, $(...)) are strictly blocked in automated agent invocations' }));
+        return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: Shell chaining and metacharacters are strictly blocked on all bridge commands' }));
       }
 
 
@@ -30739,114 +30770,122 @@ http.createServer((req, res) => {
       const outBuffers = [];
       let outLen = 0;
 
-      // Direct array execution when no shell metacharacters are present (Fixes Reviewer #5)
-      const hasShellMetachars = /[|;&\`\\$><(){}\\r\\n]/.test(command);
-      let spawnBin, spawnArgs, spawnOpts;
-      if (!hasShellMetachars || isAutomatedAgent) {
-        if (isAutomatedAgent && hasShellMetachars) {
+      // Direct array execution with shell: false unconditionally enforced across all requests
+      const tokens = command.trim().match(/(?:[^\\s"']+|"[^"]*"|'[^']*')+/g) || [];
+      const cleanTokens = tokens.map(t => {
+        if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+          return t.slice(1, -1);
+        }
+        return t;
+      });
+      const spawnBin = cleanTokens[0] || 'echo';
+      const spawnArgs = cleanTokens.slice(1);
+      const bin = spawnBin.toLowerCase();
+
+      // Block dangerous agent flags
+      const dFlags = /^(?:-c|-e|--eval|--prefix|push|run)$/i;
+      for (let ai = 0; ai < spawnArgs.length; ai++) {
+        if (dFlags.test(spawnArgs[ai])) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-          return res.end(JSON.stringify({ ok: false, error: 'Automated agent commands cannot contain shell metacharacters' }));
+          return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: Dangerous flag rejected: ' + spawnArgs[ai] }));
         }
-        const tokens = command.trim().match(/(?:[^\\s"']+|"[^"]*"|'[^']*')+/g) || [];
-        const cleanTokens = tokens.map(t => {
-          if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-            return t.slice(1, -1);
-          }
-          return t;
-        });
-        spawnBin = cleanTokens[0] || 'echo';
-        spawnArgs = cleanTokens.slice(1);
-
-        if (isAutomatedAgent) {
-          const bin = spawnBin.toLowerCase();
-          const dFlags = /^(?:-c|-e|--eval|--prefix|push|run)$/i;
-          for (let ai = 0; ai < spawnArgs.length; ai++) {
-            if (dFlags.test(spawnArgs[ai])) {
-              res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-              return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: Dangerous flag rejected: ' + spawnArgs[ai] }));
-            }
-          }
-          let toolOk = false;
-          let policyReason = '';
-          if (bin === 'git') {
-            const sub = spawnArgs[0] || '';
-            if (sub === 'status') {
-              const allowedArgs = new Set(['status', '--short', '-s', '--branch', '-b']);
-              const bad = spawnArgs.find(a => !allowedArgs.has(a));
-              if (bad) policyReason = 'git status argument disallowed: ' + bad;
-              else toolOk = true;
-            } else if (sub === 'diff') {
-              const allowedArgs = new Set(['diff', '--stat', '--name-only', '--shortstat']);
-              const bad = spawnArgs.find(a => !allowedArgs.has(a));
-              if (bad) policyReason = 'git diff argument disallowed: ' + bad;
-              else toolOk = true;
-            } else if (sub === 'log' || sub === 'branch') {
-              toolOk = true;
-            } else {
-              policyReason = 'git subcommand not in structured whitelist: ' + sub;
-            }
-          } else if (bin === 'npm') {
-            const sub = spawnArgs[0] || '';
-            if (sub === 'test') {
-              const allowedArgs = new Set(['test', '--', '--runInBand', '-t', '--bail']);
-              const bad = spawnArgs.find(a => !allowedArgs.has(a));
-              if (bad) policyReason = 'npm test argument disallowed: ' + bad;
-              else toolOk = true;
-            } else if (sub === 'audit') {
-              const allowedArgs = new Set(['audit', '--json', '--audit-level=high', '--audit-level=moderate']);
-              const bad = spawnArgs.find(a => !allowedArgs.has(a));
-              if (bad) policyReason = 'npm audit argument disallowed: ' + bad;
-              else toolOk = true;
-            } else {
-              policyReason = 'npm command not in structured whitelist: ' + sub;
-            }
-          } else if (bin === 'python' || bin === 'python3') {
-            const script = spawnArgs[0] || '';
-            if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py' || script === '--version') {
-              toolOk = true;
-            } else {
-              policyReason = 'Python script execution restricted to audit scripts: ' + script;
-            }
-          } else if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
-            let pathEscape = false;
-            for (let ai = 0; ai < spawnArgs.length; ai++) {
-              const arg = spawnArgs[ai];
-              if (arg.startsWith('-')) continue;
-              if (arg.includes('..') || arg.startsWith('/') || arg.startsWith('\\\\') || arg.startsWith('~')) {
-                pathEscape = true;
-                policyReason = 'External or relative path traversal rejected: ' + arg;
-                break;
-              }
-            }
-            if (!pathEscape) toolOk = true;
-          } else {
-            policyReason = 'Command binary not in TERMUX_STRUCTURED_TOOLS whitelist: ' + bin;
-          }
-
-          if (!toolOk) {
-            res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-            return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: ' + policyReason }));
-          }
-        }
-
-        spawnOpts = {
-          cwd: safeCwd,
-          detached: true,
-          shell: false,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: buildSanitizedChildEnv()
-        };
-      } else {
-        spawnBin = shellBin;
-        spawnArgs = ['-c', command];
-        spawnOpts = {
-          cwd: safeCwd,
-          detached: true,
-          shell: false,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: buildSanitizedChildEnv()
-        };
       }
+
+      // Block find command and dangerous flags
+      if (bin === 'find' || /\\bfind\\b/i.test(command)) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: find command is strictly blocked' }));
+      }
+      if (/-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b/i.test(command)) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: execution or deletion flags are strictly blocked' }));
+      }
+
+      let toolOk = false;
+      let policyReason = '';
+
+      if (bin === 'git') {
+        const sub = spawnArgs[0] || '';
+        if (sub === 'status') {
+          const allowedArgs = new Set(['status', '--short', '-s', '--branch', '-b']);
+          const bad = spawnArgs.find(a => !allowedArgs.has(a));
+          if (bad) policyReason = 'git status argument disallowed: ' + bad;
+          else toolOk = true;
+        } else if (sub === 'diff') {
+          const allowedArgs = new Set(['diff', '--stat', '--name-only', '--shortstat']);
+          const bad = spawnArgs.find(a => !allowedArgs.has(a));
+          if (bad) policyReason = 'git diff argument disallowed: ' + bad;
+          else toolOk = true;
+        } else if (sub === 'branch') {
+          const allowedArgs = new Set(['branch', '--show-current', '--list']);
+          const bad = spawnArgs.find(a => !allowedArgs.has(a));
+          if (bad || /-(?:d|D|m|M|c|C|f|force|delete)\\b/.test(command)) {
+            policyReason = 'git branch mutation or deletion flag disallowed: ' + (bad || 'mutation flag');
+          } else {
+            toolOk = true;
+          }
+        } else if (sub === 'log') {
+          if (/--(?:output|exec)\\b/i.test(command)) {
+            policyReason = 'git log flags --output and --exec are disallowed';
+          } else {
+            const allowedLogRegex = /^(?:log|--oneline|--stat|-n|\\d+|-\\d+)$/;
+            const bad = spawnArgs.find(a => !allowedLogRegex.test(a));
+            if (bad) policyReason = 'git log argument disallowed: ' + bad;
+            else toolOk = true;
+          }
+        } else {
+          policyReason = 'git subcommand not in structured whitelist: ' + sub;
+        }
+      } else if (bin === 'npm') {
+        const sub = spawnArgs[0] || '';
+        if (sub === 'test') {
+          const allowedArgs = new Set(['test', '--', '--runInBand', '-t', '--bail']);
+          const bad = spawnArgs.find(a => !allowedArgs.has(a));
+          if (bad) policyReason = 'npm test argument disallowed: ' + bad;
+          else toolOk = true;
+        } else if (sub === 'audit') {
+          const allowedArgs = new Set(['audit', '--json', '--audit-level=high', '--audit-level=moderate']);
+          const bad = spawnArgs.find(a => !allowedArgs.has(a));
+          if (bad) policyReason = 'npm audit argument disallowed: ' + bad;
+          else toolOk = true;
+        } else {
+          policyReason = 'npm command not in structured whitelist: ' + sub;
+        }
+      } else if (bin === 'python' || bin === 'python3') {
+        const script = spawnArgs[0] || '';
+        if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py' || script === '--version') {
+          toolOk = true;
+        } else {
+          policyReason = 'Python script execution restricted to audit scripts: ' + script;
+        }
+      } else if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
+        let pathEscape = false;
+        for (let ai = 0; ai < spawnArgs.length; ai++) {
+          const arg = spawnArgs[ai];
+          if (arg.startsWith('-')) continue;
+          if (arg.includes('..') || arg.startsWith('/') || arg.startsWith('\\\\') || arg.startsWith('~')) {
+            pathEscape = true;
+            policyReason = 'External or relative path traversal rejected: ' + arg;
+            break;
+          }
+        }
+        if (!pathEscape) toolOk = true;
+      } else {
+        policyReason = 'Command binary not in TERMUX_STRUCTURED_TOOLS whitelist: ' + bin;
+      }
+
+      if (!toolOk) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: ' + policyReason }));
+      }
+
+      const spawnOpts = {
+        cwd: safeCwd,
+        detached: true,
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: buildSanitizedChildEnv()
+      };
 
       const childProc = spawn(spawnBin, spawnArgs, spawnOpts);
       activeChildProcs.add(childProc);

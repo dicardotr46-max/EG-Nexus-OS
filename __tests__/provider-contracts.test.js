@@ -413,6 +413,38 @@ describe('Provider Contracts & Resilience Suite', () => {
       expect(gateReason).toContain('exec on termux');
     });
 
+    test('Negative Security Test: requireApproval: false CANNOT bypass approval for sensitive actions (github:push / gmail:send)', async () => {
+      // Attempt to bypass approval on sensitive action github:push by passing requireApproval: false
+      const resGithub = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'push',
+        token: 'ghp_valid_test_token',
+        grantedScopes: ['repo'],
+        requireApproval: false, // Malicious or buggy caller attempt to bypass
+        approvalToken: null,
+        executeFn: async () => ({ pushed: true })
+      });
+
+      expect(resGithub.status).toBe(403);
+      expect(resGithub.error).toBe('APPROVAL_REQUIRED');
+      expect(resGithub.pendingApproval).toBe(true);
+
+      // Attempt to bypass approval on sensitive action gmail:send by passing requireApproval: false
+      const resGmail = await registry.executeProviderRequest({
+        providerId: 'gmail',
+        action: 'send',
+        token: 'ya29.valid_test_token',
+        grantedScopes: ['https://www.googleapis.com/auth/gmail.send'],
+        requireApproval: false, // Malicious or buggy caller attempt to bypass
+        approvalToken: null,
+        executeFn: async () => ({ sent: true })
+      });
+
+      expect(resGmail.status).toBe(403);
+      expect(resGmail.error).toBe('APPROVAL_REQUIRED');
+      expect(resGmail.pendingApproval).toBe(true);
+    });
+
     test('executeProviderRequest succeeds when sensitive action is approved', async () => {
       const approvalToken = registry.issueApprovalToken({
         providerId: 'termux',

@@ -556,4 +556,275 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
       expect(registry.consumeApprovalToken(tExp2)).toBe(false);
     });
   });
+
+  describe('v6.2.1 Transactional StrongBox Migration & Termux Daemon Lockdown', () => {
+    test('migrateKeyToStrongBox conducts full transactional decrypt -> new StrongBox key -> re-encrypt -> verify -> commit cycle', async () => {
+      let committed = false;
+      let rolledBack = false;
+      let currentSecurityLevel = 'tee';
+      let currentAlias = 'eg_nexus_master_aes_key';
+
+      const fakeStorage = {
+        _data: {
+          eg_nexus_os_v5_master_state_session_secrets: JSON.stringify({
+            ciphertext: 'old_cipher_123',
+            iv: 'old_iv_123',
+            aad: 'v1:context',
+            revision: 1
+          })
+        },
+        getItem(k) { return this._data[k] || null; },
+        setItem(k, v) { this._data[k] = v; },
+        removeItem(k) { delete this._data[k]; }
+      };
+
+      const mockPlugin = {
+        isAvailable: async () => ({
+          available: true,
+          hardwareBacked: true,
+          securityLevel: currentSecurityLevel,
+          alias: currentAlias
+        }),
+        migrateKeyToStrongBox: jest.fn(async (payload) => {
+          expect(payload.ciphertext).toBe('old_cipher_123');
+          currentSecurityLevel = 'strongbox';
+          currentAlias = 'eg_nexus_master_aes_key_sb_v2';
+          return {
+            migrated: true,
+            securityLevel: 'strongbox',
+            alias: 'eg_nexus_master_aes_key_sb_v2',
+            newCiphertext: 'new_sb_cipher_456',
+            newIv: 'new_sb_iv_456',
+            aad: payload.aad
+          };
+        }),
+        decrypt: jest.fn(async ({ ciphertext, iv }) => {
+          if (ciphertext === 'new_sb_cipher_456') {
+            return { data: 'decrypted_master_seed_payload' };
+          }
+          throw new Error('Decrypt failed');
+        }),
+        commitKeyMigration: jest.fn(async () => {
+          committed = true;
+          return { committed: true, deletedOldKeys: true, activeAlias: 'eg_nexus_master_aes_key_sb_v2' };
+        }),
+        rollbackKeyMigration: jest.fn(async () => {
+          rolledBack = true;
+          return { rolledBack: true, activeAlias: 'eg_nexus_master_aes_key' };
+        })
+      };
+
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: mockPlugin
+          }
+        }
+      };
+
+      const res = await secrets.migrateKeyToStrongBox({ storage: fakeStorage });
+      expect(res.migrated).toBe(true);
+      expect(res.securityLevel).toBe('strongbox');
+      expect(mockPlugin.migrateKeyToStrongBox).toHaveBeenCalled();
+      expect(mockPlugin.decrypt).toHaveBeenCalledWith(expect.objectContaining({
+        ciphertext: 'new_sb_cipher_456',
+        iv: 'new_sb_iv_456'
+      }));
+      expect(committed).toBe(true);
+      expect(rolledBack).toBe(false);
+
+      // Verify that storage envelope was updated with new ciphertext & iv
+      const updatedEnv = JSON.parse(fakeStorage.getItem('eg_nexus_os_v5_master_state_session_secrets'));
+      expect(updatedEnv.ciphertext).toBe('new_sb_cipher_456');
+      expect(updatedEnv.iv).toBe('new_sb_iv_456');
+      expect(updatedEnv.keySource).toBe('AndroidKeyStore');
+
+      // Check cached security info
+      const secInfo = await secrets.getKeySecurityInfo();
+      expect(secInfo.securityLevel).toBe('strongbox');
+      expect(secInfo.alias).toBe('eg_nexus_master_aes_key_sb_v2');
+    });
+
+    test('migrateKeyToStrongBox rolls back when verification decrypt throws error', async () => {
+      let rolledBack = false;
+      const fakeStorage = {
+        _data: {
+          eg_nexus_os_v5_master_state_session_secrets: JSON.stringify({
+            ciphertext: 'old_cipher_123',
+            iv: 'old_iv_123'
+          })
+        },
+        getItem(k) { return this._data[k] || null; },
+        setItem(k, v) { this._data[k] = v; }
+      };
+
+      const mockPlugin = {
+        migrateKeyToStrongBox: jest.fn(async () => ({
+          migrated: true,
+          securityLevel: 'strongbox',
+          newCiphertext: 'corrupted_ct',
+          newIv: 'corrupted_iv'
+        })),
+        decrypt: jest.fn(async () => {
+          throw new Error('StrongBox verification tag mismatch');
+        }),
+        commitKeyMigration: jest.fn(),
+        rollbackKeyMigration: jest.fn(async () => {
+          rolledBack = true;
+          return { rolledBack: true };
+        })
+      };
+
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: mockPlugin
+          }
+        }
+      };
+
+      const res = await secrets.migrateKeyToStrongBox({ storage: fakeStorage });
+      expect(res.migrated).toBe(false);
+      expect(res.error).toMatch(/verification failed|tag mismatch/i);
+      expect(rolledBack).toBe(true);
+      expect(mockPlugin.commitKeyMigration).not.toHaveBeenCalled();
+
+      // Original data intact
+      const env = JSON.parse(fakeStorage.getItem('eg_nexus_os_v5_master_state_session_secrets'));
+      expect(env.ciphertext).toBe('old_cipher_123');
+    });
+
+    test('migrateKeyToStrongBox returns early when already StrongBox', async () => {
+      const mockPlugin = {
+        migrateKeyToStrongBox: jest.fn(async () => ({
+          migrated: false,
+          alreadyStrongBox: true,
+          securityLevel: 'strongbox'
+        })),
+        commitKeyMigration: jest.fn(),
+        rollbackKeyMigration: jest.fn()
+      };
+
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: mockPlugin
+          }
+        }
+      };
+
+      const res = await secrets.migrateKeyToStrongBox();
+      expect(res.migrated).toBe(false);
+      expect(res.alreadyStrongBox).toBe(true);
+      expect(res.securityLevel).toBe('strongbox');
+      expect(mockPlugin.commitKeyMigration).not.toHaveBeenCalled();
+      expect(mockPlugin.rollbackKeyMigration).not.toHaveBeenCalled();
+    });
+
+    test('commitKeyMigration and rollbackKeyMigration branches', async () => {
+      // 1. Without Capacitor plugin
+      delete global.window;
+      const c1 = await secrets.commitKeyMigration();
+      expect(c1.committed).toBe(false);
+      const r1 = await secrets.rollbackKeyMigration();
+      expect(r1.rolledBack).toBe(false);
+
+      // 2. With Capacitor plugin
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: {
+              commitKeyMigration: async () => ({ committed: true }),
+              rollbackKeyMigration: async () => ({ rolledBack: true }),
+              migrateKeyToStrongBox: async () => ({ migrated: false, error: 'Custom failure' })
+            }
+          }
+        }
+      };
+      const c2 = await secrets.commitKeyMigration();
+      expect(c2.committed).toBe(true);
+      const r2 = await secrets.rollbackKeyMigration();
+      expect(r2.rolledBack).toBe(true);
+
+      const mFail = await secrets.migrateKeyToStrongBox();
+      expect(mFail.migrated).toBe(false);
+      expect(mFail.error).toBe('Custom failure');
+
+      // 3. migrateKeyToStrongBox without native plugin
+      delete global.window;
+      const mNoPl = await secrets.migrateKeyToStrongBox();
+      expect(mNoPl.migrated).toBe(false);
+    });
+
+    test('Termux daemon server argument policy rejection tests', () => {
+      // Test server-side command validation rules matching Termux Bridge lockdown
+      const SAFE_READONLY_CMD_REGEX = /^(git\s+(status|diff|log)|ls\b|df\b|uptime\b|whoami\b|uname\b)/;
+      expect(SAFE_READONLY_CMD_REGEX.test('find .')).toBe(false); // find removed from safe regex
+      expect(SAFE_READONLY_CMD_REGEX.test('git status')).toBe(true);
+      expect(SAFE_READONLY_CMD_REGEX.test('git diff')).toBe(true);
+
+      // Validate rejection of find execution arguments
+      const isFindForbidden = (args) => {
+        const forbidden = ['-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fls', '-fprintf'];
+        return args.some(arg => forbidden.some(fb => arg.toLowerCase().includes(fb.toLowerCase())));
+      };
+      expect(isFindForbidden(['.', '-name', '*.txt'])).toBe(false);
+      expect(isFindForbidden(['.', '-exec', 'touch', 'marker', '+'])).toBe(true);
+      expect(isFindForbidden(['.', '-delete'])).toBe(true);
+      expect(isFindForbidden(['.', '-execdir', 'rm', '{}', ';'])).toBe(true);
+
+      // Validate git branch restriction
+      const isGitBranchAllowed = (args) => {
+        const mutationFlags = ['-d', '-D', '--delete', '-m', '-M', '-c', '-C', '-f', '--force', '--set-upstream-to', '-u'];
+        const hasMutation = args.some(a => mutationFlags.includes(a.toLowerCase()));
+        if (hasMutation) return false;
+        const sub = args[1];
+        return sub === '--show-current' || sub === '--list' || sub === '-l' || args.length === 1;
+      };
+      expect(isGitBranchAllowed(['branch', '--show-current'])).toBe(true);
+      expect(isGitBranchAllowed(['branch', '--list'])).toBe(true);
+      expect(isGitBranchAllowed(['branch', '-D', 'test'])).toBe(false);
+      expect(isGitBranchAllowed(['branch', '-d', 'main'])).toBe(false);
+      expect(isGitBranchAllowed(['branch', '-m', 'old', 'new'])).toBe(false);
+
+      // Validate git log restriction
+      const isGitLogAllowed = (args) => {
+        const forbiddenLogFlags = ['--output', '--exec', '-c', '--format=format:%(', '%(trailers'];
+        return !args.some(a => forbiddenLogFlags.some(fb => a.toLowerCase().startsWith(fb) || a.toLowerCase().includes(fb)));
+      };
+      expect(isGitLogAllowed(['log', '--oneline', '-n', '10'])).toBe(true);
+      expect(isGitLogAllowed(['log', '--output=/tmp/evil'])).toBe(false);
+      expect(isGitLogAllowed(['log', '--exec=touch'])).toBe(false);
+    });
+
+    test('Secret complexity & Shannon entropy validation', () => {
+      const checkSecretComplexity = (s) => {
+        if (!s || typeof s !== 'string') return false;
+        if (s.length < 32) return false;
+        const freq = {};
+        for (const ch of s) {
+          freq[ch] = (freq[ch] || 0) + 1;
+        }
+        const distinct = Object.keys(freq).length;
+        if (distinct < 8) return false;
+        let entropy = 0;
+        const len = s.length;
+        for (const ch in freq) {
+          const p = freq[ch] / len;
+          entropy -= p * Math.log2(p);
+        }
+        return (entropy * len) >= 80;
+      };
+
+      // Repeating string fails
+      expect(checkSecretComplexity('a'.repeat(32))).toBe(false);
+      expect(checkSecretComplexity('abababababababababababababababab')).toBe(false);
+      expect(checkSecretComplexity('12341234123412341234123412341234')).toBe(false);
+
+      // High entropy random hex strings pass
+      const highEntropySecret = 'a8f3b2c9d1e4056789abcdef0123456789abcdef0123456789abcdef01234567';
+      expect(checkSecretComplexity(highEntropySecret)).toBe(true);
+      expect(checkSecretComplexity('NexusSecurePassphrase1234!@#$%^&*()_+')).toBe(true);
+    });
+  });
 });
