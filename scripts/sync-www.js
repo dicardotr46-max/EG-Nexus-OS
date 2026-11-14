@@ -59,8 +59,11 @@ function syncGradleVersion() {
   }
 
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  const [major, minor, patch] = (pkg.version || '0.0.0').split('.');
-  const versionCode = (parseInt(major, 10) * 10000) + (parseInt(minor, 10) * 100) + parseInt(patch, 10);
+  const versionParts = String(pkg.version || '0.0.0').trim().split('.');
+  const major = parseInt(versionParts[0] || '0', 10);
+  const minor = parseInt(versionParts[1] || '0', 10);
+  const patch = parseInt((versionParts[2] || '0').split(/[-+]/)[0], 10) || 0;
+  const versionCode = (major * 10000) + (minor * 100) + patch;
 
   let content = fs.readFileSync(gradlePath, 'utf8');
   content = content.replace(/versionCode\s+\d+/, 'versionCode ' + versionCode);

@@ -1038,10 +1038,10 @@ describe('Coverage Boost Suite', () => {
         maxDurationMs: 5000
       });
 
-      // _fingerprint edge branches
-      expect(guard._fingerprint(undefined, null)).toBe('::');
-      expect(guard._fingerprint('', 'simple')).toBe('::simple');
-      expect(guard._fingerprint('tool', { a: 1 })).toBe('tool::{"a":1}');
+      // _fingerprint edge branches (64-char SHA-256 hex string)
+      expect(guard._fingerprint(undefined, null)).toMatch(/^[a-f0-9]{64}$/);
+      expect(guard._fingerprint('', 'simple')).toMatch(/^[a-f0-9]{64}$/);
+      expect(guard._fingerprint('tool', { a: 1 })).toMatch(/^[a-f0-9]{64}$/);
 
       // detectLoop edge branches
       expect(guard.detectLoop('tool1', { a: 1 })).toBe(false);

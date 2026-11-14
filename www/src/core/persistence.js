@@ -1427,12 +1427,110 @@
     });
   };
 
+  const DEFAULT_MIN_TOKEN_RESERVATION = 64;
+
+  function saveTaskJournalToStorage(guard, customStorage) {
+    if (!guard) {
+      throw new Error('AgentExecutionGuard is required to save task journal');
+    }
+    const storage = customStorage || getLocalStorage();
+    const taskId = guard.taskId || 'default';
+    const key = 'eg_nexus_task_journal_' + taskId;
+    const snapshot = (typeof guard.exportTaskJournal === 'function')
+      ? guard.exportTaskJournal()
+      : guard;
+    const serialized = JSON.stringify(snapshot);
+    const ok = nexusStorageSet(key, serialized, storage);
+    return { success: ok, key, taskId, snapshot };
+  }
+
+  function loadTaskJournalFromStorage(arg1, arg2) {
+    let storage = null;
+    let taskId = 'default';
+    let targetGuard = null;
+
+    if (typeof arg1 === 'string') {
+      taskId = arg1;
+      storage = arg2 || null;
+    } else {
+      storage = arg1 || null;
+      if (typeof arg2 === 'string') {
+        taskId = arg2;
+      } else if (arg2 && typeof arg2 === 'object') {
+        targetGuard = arg2;
+        taskId = targetGuard.taskId || 'default';
+      }
+    }
+
+    const key = 'eg_nexus_task_journal_' + (taskId || 'default');
+    const raw = nexusStorageGet(key, storage);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (targetGuard && typeof targetGuard.restoreTaskJournal === 'function') {
+        targetGuard.restoreTaskJournal(parsed);
+        return targetGuard;
+      }
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveMemoryGovernanceToStorage(memGov, customStorage, customKey) {
+    if (!memGov) {
+      throw new Error('MemoryGovernance instance is required to save memory governance');
+    }
+    const storage = customStorage || getLocalStorage();
+    const key = customKey || 'eg_nexus_memory_governance';
+    const snapshot = (typeof memGov.exportState === 'function')
+      ? memGov.exportState()
+      : memGov;
+    const serialized = JSON.stringify(snapshot);
+    const ok = nexusStorageSet(key, serialized, storage);
+    return { success: ok, key, snapshot };
+  }
+
+  function loadMemoryGovernanceFromStorage(arg1, arg2, arg3) {
+    let storage = null;
+    let key = 'eg_nexus_memory_governance';
+    let targetMemGov = null;
+
+    if (typeof arg1 === 'string') {
+      key = arg1;
+      storage = arg2 || null;
+      targetMemGov = arg3 || null;
+    } else {
+      storage = arg1 || null;
+      if (typeof arg2 === 'string') {
+        key = arg2;
+        targetMemGov = arg3 || null;
+      } else if (arg2 && typeof arg2 === 'object') {
+        targetMemGov = arg2;
+      }
+    }
+
+    const raw = nexusStorageGet(key, storage);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (targetMemGov && typeof targetMemGov.restoreState === 'function') {
+        targetMemGov.restoreState(parsed);
+        return targetMemGov;
+      }
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     SESSION_SECRETS_KEY,
     API_KEY_NAMES,
+    DEFAULT_MIN_TOKEN_RESERVATION,
     nexusStorageGet,
     nexusStorageSet,
     nexusStorageRemove,
@@ -1466,6 +1564,10 @@
     getSessionWriteRevision,
     resetSessionWriteQueue,
     createMemoryStorage,
-    installStorageGuard
+    installStorageGuard,
+    saveTaskJournalToStorage,
+    loadTaskJournalFromStorage,
+    saveMemoryGovernanceToStorage,
+    loadMemoryGovernanceFromStorage
   };
 });

@@ -1,4 +1,4 @@
-name: EG Nexus OS v6.3.0 - Auto Audit & Signed APK Factory
+name: EG Nexus OS v6.3.1 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -41,6 +41,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Enforce Gradle Version Parity & Build Sync
+        run: |
+          npm run build
+          git diff --exit-code android/app/build.gradle
+
       - name: 4. Verify Cryptographic Mirror Parity (Root vs www)
         run: |
           echo "🔍 Checking Root and www/ mirror byte parity..."
@@ -52,7 +57,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.3.0..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.3.1..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -105,6 +110,11 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
+
+      - name: Enforce Gradle Version Parity & Build Sync
+        run: |
+          npm run build
+          git diff --exit-code android/app/build.gradle
 
       - name: 3. Setup Java JDK 21 (Required for Android Gradle)
         uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
@@ -246,7 +256,7 @@ jobs:
           APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.2.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.3.0-${GITHUB_SHA}"
+          RELEASE_TAG="v6.3.1-${GITHUB_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -283,12 +293,12 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.3.0 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v6.3.1 (${{ env.SHORT_SHA }})"
           make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v6.3.0`
+            - **Release Version:** `v6.3.1`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**

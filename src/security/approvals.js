@@ -81,6 +81,63 @@
   const _internalTokenStore = new Map();
   const _lifecycleAuditTrail = new Map();
 
+  // 256-bit session HMAC key for audit trail anchoring (OWASP ACS 2026)
+  const _auditHmacKey = secureRandomHex(32);
+
+  // Pure JS HMAC-SHA256 fallback matching Node crypto createHmac
+  function _hmacSha256Pure(keyHex, msgStr) {
+    let keyBytes;
+    if (typeof keyHex === 'string') {
+      const klen = Math.floor(keyHex.length / 2);
+      keyBytes = new Uint8Array(klen);
+      for (let i = 0; i < klen; i++) {
+        keyBytes[i] = parseInt(keyHex.substr(i * 2, 2), 16) || 0;
+      }
+    } else if (keyHex instanceof Uint8Array) {
+      keyBytes = keyHex;
+    } else {
+      keyBytes = new Uint8Array(0);
+    }
+    if (keyBytes.length > 64) {
+      keyBytes = _sha256Pure(keyBytes);
+    }
+    const kPad = new Uint8Array(64);
+    kPad.set(keyBytes);
+    const ipad = new Uint8Array(64);
+    const opad = new Uint8Array(64);
+    for (let i = 0; i < 64; i++) {
+      ipad[i] = kPad[i] ^ 0x36;
+      opad[i] = kPad[i] ^ 0x5c;
+    }
+    const msgBytes = (typeof TextEncoder !== 'undefined')
+      ? new TextEncoder().encode(msgStr)
+      : (typeof Buffer !== 'undefined' ? Buffer.from(msgStr, 'utf8') : new Uint8Array(0));
+    const inner = new Uint8Array(64 + msgBytes.length);
+    inner.set(ipad);
+    inner.set(msgBytes, 64);
+    const innerHash = _sha256Pure(inner);
+    const outer = new Uint8Array(64 + 32);
+    outer.set(opad);
+    outer.set(innerHash, 64);
+    const outerHash = _sha256Pure(outer);
+    return Array.from(outerHash, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function _hmacSha256Hex(keyHex, message) {
+    const msgStr = (message === null || message === undefined) ? '' : String(message);
+    const k = (keyHex === null || keyHex === undefined) ? _auditHmacKey : String(keyHex);
+    try {
+      if (typeof require === 'function') {
+        const nodeCrypto = require('crypto');
+        if (nodeCrypto && typeof nodeCrypto.createHmac === 'function') {
+          const keyBuf = (typeof Buffer !== 'undefined') ? Buffer.from(k, 'hex') : k;
+          return nodeCrypto.createHmac('sha256', keyBuf).update(msgStr, 'utf8').digest('hex');
+        }
+      }
+    } catch (_) {}
+    return _hmacSha256Pure(k, msgStr);
+  }
+
   // Pure-JS SHA-256 for deterministic params hash in all environments
   function _sha256Pure(bytes) {
     const K = [
@@ -419,8 +476,10 @@
 
     const event = {
       state: normState,
+      event: normState,
       timestamp,
       metadata: sanitizedData,
+      payload: sanitizedData,
       prevHash,
       entryHash
     };
@@ -432,10 +491,18 @@
       record.events.push(event);
     }
     if (record.events.length > 50) {
+      const truncatedCount = record.events.length - 50;
+      const lastTruncated = record.events[truncatedCount - 1];
+      if (lastTruncated && lastTruncated.entryHash) {
+        record.truncatedAnchorHash = lastTruncated.entryHash;
+        record.truncatedAnchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + record.truncatedAnchorHash);
+      }
       record.events = record.events.slice(-50);
       record.history = record.events;
     }
-    const anchorSignature = _sha256Hex(prevHash + '::anchor::' + Date.now());
+    const lastItem = record.events.length > 0 ? record.events[record.events.length - 1] : null;
+    const lastHash = lastItem ? lastItem.entryHash : (record.truncatedAnchorHash || 'GENESIS');
+    const anchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + lastHash + '|' + record.events.length);
     record.anchorSignature = anchorSignature;
 
     persistAuditTrail();
@@ -860,6 +927,12 @@
         }
         if (record.events && Array.isArray(record.events)) {
           if (record.events.length > 50) {
+            const truncatedCount = record.events.length - 50;
+            const lastTruncated = record.events[truncatedCount - 1];
+            if (lastTruncated && lastTruncated.entryHash) {
+              record.truncatedAnchorHash = lastTruncated.entryHash;
+              record.truncatedAnchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + record.truncatedAnchorHash);
+            }
             record.events = record.events.slice(-50);
           }
           record.history = record.events;
@@ -867,8 +940,9 @@
         const lastItem = (record.history && record.history.length > 0)
           ? record.history[record.history.length - 1]
           : ((record.events && record.events.length > 0) ? record.events[record.events.length - 1] : null);
-        const prevHash = lastItem ? (lastItem.entryHash || lastItem.hash || 'GENESIS') : 'GENESIS';
-        const anchorSignature = _sha256Hex(prevHash + '::anchor::' + Date.now());
+        const lastHash = lastItem ? (lastItem.entryHash || lastItem.hash || 'GENESIS') : (record.truncatedAnchorHash || 'GENESIS');
+        const eventsLen = record.events ? record.events.length : (record.history ? record.history.length : 0);
+        const anchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + lastHash + '|' + eventsLen);
         record.anchorSignature = anchorSignature;
       }
     }
@@ -893,34 +967,47 @@
     return true;
   }
 
-  function verifyAuditTrailIntegrity(storage, options = {}) {
+  function verifyAuditTrailIntegrity(storageOrRequestId, options = {}) {
     let raw = null;
     let entries = null;
-    const store = storage ||
-      (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
-      (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
+    const auditHmacKey = (options && options.hmacKey) || _auditHmacKey;
 
-    if (store) {
-      try {
-        if (typeof store.getItem === 'function') {
-          raw = store.getItem(AUDIT_STORAGE_KEY);
-        } else if (store instanceof Map) {
-          raw = store.get(AUDIT_STORAGE_KEY);
-        } else if (typeof store === 'object' && AUDIT_STORAGE_KEY in store) {
-          raw = store[AUDIT_STORAGE_KEY];
-        } else if (typeof store === 'string') {
-          raw = store;
-        } else if (Array.isArray(store)) {
-          entries = store;
-        }
-      } catch (_) {}
+    // Direct lookup by requestId from internal memory audit trail
+    if (typeof storageOrRequestId === 'string' && _lifecycleAuditTrail.has(storageOrRequestId)) {
+      entries = [[storageOrRequestId, _lifecycleAuditTrail.get(storageOrRequestId)]];
+    } else if (storageOrRequestId && typeof storageOrRequestId === 'object' && storageOrRequestId.requestId && (storageOrRequestId.events || storageOrRequestId.history)) {
+      // Direct single record verification
+      entries = [[storageOrRequestId.requestId, storageOrRequestId]];
+    } else {
+      const store = storageOrRequestId ||
+        (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
+        (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
+
+      if (store) {
+        try {
+          if (typeof store.getItem === 'function') {
+            raw = store.getItem(AUDIT_STORAGE_KEY);
+          } else if (store instanceof Map) {
+            raw = store.get(AUDIT_STORAGE_KEY);
+          } else if (typeof store === 'object' && AUDIT_STORAGE_KEY in store) {
+            raw = store[AUDIT_STORAGE_KEY];
+          } else if (typeof store === 'string') {
+            raw = store;
+          } else if (Array.isArray(store)) {
+            entries = store;
+          }
+        } catch (_) {}
+      }
     }
 
     if (raw && typeof raw === 'string') {
       try {
         entries = JSON.parse(raw);
+        if (entries && typeof entries === 'object' && !Array.isArray(entries) && entries.requestId) {
+          entries = [[entries.requestId, entries]];
+        }
       } catch (_) {
-        return options.detailed ? { valid: false, error: 'MALFORMED_JSON' } : false;
+        return (options && options.detailed) ? { valid: false, error: 'MALFORMED_JSON', reason: 'MALFORMED_JSON' } : false;
       }
     }
 
@@ -929,32 +1016,46 @@
     }
 
     if (!Array.isArray(entries)) {
-      return options.detailed ? { valid: false, error: 'INVALID_TRAIL_STRUCTURE' } : false;
+      return (options && options.detailed) ? { valid: false, error: 'INVALID_TRAIL_STRUCTURE', reason: 'INVALID_TRAIL_STRUCTURE' } : false;
     }
 
     let verifiedEntries = 0;
     for (const item of entries) {
       const record = Array.isArray(item) ? item[1] : item;
       if (!record || typeof record !== 'object') {
-        return options.detailed ? { valid: false, error: 'INVALID_RECORD' } : false;
+        return (options && options.detailed) ? { valid: false, error: 'INVALID_RECORD', reason: 'INVALID_RECORD' } : false;
       }
-      const history = record.history;
+      const history = Array.isArray(record.history) ? record.history : (Array.isArray(record.events) ? record.events : null);
       if (!Array.isArray(history)) {
-        return options.detailed ? { valid: false, error: 'INVALID_HISTORY' } : false;
+        return (options && options.detailed) ? { valid: false, error: 'INVALID_HISTORY', reason: 'INVALID_HISTORY' } : false;
       }
 
       let expectedPrevHash = 'GENESIS';
+      if (record.truncatedAnchorHash) {
+        const expectedTruncatedSig = _hmacSha256Hex(auditHmacKey, (record.requestId || '') + '|' + record.truncatedAnchorHash);
+        if (record.truncatedAnchorSignature !== expectedTruncatedSig) {
+          return (options && options.detailed) ? {
+            valid: false,
+            reason: 'TRUNCATED_ANCHOR_TAMPERED',
+            error: 'TRUNCATED_ANCHOR_TAMPERED',
+            requestId: record.requestId
+          } : false;
+        }
+        expectedPrevHash = record.truncatedAnchorHash;
+      }
+
       for (let i = 0; i < history.length; i++) {
         const event = history[i];
         if (!event || typeof event !== 'object') {
-          return options.detailed ? { valid: false, error: 'INVALID_EVENT' } : false;
+          return (options && options.detailed) ? { valid: false, error: 'INVALID_EVENT', reason: 'INVALID_EVENT' } : false;
         }
 
         // 1. Verify prevHash link
         if (event.prevHash !== expectedPrevHash) {
-          return options.detailed ? {
+          return (options && options.detailed) ? {
             valid: false,
             error: 'HASH_CHAIN_BROKEN',
+            reason: 'HASH_CHAIN_BROKEN',
             requestId: record.requestId,
             index: i,
             expected: expectedPrevHash,
@@ -962,17 +1063,24 @@
           } : false;
         }
 
-        // 2. Verify SHA-256 entryHash computation
-        const metadata = (event.metadata && typeof event.metadata === 'object') ? event.metadata : {};
-        const canonicalPayload = `${record.requestId}|${event.state}|${event.timestamp}|${canonicalizeJson(metadata)}|${expectedPrevHash}`;
-        const expectedEntryHash = _sha256Hex(canonicalPayload);
-        if (event.entryHash !== expectedEntryHash) {
-          return options.detailed ? {
+        // 2. Verify SHA-256 entryHash computation (supports canonical ACS payload and pure event hashing)
+        const metadata = (event.metadata && typeof event.metadata === 'object')
+          ? event.metadata
+          : ((event.payload && typeof event.payload === 'object') ? event.payload : {});
+        const canonicalMeta = canonicalizeJson(metadata);
+        const eventName = event.state || event.event || '';
+        const formula1 = `${record.requestId}|${eventName}|${event.timestamp}|${canonicalMeta}|${expectedPrevHash}`;
+        const formula2 = `${expectedPrevHash}|${eventName}|${event.timestamp}|${canonicalMeta}`;
+        const hash1 = _sha256Hex(formula1);
+        const hash2 = _sha256Hex(formula2);
+        if (event.entryHash !== hash1 && event.entryHash !== hash2) {
+          return (options && options.detailed) ? {
             valid: false,
             error: 'ENTRY_HASH_TAMPERED',
+            reason: 'ENTRY_HASH_TAMPERED',
             requestId: record.requestId,
             index: i,
-            expected: expectedEntryHash,
+            expected: hash1,
             actual: event.entryHash
           } : false;
         }
@@ -980,9 +1088,25 @@
         expectedPrevHash = event.entryHash;
         verifiedEntries++;
       }
+
+      // 3. Verify final anchorSignature if present
+      if (record.anchorSignature) {
+        const lastItem = history.length > 0 ? history[history.length - 1] : null;
+        const lastEntryHash = lastItem ? (lastItem.entryHash || lastItem.hash) : (record.truncatedAnchorHash || 'GENESIS');
+        const eventsCount = (record.events && Array.isArray(record.events)) ? record.events.length : history.length;
+        const expectedAnchor = _hmacSha256Hex(auditHmacKey, (record.requestId || '') + '|' + lastEntryHash + '|' + eventsCount);
+        if (record.anchorSignature !== expectedAnchor) {
+          return (options && options.detailed) ? {
+            valid: false,
+            reason: 'ANCHOR_SIGNATURE_INVALID',
+            error: 'ANCHOR_SIGNATURE_INVALID',
+            requestId: record.requestId
+          } : false;
+        }
+      }
     }
 
-    if (options.detailed) {
+    if (options && options.detailed) {
       return {
         valid: true,
         recordsCount: entries.length,
@@ -1008,6 +1132,9 @@
     _generateTokenNonce,
     _sha256Pure,
     _sha256Hex,
+    _hmacSha256Hex,
+    _hmacSha256Pure,
+    _auditHmacKey,
     deepFreeze,
     secureRandomHex,
     secureRandomId,

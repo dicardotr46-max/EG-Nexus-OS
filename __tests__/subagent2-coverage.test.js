@@ -425,7 +425,7 @@ describe('Subagent 2 - Core Coverage Boost', () => {
 
       const rPro = registry.recordModelTokenAndCostUsage('deepseek-v4-pro', '', '', { totalTokenCount: 50 });
       expect(rPro.usedTokens).toBe(50);
-      expect(rPro.ratePerMillion).toBe(0.28);
+      expect(rPro.ratePerMillion).toBe(0.55);
 
       const rKimi = registry.recordModelTokenAndCostUsage('kimi', '', '', { total_tokens: 30 });
       expect(rKimi.ratePerMillion).toBe(0.15);

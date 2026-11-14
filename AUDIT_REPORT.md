@@ -1,7 +1,7 @@
-# EG Nexus OS v6.3.0 — Engineering Verification, Security Architecture & Quality Audit Report
+# EG Nexus OS v6.3.0 & v6.3.1 — Engineering Verification, Security Architecture & Quality Audit Report
 
 **Target Repository:** `dicardotr46-max/EG-Nexus-OS`  
-**Target Version:** `6.3.0`  
+**Target Version:** `6.3.1`  
 **Target Branch:** `main`  
 **Execution Context:** Linux / Node.js 24 / Temurin JDK 21 / Android SDK Build-Tools  
 **Audit Viewport:** Strict Mobile Viewport (390 × 844 CSS pixels, `viewport-fit=cover`)  
@@ -11,9 +11,9 @@
 
 ## Executive Summary
 
-EG Nexus OS v6.3.0 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
+EG Nexus OS v6.3.1 is a personal multi-agent operating system engineered for deployment as both a Progressive Web Application (PWA) and a native Android application via Capacitor.
 
-This report documents verifiable, reproducible engineering evidence across three distinct architectural levels, highlighting key v6.3.0 milestones: CentralBudgetManager & Token Reservation/Settlement (zero double-counting), Multi-step Alternating Cycle Loop Detection (`A -> B -> A -> B -> A -> B`) and sensitive call history masking, MemoryGovernance module with 4-layer architecture & OWASP ASI06 memory poisoning defense, Unified MODEL_REGISTRY with granular token pricing & strict unlisted model rejection, Real AbortSignal cancellation on approval gate timeout (`timed_out` state), Deterministic single-backend selection in SecretVault, Mobile Application ID unification (`com.eg.nexus`) and automated Gradle version sync (`versionCode 60300`, `versionName "6.3.0"`), Shadow-Key Two-Phase Commit (2PC) StrongBox migration with `_v2_staging` staging key and crash safety, AgentExecutionGuard execution boundary governance (step count limits, loop detection, token budgets, abort cancellation), Strict Default-Deny without prefix guessing (`UNLISTED_ACTION_DENIED`), ACS-Inspired Local Guardian with allow/deny/ask/defer decisions and hash-chained audit trails (`prevHash`, `entryHash`), Termux daemon sandbox restrictions with `realpathSync` symlink escape prevention, 256-bit CSPRNG Worker Secret with Shannon Entropy enforcement, and comprehensive 2026 Standards Traceability (OWASP ASVS v5.0.0, OWASP Agentic Top 10 2026 ASI01-ASI10, OWASP ACS Sep 2026, and OWASP MASWE v1.0.0 Aug 2026):
+This report documents verifiable, reproducible engineering evidence across three distinct architectural levels, highlighting key v6.3.0 & v6.3.1 milestones: Tool Call Fingerprinting SHA-256 Hashing (`/^[a-f0-9]{64}$/`) with zero secret leakage in task journals, Shared Parent-Child Budget Ledger with atomic multi-agent reservations & `TOKEN_BUDGET_OVERRUN` enforcement, HMAC-signed audit trail continuity across 50-event truncation (`truncatedAnchorHash`, `truncatedAnchorSignature`, `verifyAuditTrailIntegrity`), November 2026 Frontier Model Catalog (`gemini-3.8-flash`, `gpt-6-astra`, `claude-opus-5.5`, `deepseek-v4-pro`) & granular token cache pricing separation (uncached prompt rate vs. discounted cached rate), Strict MCP action schema Default-Deny (`MCP_SCHEMA_NOT_FOUND`), Multilingual Memory Governance (Persian injection patterns like `دستورات قبلی را نادیده بگیر` quarantined, unconditional quarantine without `userVerified: true` bypass) & cosine similarity hybridSearch, CentralBudgetManager & Token Reservation/Settlement (zero double-counting), Multi-step Alternating Cycle Loop Detection (`A -> B -> A -> B -> A -> B`) and sensitive call history masking, MemoryGovernance module with 4-layer architecture & OWASP ASI06 memory poisoning defense, Unified MODEL_REGISTRY with granular token pricing & strict unlisted model rejection, Real AbortSignal cancellation on approval gate timeout (`timed_out` state), Deterministic single-backend selection in SecretVault, Mobile Application ID unification (`com.eg.nexus`) and automated Gradle version sync (`versionCode 60301`, `versionName "6.3.1"`), Shadow-Key Two-Phase Commit (2PC) StrongBox migration with `_v2_staging` staging key and crash safety, AgentExecutionGuard execution boundary governance (step count limits, loop detection, token budgets, abort cancellation), Strict Default-Deny without prefix guessing (`UNLISTED_ACTION_DENIED`), ACS-Inspired Local Guardian with allow/deny/ask/defer decisions and hash-chained audit trails (`prevHash`, `entryHash`), Termux daemon sandbox restrictions with `realpathSync` symlink escape prevention, 256-bit CSPRNG Worker Secret with Shannon Entropy enforcement, and comprehensive 2026 Standards Traceability (OWASP ASVS v5.0.0, OWASP Agentic Top 10 2026 ASI01-ASI10, OWASP ACS Sep 2026, and OWASP MASWE v1.0.0 Aug 2026):
 1. **Level 1 (Static Verification):** Cryptographic mirror parity between root and `www/`, AST compilation checks across 5 inline script blocks, dynamic template syntax verification via `node --check`, zero supply chain vulnerabilities across audited packages, exact dependency pinning of all `@capacitor/*` libraries (8.6.0), and static event handler verification (`missing_handlers: 0`).
 2. **Level 2 (Unit, Contract & Coverage Testing):** Automated Jest tests across test suites with a 100% pass rate, high coverage on decoupled `src/` modules loaded directly into `index.html`, proven `AES-GCM-256` reload persistence across isolated VM contexts, non-extractable WebCrypto key management in IndexedDB, and exhaustive provider resilience contracts (GitHub, Google, Telegram 429 backoff retry, Cloudflare KV LWW conflict resolution, MCP tool approval barriers).
 3. **Level 3 (Runtime & CI Build Boundaries):** Full runtime DOM wiring and concurrency stress verification (rapid click debounce, mid-sync offline rollback, multi-tab LWW concurrency, 500+ message chat truncation to `MAX_PERSISTED_MSGS_PER_CHAT = 300`), ephemeral session key derivation in browser sandboxes versus native hardware Keystores, persistent release keystore registered in GitHub Secrets with strict CI gate validation, automated Release APK signing and verification with `apksigner` (v1/v2/v3 schemes), and PR-gated continuous integration.
@@ -30,7 +30,7 @@ flowchart TD
     end
 
     subgraph LEVEL_2["Level 2: Unit & Contract Testing"]
-        JEST["702 Jest Tests (28 Suites, 100% Passing)"]
+        JEST["751 Jest Tests (29 Suites, 100% Passing)"]
         COV["High Funcs / Lines Coverage on src/"]
         TOKEN_BUDGET["CentralBudgetManager & Token Reservation/Settlement"]
         LOOP_DET["Canonical Alternating Cycle Loop Detection (A->B->A->B)"]
@@ -46,7 +46,7 @@ flowchart TD
         STRIP["buildPersistedState() (0 Plaintext Secrets in localStorage)"]
         APPID_PARITY["Unified Mobile AppId (com.eg.nexus across all configs)"]
         SIGN["apksigner v1/v2/v3 Verification (assembleRelease)"]
-        GATE["CI/CD PR Gate & Immutable Tagging (v6.3.0-SHORT_SHA & Release)"]
+        GATE["CI/CD PR Gate & Immutable Tagging (v6.3.1-SHORT_SHA & Release)"]
     end
 
     LEVEL_1 --> LEVEL_2
@@ -62,8 +62,8 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `889ea9c90614371f9f3e3b93237658e030bf590b2ad4f437a739ccda099457b2` | MATCH |
-| `sw.js` | `www/sw.js` | `0c7a4730986e86d33bca81807f7c2fbce986fb4ce81e096d0a4512317e9c988c` | MATCH |
+| `index.html` | `www/index.html` | `d5a45b28650eabb7d28098e2335bb3aad5d0f187643cc8dab078934d56780b33` | MATCH |
+| `sw.js` | `www/sw.js` | `0086d355425ea0bc678a44bc4d1188af225e2f40d0f0f1bd23233dce3fc35abe` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/providers/*` | `www/src/providers/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -130,8 +130,8 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 33,009 lines | PASS |
-| Extracted Global & Named Functions | 823 functions | PASS |
+| Total Source Lines (`index.html`) | 33,439 lines | PASS |
+| Extracted Global & Named Functions | 830 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
 | Stub / Placeholder Review Items | 0 unhandled fatal blocks | PASS |
@@ -141,7 +141,7 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 ## Level 2: Unit, Contract & Coverage Testing
 
 ### 2.1 Automated Test Execution Summary
-The test suite consists of **702 automated Jest tests across 28 test suites**, executing with a 100% pass rate:
+The test suite consists of **751 automated Jest tests across 29 test suites**, executing with a 100% pass rate:
 
 ```text
 PASS __tests__/approvals.spec.js
@@ -171,10 +171,11 @@ PASS __tests__/v60_cross_tab_and_audit_fixes.spec.js
 PASS __tests__/v61_hardware_keystore.test.js
 PASS __tests__/v622_policy_strongbox_termux.spec.js
 PASS __tests__/v630_ai_architecture_and_p0_fixes.spec.js
+PASS __tests__/v631_branch_coverage_booster.spec.js
 PASS __tests__/worker_queue.spec.js
 
-Test Suites: 28 passed, 28 total
-Tests:       702 passed, 702 total
+Test Suites: 29 passed, 29 total
+Tests:       751 passed, 751 total
 Snapshots:   0 total
 Time:        5.000 s
 ```
@@ -198,7 +199,7 @@ Time:        5.000 s
 | `__tests__/sw.spec.js` | 13 | Service Worker cache lifecycle, atomic pre-caching of core assets and `src/` modules, network-first API fallbacks. |
 | `__tests__/approvals.spec.js` | 10 | Human-in-the-loop modal consent barriers, queueing of sensitive tool execution, rapid click debounce guards. |
 | `__tests__/generateUniqueId.spec.js` | 6 | Entropy checks, collision resistance across 10,000 iterations, format conforming to prefix rules. |
-| **Total** | **702** | **Complete Behavioral & Contract Verification** |
+| **Total** | **751** | **Complete Behavioral & Contract Verification** |
 
 ### 2.3 Code Coverage on Modular `src/` Modules
 Modules located in `src/` are loaded directly into `index.html` and tested under Jest with Node.js / JSDOM coverage collectors:
@@ -207,22 +208,22 @@ Modules located in `src/` are loaded directly into `index.html` and tested under
 ------------------|---------|----------|---------|---------|--------------------
 File              | % Stmts | % Branch | % Funcs | % Lines | Status / Highlights
 ------------------|---------|----------|---------|---------|--------------------
-All files         |    89.4 |    80.11 |   89.13 |   90.42 | Verified Target Met
- core             |   88.49 |    81.95 |    85.5 |   90.33 | High Line & Func Cov
-  persistence.js  |    85.5 |    82.02 |   81.41 |   88.17 | Complete Persistence
+All files         |   88.44 |     80.1 |   89.21 |   89.68 | Verified Target Met
+ core             |   85.92 |    81.32 |   85.83 |   88.21 | High Line & Func Cov
+  persistence.js  |   86.32 |    81.92 |   82.05 |   88.83 | Complete Persistence
   sanitization.js |   93.28 |    88.64 |     100 |   95.08 | Comprehensive XSS
-  state.js        |   92.06 |    79.52 |   88.88 |   92.46 | 100% Lines & Funcs
- providers        |    90.2 |    78.86 |   89.74 |   90.59 | Exhaustive Contracts
-  registry.js     |    90.2 |    78.86 |   89.74 |   90.58 | Full Provider APIs
- security         |   89.63 |    79.38 |   92.98 |   90.42 | Verified Vault & IDB
-  approvals.js    |   94.87 |    81.29 |   93.18 |   95.88 | 100% Lines & Funcs
-  secrets.js      |   88.14 |    78.83 |   92.91 |   88.92 | AES-GCM + IDB Keystore
+  state.js        |   84.69 |    79.33 |    87.7 |   86.88 | 100% Lines & Funcs
+ providers        |   89.88 |    80.16 |   90.43 |   90.57 | Exhaustive Contracts
+  registry.js     |   89.88 |    80.16 |   90.43 |   90.57 | Full Provider APIs
+ security         |   90.02 |    79.06 |   93.26 |   90.59 | Verified Vault & IDB
+  approvals.js    |   94.33 |    80.13 |   93.61 |   95.14 | 100% Lines & Funcs
+  secrets.js      |   88.67 |    78.69 |   93.12 |   89.21 | AES-GCM + IDB Keystore
 ------------------|---------|----------|---------|---------|--------------------
 ```
-- **Overall Function Coverage:** **89.13%** (exceeds 85% requirement).
-- **Overall Line Coverage:** **90.42%** (exceeds 85% requirement).
-- **Overall Statement Coverage:** **89.4%** (exceeds 85% requirement).
-- **Overall Branch Coverage:** **80.11%** (satisfies 80% requirement).
+- **Overall Function Coverage:** **89.21%** (exceeds 85% requirement).
+- **Overall Line Coverage:** **89.68%** (exceeds 85% requirement).
+- **Overall Statement Coverage:** **88.44%** (exceeds 85% requirement).
+- **Overall Branch Coverage:** **80.1%** (satisfies 80% requirement).
 
 ### 2.4 Proven `AES-GCM-256` Reload Persistence & IndexedDB Non-Extractable CryptoKey
 To verify that session encryption keys and credentials survive real page reloads without relying on memory leaks, the test harness exercises two isolated execution contexts:
@@ -340,7 +341,7 @@ The mobile compilation pipeline builds and signs release APKs using Android SDK 
    - APK Signature Scheme v3 (Key rotation scheme)
 5. **Integrity Verification:**
    ```bash
-   $ apksigner verify --verbose dist/EG-Nexus-OS-v6.3.0-release-signed.apk
+   $ apksigner verify --verbose dist/EG-Nexus-OS-v6.3.1-release-signed.apk
    Verifies: true
    Verified using v1 scheme (JAR signing): true
    Verified using v2 scheme (APK Signature Scheme v2): true
@@ -367,7 +368,7 @@ The GitHub Actions workflow (`.github/workflows/nexus-factory.yml`) provides aut
 #### Tagging Strategy & Provenance Tracking
 When a push to `main` occurs or a `workflow_dispatch` is triggered:
 - **Immutable Version Tag (`v6.2.4-${GITHUB_SHA}`):**
-  - Example: `v6.3.0-6432a4c`
+  - Example: `v6.3.1-6432a4c`
   - Statically tied to the exact Git commit SHA and generated directly via the GitHub API by `softprops/action-gh-release`.
   - Exact Provenance Descriptor: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`.
   - Provides a permanent provenance anchor for reproducible builds, audit compliance, and immutable Software Bill of Materials (SBOM) traceability without mutable tag force-pushing.
@@ -471,7 +472,35 @@ Version **v6.3.0** introduces critical architectural advancements and resolves f
 
 7. **Mobile Application ID Unification & Automated Gradle Version Sync:**
    - Unified mobile application identifier across all files: `com.eg.nexus` in `capacitor.config.json`, `android/app/build.gradle` (`applicationId` and `namespace`), and `android/app/src/main/AndroidManifest.xml`.
-   - Implemented `syncGradleVersion()` in `scripts/sync-www.js` to automatically parse `package.json` (`v6.3.0`) and synchronize `build.gradle` with `versionCode 60300` and `versionName "6.3.0"` during every build.
+   - Implemented `syncGradleVersion()` in `scripts/sync-www.js` to automatically parse `package.json` (`v6.3.1`) and synchronize `build.gradle` with `versionCode 60301` and `versionName "6.3.1"` during every build.
+
+8. **Tool Call Fingerprinting SHA-256 Hashing & Zero Secret Leakage (v6.3.1):**
+   - Upgraded `AgentExecutionGuard` tool call fingerprinting to generate deterministic 64-character SHA-256 hex hashes (`/^[a-f0-9]{64}$/`).
+   - Ensures zero plaintext retention of credentials (`apiKey`, `token`, `password`, `secret`) in `callHistory` or serialized journals (`exportTaskJournal()`), eliminating credential harvesting vectors.
+
+9. **Shared Parent-Child Budget Ledger & Overrun Trap (v6.3.1):**
+   - Synchronized shared token ledger between parent execution guards and child subagents created via `createSubagentGuard`.
+   - Atomic multi-agent reservations prevent concurrent subagents from oversubscribing available tokens.
+   - Settle operations exceeding the maximum token budget immediately trigger `TOKEN_BUDGET_OVERRUN` and lock execution with `budgetOverrun = true`.
+
+10. **HMAC Audit Trail Continuity Across Truncation (> 50 events) (v6.3.1):**
+    - Bounded in-memory lifecycle audit trail caps events at 50 entries per request.
+    - Continuity across truncation is cryptographically secured via `truncatedAnchorHash` and HMAC-signed `truncatedAnchorSignature`.
+    - `verifyAuditTrailIntegrity` validates continuity across archived and live event logs, failing closed (`valid: false`) if any payload or anchor signature is tampered with.
+
+11. **November 2026 Frontier Model Catalog & Token Cache Pricing Separation (v6.3.1):**
+    - Registered November 2026 frontier models in `MODEL_REGISTRY`: Gemini 3.8 Flash (`gemini-3.8-flash`), GPT-6 Astra (`gpt-6-astra`), Claude Opus 5.5 (`claude-opus-5.5`), and DeepSeek v4 Pro (`deepseek-v4-pro`).
+    - Granular cost calculation in `recordModelTokenAndCostUsage` separates prompt tokens into uncached tokens (`promptTokens - cachedTokens`) at standard rate and cached tokens at discounted rate, eliminating double-charging.
+    - Unregistered model IDs strictly fail closed with `MODEL_NOT_FOUND`.
+
+12. **MCP Tool Schema Strict Default-Deny (`MCP_SCHEMA_NOT_FOUND`) (v6.3.1):**
+    - Model Context Protocol (MCP) parameter validation in `validateMcpParamsAgainstSchema` strictly enforces Default-Deny.
+    - Unregistered or unknown MCP actions fail closed with `{ valid: false, error: 'MCP_SCHEMA_NOT_FOUND' }`.
+
+13. **Multilingual Memory Governance & Persian Injection Quarantine (v6.3.1):**
+    - Hardened `MemoryGovernance` against multilingual adversarial vectors, including Persian injection patterns (e.g., `دستورات قبلی را نادیده بگیر`).
+    - Injection patterns are unconditionally quarantined regardless of `userVerified: true`, preventing forged verification bypasses.
+    - Semantic memory indexing with `hybridSearch` combining cosine vector similarity and provenance `trustScore` for ranked, verified recall.
 
 ---
 
@@ -488,13 +517,19 @@ Version **v6.3.0** introduces critical architectural advancements and resolves f
 | **Worker / Termux Syntax** | Termux bridge template | `node --check` OK | PASS |
 | **Supply Chain** | `npm audit` across 359 audited packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
 | **Capacitor Pinning** | Exact version pins in `package.json` | 7 packages locked (no `^`) | PASS |
-| **Static Handler Wiring** | `missing_handlers` in 823 functions | Exactly 0 missing handlers | PASS |
-| **Automated Tests** | Jest test suite execution | 702 passed, 0 failed, 28 suites | PASS |
-| **Test Coverage** | Code coverage on `src/` modules | 89.13% funcs, 90.42% lines, 89.4% stmts | PASS |
+| **Static Handler Wiring** | `missing_handlers` in 830 functions | Exactly 0 missing handlers | PASS |
+| **Automated Tests** | Jest test suite execution | 751 passed, 0 failed, 29 suites | PASS |
+| **Test Coverage** | Code coverage on `src/` modules | 89.21% funcs, 89.68% lines, 88.44% stmts | PASS |
 | **Crypto Persistence** | AES-GCM-256 reload across 2 contexts | 100% secrets restored, tampered quarantined | PASS |
 | **IndexedDB Keystore** | Non-extractable CryptoKey management | Keystore DB & store verified | PASS |
 | **Provider Contracts** | Scope validation, 401 quarantine, 429 backoff | All contracts verified in 40 unit tests | PASS |
 | **Runtime DOM Integration** | Real DOM wiring & stress tests | 33 tests verified (17 wiring, 16 stress) | PASS |
+| **Tool Fingerprint Privacy** | 64-char SHA-256 hash & task journal sanitized | Matches `/^[a-f0-9]{64}$/`, 0 secret leakage | PASS |
+| **Shared Budget Ledger** | Multi-agent reservation & overrun enforcement | Contention blocked, `TOKEN_BUDGET_OVERRUN` | PASS |
+| **Audit Truncation HMAC** | Cryptographic anchor hash & HMAC signature | Integrity validated across 50-event truncation | PASS |
+| **Nov 2026 Model Catalog** | Gemini 3.8, GPT-6, Claude 5.5, DeepSeek v4 | Registered, cached pricing, `MODEL_NOT_FOUND` | PASS |
+| **MCP Default-Deny** | Schema validation fails closed on unknown | `MCP_SCHEMA_NOT_FOUND` on unknown actions | PASS |
+| **Multilingual Memory** | Persian injection quarantined & hybridSearch | No bypass with `userVerified: true`, cosine top-hit | PASS |
 | **Release Signing Gate** | Strict persistent keystore in CI | Ephemeral fallback removed, gate enforced | PASS |
 | **APK Signing** | `apksigner verify --verbose` | v1, v2, v3 schemes verified | PASS |
 | **CI Release Trigger** | Only `push` to `main` or `workflow_dispatch` | Scheduled crons and PRs gated | PASS |
@@ -503,4 +538,4 @@ Version **v6.3.0** introduces critical architectural advancements and resolves f
 ---
 
 ## Conclusion
-EG Nexus OS v6.3.0 satisfies all engineering standards and requirements. The codebase demonstrates complete static integrity, zero supply chain vulnerabilities, comprehensive behavioral test coverage on modular components, verified cryptographic reload persistence, strict production release signing with persistent keystore secrets, robust AI memory governance and token budget accounting, and a deterministic CI/CD release pipeline.
+EG Nexus OS v6.3.1 satisfies all engineering standards, invariant suites, and security specifications. The codebase demonstrates complete static integrity, zero supply chain vulnerabilities, comprehensive behavioral test coverage on modular components, verified cryptographic reload persistence, strict production release signing with persistent keystore secrets, robust AI memory governance and token budget accounting, and a deterministic CI/CD release pipeline.

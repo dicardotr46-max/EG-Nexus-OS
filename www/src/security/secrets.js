@@ -3049,17 +3049,24 @@
       this._nodeCrypto = options.nodeCrypto !== undefined ? options.nodeCrypto : _getNodeCrypto();
       this._encryptionCount = 0;
       this._maxEncryptionsPerKey = 1000000; // NIST SP 800-38D
+      this._initialized = false;
       this.initialized = false;
       this._id = options.id || 'default';
       this._activeBackend = options.activeBackend || null;
+      this.autoRotate = Boolean(options.autoRotate);
+      this._legacySyncAllowed = Boolean(options.storage && options.strictInit !== true);
     }
 
-    _resolveActiveBackend() {
+    async _resolveActiveBackend() {
       if (this._activeBackend) return this._activeBackend;
       let hwAvailable = false;
       try {
-        const res = isHardwareKeystoreAvailable();
-        if (typeof res === 'boolean') hwAvailable = res;
+        const hwInfo = await isHardwareKeystoreAvailable();
+        if (typeof hwInfo === 'boolean') {
+          hwAvailable = hwInfo;
+        } else if (hwInfo && typeof hwInfo === 'object') {
+          hwAvailable = Boolean(hwInfo.available && hwInfo.hardwareBacked !== false);
+        }
       } catch (_) {}
       if (this._nodeCrypto === undefined) {
         this._nodeCrypto = _getNodeCrypto();
@@ -3107,6 +3114,7 @@
         try {
           const res = await nativeKs.isAvailable();
           if (res && res.available && res.hardwareBacked !== false) {
+            this._initialized = true;
             this.initialized = true;
             this.hardwareBacked = Boolean(res.hardwareBacked !== false);
             this.securityLevel = res.securityLevel || (this.hardwareBacked ? 'tee' : 'software');
@@ -3123,6 +3131,11 @@
             return this;
           }
         } catch (_) {}
+      }
+
+      const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+      if (!cryptoObj && !this._nodeCrypto) {
+        throw new Error('Encryption failed: crypto engine unavailable');
       }
 
       if (_isBrowserEnvironment()) {
@@ -3152,6 +3165,7 @@
         }
       }
 
+      this._initialized = true;
       this.initialized = true;
       if (this._nodeCrypto === undefined) {
         this._nodeCrypto = _getNodeCrypto();
@@ -3172,6 +3186,63 @@
       return this;
     }
 
+    async rotateVaultKey(options = {}) {
+      if (!this._initialized) {
+        await this.init(options.storage || this.storage);
+      }
+      const store = _getStorage(options.storage || this.storage);
+
+      // 1. Read existing secrets using current key/state
+      let existingSecrets = null;
+      try {
+        existingSecrets = await this.readAsync(store);
+      } catch (_) {
+        existingSecrets = this.read(store);
+      }
+      if (!existingSecrets || typeof existingSecrets !== 'object') {
+        existingSecrets = { initialized: true };
+      }
+
+      // 2. Clear current session crypto state and storage bindings
+      _resetSessionCryptoState();
+      if (store && typeof store === 'object') {
+        const keyMap = _getStorageKeyMap();
+        keyMap.delete(store);
+        if (typeof store._getStore === 'function') {
+          try { keyMap.delete(store._getStore()); } catch (_) {}
+        }
+        try { delete store[SESSION_KEY_SYM]; } catch (_) {}
+      }
+
+      // 3. Generate a fresh new master key
+      _initMemorySessionKey(store);
+
+      // 4. Reset encryption counters
+      this._encryptionCount = 0;
+      _moduleEncryptionCount = 0;
+
+      // 5. Re-encrypt stored envelope with new key and fresh IV
+      if (store) {
+        await writeSessionSecretsAsync(existingSecrets, store, { encryptionCount: 0 });
+        const targetKey = _resolveSecretsStorageKey(store);
+        try {
+          const raw = store.getItem(targetKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            parsed.encryptionCount = 0;
+            store.setItem(targetKey, JSON.stringify(parsed));
+          }
+        } catch (_) {}
+      }
+
+      this._encryptionCount = 0;
+      return { rotated: true, encryptionCount: 0 };
+    }
+
+    isInitialized() {
+      return !!this._initialized;
+    }
+
     getDiagnostics() {
       const health = getSecretVaultHealth(this.storage);
       return {
@@ -3182,8 +3253,30 @@
     }
 
     async encrypt(plaintext, aad) {
+      if (!this._initialized) {
+        try {
+          await this.init();
+        } catch (initErr) {
+          const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+          if (!cryptoObj && !this._nodeCrypto) {
+            throw new Error('Encryption failed: crypto engine unavailable');
+          }
+          if (cryptoObj && cryptoObj.subtle) {
+            this._initialized = true;
+            this.initialized = true;
+            this._activeBackend = 'webcrypto';
+          } else {
+            throw initErr;
+          }
+        }
+      }
+
       if (this._encryptionCount >= this._maxEncryptionsPerKey) {
-        throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+        if (this.autoRotate || (aad && typeof aad === 'object' && aad.autoRotate)) {
+          await this.rotateVaultKey();
+        } else {
+          throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+        }
       }
       this._encryptionCount++;
       _moduleEncryptionCount++;
@@ -3199,7 +3292,7 @@
       const aadStr = aad ? String(aad) : '';
       const aadBytes = _toAadBytes(aadStr);
 
-      const backend = this._activeBackend || this._resolveActiveBackend();
+      const backend = this._activeBackend || (await this._resolveActiveBackend());
 
       if (backend === 'android-keystore') {
         const nativeKs = _getNativeAndroidKeystore();
@@ -3267,12 +3360,30 @@
     }
 
     async decrypt(ciphertext, ivHex, aad) {
+      if (!this._initialized) {
+        try {
+          await this.init();
+        } catch (initErr) {
+          const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
+          if (!cryptoObj && !this._nodeCrypto) {
+            throw new Error('Decryption failed: crypto engine unavailable');
+          }
+          if (cryptoObj && cryptoObj.subtle) {
+            this._initialized = true;
+            this.initialized = true;
+            this._activeBackend = 'webcrypto';
+          } else {
+            throw initErr;
+          }
+        }
+      }
+
       const store = _getStorage(this.storage);
       const iv = _hexToUint8(ivHex);
       const combined = _hexToUint8(ciphertext);
       const aadBytes = _toAadBytes(aad);
 
-      const backend = this._activeBackend || this._resolveActiveBackend();
+      const backend = this._activeBackend || (await this._resolveActiveBackend());
 
       if (backend === 'android-keystore') {
         const nativeKs = _getNativeAndroidKeystore();
@@ -3324,6 +3435,9 @@
     }
 
     read(storage) {
+      if (!this._initialized && !this._legacySyncAllowed && !this.storage && !storage) {
+        throw new Error('VAULT_NOT_INITIALIZED: SecretVault must be initialized before sync access');
+      }
       const store = _getStorage(storage || this.storage);
       if (store) {
         const targetKey = _resolveSecretsStorageKey(store);
@@ -3340,7 +3454,17 @@
       return readSessionSecrets(storage || this.storage);
     }
 
+    readSync(storage) {
+      if (!this._initialized) {
+        throw new Error('VAULT_NOT_INITIALIZED: SecretVault must be initialized before sync access');
+      }
+      return this.read(storage);
+    }
+
     async readAsync(storage) {
+      if (!this._initialized) {
+        await this.init(storage || this.storage);
+      }
       const store = _getStorage(storage || this.storage);
       if (store) {
         const targetKey = _resolveSecretsStorageKey(store);
@@ -3358,6 +3482,9 @@
     }
 
     write(secrets, storage) {
+      if (!this._initialized && !this._legacySyncAllowed && !this.storage && !storage) {
+        throw new Error('VAULT_NOT_INITIALIZED: SecretVault must be initialized before sync access');
+      }
       if (this._encryptionCount >= this._maxEncryptionsPerKey) {
         throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
       }
@@ -3365,16 +3492,30 @@
       return writeSessionSecrets(secrets, storage || this.storage, { encryptionCount: this._encryptionCount });
     }
 
+    writeSync(secrets, storage) {
+      if (!this._initialized) {
+        throw new Error('VAULT_NOT_INITIALIZED: SecretVault must be initialized before sync access');
+      }
+      return this.write(secrets, storage);
+    }
+
     async writeAsync(secrets, storage) {
+      if (!this._initialized) {
+        await this.init(storage || this.storage);
+      }
       if (this._encryptionCount >= this._maxEncryptionsPerKey) {
-        throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+        if (this.autoRotate) {
+          await this.rotateVaultKey({ storage });
+        } else {
+          throw new Error('NIST SP 800-38D encryption limit reached: key must be rotated after 1,000,000 encryptions');
+        }
       }
       this._encryptionCount++;
       return await writeSessionSecretsAsync(secrets, storage || this.storage, { encryptionCount: this._encryptionCount });
     }
 
     async exportEncryptedBackup(passphrase, options) {
-      const data = this.read();
+      const data = this._initialized ? this.read() : (await this.readAsync());
       return await exportEncryptedBackup(data, passphrase, options);
     }
 
