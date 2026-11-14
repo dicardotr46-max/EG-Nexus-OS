@@ -176,17 +176,18 @@ let reportContent = fs.readFileSync(REPORT_PATH, 'utf8');
 const indexHtmlSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT_DIR, 'index.html'))).digest('hex');
 const swJsSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT_DIR, 'sw.js'))).digest('hex');
 
-// Version upgrades: v5.4/v5.5/v5.6/v5.7 -> v5.8, 5.7.0 -> 5.8.0
-reportContent = reportContent.replace(/# EG Nexus OS v5\.[0-9]+ — Engineering Verification/g, '# EG Nexus OS v5.8 — Engineering Verification');
-reportContent = reportContent.replace(/\*\*Target Version:\*\*\s*`5\.[0-9]+\.0`/g, '**Target Version:** `5.8.0`');
-reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ is a personal multi-agent operating system/g, 'EG Nexus OS v5.8 is a personal multi-agent operating system');
-reportContent = reportContent.replace(/dist\/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'dist/EG-Nexus-OS-v5.8-release-signed.apk');
-reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+-release-signed\.apk/g, 'EG-Nexus-OS-v5.8-release-signed.apk');
-reportContent = reportContent.replace(/EG-Nexus-OS-v5\.[0-9]+\.apk/g, 'EG-Nexus-OS-v5.8.apk');
-reportContent = reportContent.replace(/EG Nexus OS v5\.[0-9]+ satisfies all engineering standards/g, 'EG Nexus OS v5.8 satisfies all engineering standards');
-reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v5\.[0-9]+-SHORT_SHA & latest-apk\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v5.8-SHORT_SHA & latest-apk)"]');
-reportContent = reportContent.replace(/Immutable Version Tag \(`v5\.[0-9]+-\$\{SHORT_SHA\}`\)/g, 'Immutable Version Tag (`v5.8-${SHORT_SHA}`)');
-reportContent = reportContent.replace(/Example:\s*`v5\.[0-9]+-[a-f0-9]+`/g, 'Example: `v5.8-6432a4c`');
+// Version upgrades: v5.x/v6.x -> v6.2.0
+reportContent = reportContent.replace(/# EG Nexus OS v[0-9.]+ — Engineering Verification/g, '# EG Nexus OS v6.2.0 — Engineering Verification');
+reportContent = reportContent.replace(/\*\*Target Version:\*\*\s*`[0-9.]+`/g, '**Target Version:** `6.2.0`');
+reportContent = reportContent.replace(/EG Nexus OS v[0-9.]+ is a personal multi-agent operating system/g, 'EG Nexus OS v6.2.0 is a personal multi-agent operating system');
+reportContent = reportContent.replace(/dist\/EG-Nexus-OS-v[0-9.]+-release-signed\.apk/g, 'dist/EG-Nexus-OS-v6.2-release-signed.apk');
+reportContent = reportContent.replace(/EG-Nexus-OS-v[0-9.]+-release-signed\.apk/g, 'EG-Nexus-OS-v6.2-release-signed.apk');
+reportContent = reportContent.replace(/EG-Nexus-OS-v[0-9.]+\.apk/g, 'EG-Nexus-OS-v6.2.apk');
+reportContent = reportContent.replace(/EG Nexus OS v[0-9.]+ satisfies all engineering standards/g, 'EG Nexus OS v6.2.0 satisfies all engineering standards');
+reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v[0-9.]+-SHORT_SHA & latest-apk\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v6.2.0-SHORT_SHA & Release)"]');
+reportContent = reportContent.replace(/GATE\["CI\/CD PR Gate & Immutable Tagging \(v[0-9.]+-SHORT_SHA & Release\)"\]/g, 'GATE["CI/CD PR Gate & Immutable Tagging (v6.2.0-SHORT_SHA & Release)"]');
+reportContent = reportContent.replace(/Immutable Version Tag \(`v[0-9.]+-\$\{SHORT_SHA\}`\)/g, 'Immutable Version Tag (`v6.2.0-${SHORT_SHA}`)');
+reportContent = reportContent.replace(/Example:\s*`v[0-9.]+-[a-f0-9]+`/g, 'Example: `v6.2.0-6432a4c`');
 
 // Today's audit date
 const today = new Date().toISOString().split('T')[0];

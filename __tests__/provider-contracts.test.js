@@ -414,12 +414,16 @@ describe('Provider Contracts & Resilience Suite', () => {
     });
 
     test('executeProviderRequest succeeds when sensitive action is approved', async () => {
+      const approvalToken = registry.issueApprovalToken({
+        providerId: 'termux',
+        action: 'exec'
+      });
       const result = await registry.executeProviderRequest({
         providerId: 'termux',
         action: 'exec',
         token: 'bridge-token-xyz',
         grantedScopes: ['terminal:exec'],
-        approved: true,
+        approvalToken,
         executeFn: async () => ({ stdout: 'Termux bridge active (60FPS verified)' })
       });
 

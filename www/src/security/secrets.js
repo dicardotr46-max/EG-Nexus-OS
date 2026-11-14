@@ -24,6 +24,9 @@
     if (typeof exports.getKeySecurityInfo === 'function') {
       target.getKeySecurityInfo = exports.getKeySecurityInfo;
     }
+    if (typeof exports.migrateKeyToStrongBox === 'function') {
+      target.migrateKeyToStrongBox = exports.migrateKeyToStrongBox;
+    }
     if (typeof exports.isHardwareKeystoreAvailable === 'function') {
       target.isHardwareKeystoreAvailable = exports.isHardwareKeystoreAvailable;
     }
@@ -507,49 +510,81 @@
       const res = await ks.isAvailable();
       if (!res || !res.available) return false;
       if (res.hardwareBacked === false) return false;
-      return true;
+      const secLevel = res.securityLevel || (res.hardwareBacked === false ? 'software' : 'tee');
+      const isHw = Boolean(secLevel === 'strongbox' || secLevel === 'tee');
+      _cachedKeySecurityInfo = {
+        available: true,
+        hardwareBacked: isHw,
+        securityLevel: secLevel,
+        backend: 'AndroidKeyStore'
+      };
+      return isHw;
     } catch (_) {
       return false;
     }
   }
 
+  let _cachedKeySecurityInfo = null;
+
   async function getKeySecurityInfo() {
     const ks = _getNativeAndroidKeystore();
     if (!ks) {
-      return {
+      _cachedKeySecurityInfo = {
         available: false,
         hardwareBacked: false,
         securityLevel: 'software',
         backend: getKeystoreBackend()
       };
+      return _cachedKeySecurityInfo;
     }
     try {
+      let res;
       if (typeof ks.getKeySecurityInfo === 'function') {
-        const res = await ks.getKeySecurityInfo();
-        return {
-          available: Boolean(res && res.available),
-          hardwareBacked: Boolean(res && res.hardwareBacked),
-          securityLevel: res?.securityLevel || (res?.hardwareBacked ? 'tee' : 'software'),
-          alias: res?.alias || 'eg_nexus_master_key_v1',
-          backend: 'AndroidKeyStore'
-        };
+        res = await ks.getKeySecurityInfo();
+      } else {
+        res = await ks.isAvailable();
       }
-      const res = await ks.isAvailable();
-      return {
+      const rawLevel = res?.securityLevel || (res?.hardwareBacked ? 'tee' : 'software');
+      const isHw = Boolean(res && res.hardwareBacked && (rawLevel === 'strongbox' || rawLevel === 'tee'));
+      _cachedKeySecurityInfo = {
         available: Boolean(res && res.available),
-        hardwareBacked: Boolean(res && res.hardwareBacked),
-        securityLevel: res?.securityLevel || (res?.hardwareBacked ? 'tee' : 'software'),
+        hardwareBacked: isHw,
+        securityLevel: rawLevel,
         alias: res?.alias || 'eg_nexus_master_key_v1',
         backend: 'AndroidKeyStore'
       };
+      return _cachedKeySecurityInfo;
     } catch (err) {
-      return {
+      _cachedKeySecurityInfo = {
         available: false,
         hardwareBacked: false,
         securityLevel: 'software',
         error: err.message,
         backend: 'AndroidKeyStore'
       };
+      return _cachedKeySecurityInfo;
+    }
+  }
+
+  async function migrateKeyToStrongBox() {
+    const ks = _getNativeAndroidKeystore();
+    if (!ks || typeof ks.migrateKeyToStrongBox !== 'function') {
+      return { migrated: false, reason: 'Native Android KeyStore StrongBox plugin not available' };
+    }
+    try {
+      const res = await ks.migrateKeyToStrongBox();
+      const secLevel = res?.securityLevel || 'software';
+      const isHw = Boolean(res && (secLevel === 'strongbox' || secLevel === 'tee'));
+      _cachedKeySecurityInfo = {
+        available: true,
+        hardwareBacked: isHw,
+        securityLevel: secLevel,
+        alias: 'eg_nexus_master_key_v1',
+        backend: 'AndroidKeyStore'
+      };
+      return res;
+    } catch (err) {
+      return { migrated: false, error: err.message };
     }
   }
 
@@ -1963,6 +1998,30 @@
     const isNativeAndroid = Boolean(nativeKs);
     const backend = getKeystoreBackend();
 
+    // Determine securityLevel and hardwareBacked strictly per audit G5 & local-first spec
+    let securityLevel = 'software';
+    let hardwareBacked = false;
+    if (isNativeAndroid) {
+      if (_cachedKeySecurityInfo && _cachedKeySecurityInfo.securityLevel) {
+        securityLevel = _cachedKeySecurityInfo.securityLevel;
+      } else if (typeof nativeKs.securityLevel === 'string') {
+        securityLevel = nativeKs.securityLevel;
+      } else if (nativeKs.hardwareBacked === true && (!nativeKs.securityLevel || nativeKs.securityLevel === 'tee')) {
+        securityLevel = 'tee';
+      } else if (nativeKs.hardwareBacked === true && nativeKs.securityLevel === 'strongbox') {
+        securityLevel = 'strongbox';
+      } else {
+        securityLevel = 'software';
+      }
+      hardwareBacked = Boolean(securityLevel === 'strongbox' || securityLevel === 'tee');
+    } else if (hasWebCrypto) {
+      securityLevel = 'webcrypto';
+      hardwareBacked = false;
+    } else {
+      securityLevel = 'software';
+      hardwareBacked = false;
+    }
+
     if (_degradedPersistence || idbOpenFailed) {
       return {
         ok: false,
@@ -1972,8 +2031,9 @@
         hasWebCrypto,
         hasNodeCrypto,
         isNativeAndroid,
-        hardwareBacked: isNativeAndroid,
-        hardwareKeystoreAvailable: isNativeAndroid,
+        hardwareBacked,
+        hardwareKeystoreAvailable: hardwareBacked,
+        securityLevel,
         keystoreBackend: backend,
         activePendingCount,
         writeEpoch,
@@ -1984,7 +2044,9 @@
     }
 
     const hasIdb = Boolean(idbFactory);
-    const mode = isNativeAndroid ? 'android-keystore-hardware' : (hasIdb ? 'idb-webcrypto-non-extractable' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded'));
+    const mode = isNativeAndroid
+      ? (hardwareBacked ? 'android-keystore-hardware' : 'android-keystore-software')
+      : (hasIdb ? 'idb-webcrypto-non-extractable' : (hasWebCrypto || hasNodeCrypto ? 'session-memory-only' : 'degraded'));
     return {
       ok: Boolean(hasWebCrypto || hasNodeCrypto || isNativeAndroid),
       degradedPersistence: false,
@@ -1992,8 +2054,9 @@
       hasWebCrypto,
       hasNodeCrypto,
       isNativeAndroid,
-      hardwareBacked: isNativeAndroid,
-      hardwareKeystoreAvailable: isNativeAndroid,
+      hardwareBacked,
+      hardwareKeystoreAvailable: hardwareBacked,
+      securityLevel,
       keystoreBackend: backend,
       mode,
       activePendingCount,
@@ -2597,6 +2660,7 @@
     resetSessionWriteQueue,
     getSecretVaultHealth,
     getKeySecurityInfo,
+    migrateKeyToStrongBox,
     isHardwareKeystoreAvailable,
     getKeystoreBackend,
     applySessionSecrets,

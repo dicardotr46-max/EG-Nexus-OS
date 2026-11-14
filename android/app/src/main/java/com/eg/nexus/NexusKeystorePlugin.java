@@ -153,6 +153,62 @@ public class NexusKeystorePlugin extends Plugin {
     }
 
     @PluginMethod
+    public synchronized void migrateKeyToStrongBox(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            ret.put("migrated", false);
+            ret.put("reason", "StrongBox requires Android P (API 28) or higher");
+            call.resolve(ret);
+            return;
+        }
+        try {
+            KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
+            keyStore.load(null);
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                SecretKey currentKey = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+                JSObject sec = inspectKeySecurity(currentKey);
+                String currentLevel = sec.getString("securityLevel");
+                if ("strongbox".equalsIgnoreCase(currentLevel)) {
+                    ret.put("migrated", false);
+                    ret.put("alreadyStrongBox", true);
+                    ret.put("securityLevel", "strongbox");
+                    call.resolve(ret);
+                    return;
+                }
+                // Attempt upgrade: delete old non-StrongBox key and generate new StrongBox-backed key
+                keyStore.deleteEntry(KEY_ALIAS);
+                try {
+                    SecretKey newKey = generateSecretKey(true);
+                    JSObject newSec = inspectKeySecurity(newKey);
+                    ret.put("migrated", true);
+                    ret.put("securityLevel", newSec.getString("securityLevel"));
+                    ret.put("hardwareBacked", Boolean.TRUE.equals(newSec.getBool("hardwareBacked")));
+                    call.resolve(ret);
+                    return;
+                } catch (Exception ex) {
+                    SecretKey fallbackKey = generateSecretKey(false);
+                    JSObject fbSec = inspectKeySecurity(fallbackKey);
+                    ret.put("migrated", false);
+                    ret.put("error", "StrongBox upgrade failed: " + ex.getMessage());
+                    ret.put("securityLevel", fbSec.getString("securityLevel"));
+                    call.resolve(ret);
+                    return;
+                }
+            } else {
+                SecretKey newKey = getOrCreateSecretKey();
+                JSObject newSec = inspectKeySecurity(newKey);
+                ret.put("migrated", true);
+                ret.put("securityLevel", newSec.getString("securityLevel"));
+                call.resolve(ret);
+            }
+        } catch (Exception e) {
+            ret.put("migrated", false);
+            ret.put("error", e.getMessage());
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
     public void encrypt(PluginCall call) {
         String plaintext = call.getString("data");
         if (plaintext == null) {

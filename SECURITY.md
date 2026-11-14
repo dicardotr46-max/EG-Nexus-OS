@@ -6,6 +6,7 @@ We actively maintain and provide security patches for the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 6.2.x   | :white_check_mark: |
 | 6.1.x   | :white_check_mark: |
 | 6.0.x   | :white_check_mark: |
 | < 6.0   | :x:                |
@@ -32,7 +33,7 @@ EG Nexus OS enforces multi-layer defense-in-depth across the application boundar
 
 We take the security of EG Nexus OS seriously. If you discover a security vulnerability, please report it privately:
 
-- **Email:** security@eg-nexus.local (or submit a GitHub Private Vulnerability Report)
+- **GitHub Private Vulnerability Advisory:** [Report a Vulnerability](https://github.com/dicardotr46-max/EG-Nexus-OS/security/advisories/new)
 - **Response Timeline:** Initial acknowledgement within 24 hours; status updates within 72 hours.
 - **Disclosure Policy:** Coordinated vulnerability disclosure (CVD) allows a minimum 30-day window for remediation prior to public disclosure.
 

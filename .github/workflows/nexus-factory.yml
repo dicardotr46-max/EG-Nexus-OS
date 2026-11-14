@@ -1,4 +1,4 @@
-name: EG Nexus OS v6.1.1 - Auto Audit & Signed APK Factory
+name: EG Nexus OS v6.2.0 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.1.1..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.2.0..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -70,7 +70,7 @@ jobs:
           echo "🧪 Running full Jest test suite with coverage thresholds..."
           npm test -- --coverage --coverageReporters="json-summary" --coverageReporters="text"
 
-      - name: 8. Fast Core Module Mutation Verification Harness
+      - name: 8. Security Mutation & Regression Verification
         run: |
           echo "🧬 Running core security mutation verification..."
           npm run test:mutation
@@ -189,7 +189,7 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
 
           mkdir -p dist
-          SIGNED_APK="dist/EG-Nexus-OS-v6.1-release-signed.apk"
+          SIGNED_APK="dist/EG-Nexus-OS-v6.2-release-signed.apk"
 
           if $BUILD_TOOLS_DIR/zipalign -c -v 4 "$UNSIGNED_APK" >/dev/null 2>&1; then
             echo "APK is already 4-byte zipaligned."
@@ -215,8 +215,8 @@ jobs:
       - name: 10. Upload Ready-to-Install Signed Android APK
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
-          name: EG-Nexus-OS-v6.1-Signed-APK
-          path: dist/EG-Nexus-OS-v6.1-release-signed.apk
+          name: EG-Nexus-OS-v6.2-Signed-APK
+          path: dist/EG-Nexus-OS-v6.2-release-signed.apk
           retention-days: 30
 
   publish-release:
@@ -236,17 +236,17 @@ jobs:
       - name: 2. Download Built Signed APK Artifact
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
-          name: EG-Nexus-OS-v6.1-Signed-APK
+          name: EG-Nexus-OS-v6.2-Signed-APK
 
       - name: 3. Prepare APK, Checksum and SBOM Provenance
         run: |
           mkdir -p dist
-          cp EG-Nexus-OS-v6.1-release-signed.apk EG-Nexus-OS-v6.1.apk
-          sha256sum EG-Nexus-OS-v6.1.apk > EG-Nexus-OS-v6.1.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.1.apk.sha256)
+          cp EG-Nexus-OS-v6.2-release-signed.apk EG-Nexus-OS-v6.2.apk
+          sha256sum EG-Nexus-OS-v6.2.apk > EG-Nexus-OS-v6.2.apk.sha256
+          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.2.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.1.1-${GITHUB_SHA}"
+          RELEASE_TAG="v6.2.0-${GITHUB_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -260,7 +260,7 @@ jobs:
             "timestamp": "${BUILD_TIMESTAMP}",
             "artifacts": {
               "apk": {
-                "name": "EG-Nexus-OS-v6.1.apk",
+                "name": "EG-Nexus-OS-v6.2.apk",
                 "sha256": "${APK_SHA256}"
               }
             },
@@ -283,12 +283,12 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.1.1 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v6.2.0 (${{ env.SHORT_SHA }})"
           make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v6.1.1`
+            - **Release Version:** `v6.2.0`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**
@@ -300,7 +300,7 @@ jobs:
             - **Immutable Version Tag (`${{ env.RELEASE_TAG }}`):**
               Serves as a tamper-evident, permanent audit anchor frozen to commit `${{ github.sha }}`. Guarantees immutable provenance, rollback reproducibility, and verifiable Software Bill of Materials (SBOM) lineage.
           files: |
-            EG-Nexus-OS-v6.1.apk
-            EG-Nexus-OS-v6.1.apk.sha256
+            EG-Nexus-OS-v6.2.apk
+            EG-Nexus-OS-v6.2.apk.sha256
             dist/sbom-provenance.json
             dist/sbom.cdx.json

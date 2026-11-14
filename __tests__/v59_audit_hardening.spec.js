@@ -407,12 +407,16 @@ describe('EG-Nexus-OS v5.9.0 Audit Hardening & Feature Suite', () => {
     });
 
     it('returns 200 when exact required scope is granted and approved', async () => {
+      const approvalToken = registry.issueApprovalToken({
+        providerId: 'gmail',
+        action: 'send'
+      });
       const resValid = await registry.executeProviderRequest({
         providerId: 'gmail',
         action: 'send',
         token: 'valid_oauth_access_token_123',
         grantedScopes: ['https://www.googleapis.com/auth/gmail.send'],
-        approved: true,
+        approvalToken,
         executeFn: async () => ({ id: 'msg_98765', threadId: 'thread_123' })
       });
       expect(resValid.status).toBe(200);

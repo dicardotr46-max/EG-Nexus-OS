@@ -29,6 +29,8 @@ describe('Coverage Boost Suite', () => {
     test('executeProviderRequest succeeds without executeFn', async () => {
       const res = await registry.executeProviderRequest({
         providerId: 'github',
+        action: 'read',
+        grantedScopes: ['repo'],
         token: 'valid_token'
       });
       expect(res.status).toBe(200);
@@ -38,6 +40,8 @@ describe('Coverage Boost Suite', () => {
     test('executeProviderRequest formats errors from failing executeFn', async () => {
       const res = await registry.executeProviderRequest({
         providerId: 'github',
+        action: 'read',
+        grantedScopes: ['repo'],
         token: 'valid_token',
         executeFn: async () => {
           const err = new Error('500 Internal Server Error');
@@ -110,7 +114,7 @@ describe('Coverage Boost Suite', () => {
         executeFn: async () => ({ pushed: true })
       });
       expect(res2.status).toBe(403);
-      expect(res2.error).toBe('INVALID_APPROVAL_TOKEN');
+      expect(res2.error).toBe('APPROVAL_REQUIRED');
     });
 
     test('getRequiredScope and getGoogleScopes handle unknown keys', () => {

@@ -290,7 +290,7 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
         approvalToken: 'invalid_token_id'
       });
       expect(resBad.status).toBe(403);
-      expect(resBad.error).toBe('INVALID_APPROVAL_TOKEN');
+      expect(resBad.error).toBe('APPROVAL_REQUIRED');
     });
 
     test('validateProviderScope exhaustive branch coverage', () => {
@@ -383,6 +383,177 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
       const sta1 = require('../src/state.js');
       const sta2 = require('../src/core/state.js');
       expect(sta1).toBe(sta2);
+    });
+  });
+
+  describe('v6.2 Canonical Hashing and StrongBox Migration', () => {
+    test('approvals and registry _sha256Pure executes pure JS hash loop', () => {
+      const approvals = require('../src/security/approvals.js');
+      const registry = require('../src/providers/registry.js');
+      const data = new Uint8Array([101, 103, 45, 110, 101, 120, 117, 115]); // "eg-nexus"
+      const hApp = approvals._sha256Pure(data);
+      const hReg = registry._sha256Pure(data);
+      expect(hApp instanceof Uint8Array).toBe(true);
+      expect(hApp.length).toBe(32);
+      expect(hApp).toEqual(hReg);
+
+      // Exercise canonicalizeJson on nested objects, arrays, primitives, null, undefined
+      const obj = { z: [1, { b: 2, a: 1 }], a: 'test', c: null, d: undefined };
+      const c1 = approvals.canonicalizeJson(obj);
+      const c2 = registry.canonicalizeJson(obj);
+      expect(c1).toBe(c2);
+      expect(c1).toBe('{"a":"test","c":null,"z":[1,{"a":1,"b":2}]}');
+
+      // Test _generateTokenNonce
+      expect(typeof approvals._generateTokenNonce()).toBe('string');
+      expect(typeof registry._generateTokenNonce()).toBe('string');
+    });
+
+    test('secrets migrateKeyToStrongBox handles all branches', async () => {
+      const secrets = require('../src/security/secrets.js');
+      // When plugin not available
+      delete global.window;
+      const resNoPlugin = await secrets.migrateKeyToStrongBox();
+      expect(resNoPlugin.migrated).toBe(false);
+
+      // When plugin available and succeeds
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: {
+              migrateKeyToStrongBox: async () => ({ migrated: true, securityLevel: 'strongbox' })
+            }
+          }
+        }
+      };
+      const resOk = await secrets.migrateKeyToStrongBox();
+      expect(resOk.migrated).toBe(true);
+      expect(resOk.securityLevel).toBe('strongbox');
+
+      // Check vault health reflects strongbox
+      const health = secrets.getSecretVaultHealth();
+      expect(health.hardwareBacked).toBe(true);
+      expect(health.securityLevel).toBe('strongbox');
+
+      // Test vault health with software securityLevel
+      global.window.Capacitor.Plugins.NexusKeystore.securityLevel = 'software';
+      global.window.Capacitor.Plugins.NexusKeystore.hardwareBacked = false;
+      // Clear cached info to exercise nativeKs properties
+      await secrets.getKeySecurityInfo();
+      const healthSw = secrets.getSecretVaultHealth();
+      expect(healthSw.hardwareBacked).toBe(false);
+      expect(healthSw.securityLevel).toBe('software');
+
+      // When plugin throws
+      global.window.Capacitor.Plugins.NexusKeystore.migrateKeyToStrongBox = async () => {
+        throw new Error('StrongBox unavailable');
+      };
+      const resErr = await secrets.migrateKeyToStrongBox();
+      expect(resErr.migrated).toBe(false);
+      expect(resErr.error).toContain('StrongBox unavailable');
+    });
+
+    test('exhaustive branch coverage for canonicalizeJson and _hashParams', async () => {
+      const approvals = require('../src/security/approvals.js');
+      const registry = require('../src/providers/registry.js');
+
+      // Empty / falsy params
+      expect(approvals._hashParams(null)).toBe('');
+      expect(approvals._hashParams('')).toBe('');
+      expect(approvals._hashParams(undefined)).toBe('');
+      expect(registry._hashParams(null)).toBe('');
+      expect(registry._hashParams('')).toBe('');
+      expect(registry._hashParams(undefined)).toBe('');
+
+      // String params
+      const hStrApp = approvals._hashParams('direct_string_params');
+      const hStrReg = registry._hashParams('direct_string_params');
+      expect(hStrApp).toBe(hStrReg);
+      expect(hStrApp.length).toBe(64);
+
+      // Primitives and function/symbol filtering in canonicalizeJson
+      expect(approvals.canonicalizeJson(null)).toBe('null');
+      expect(approvals.canonicalizeJson(42)).toBe('42');
+      expect(approvals.canonicalizeJson(true)).toBe('true');
+      expect(approvals.canonicalizeJson('hello')).toBe('"hello"');
+      expect(approvals.canonicalizeJson([null, undefined, 42])).toBe('[null,null,42]');
+      expect(approvals.canonicalizeJson({
+        fn: () => {},
+        sym: Symbol('x'),
+        valid: 'ok'
+      })).toBe('{"valid":"ok"}');
+
+      // executeProviderRequest with authType === 'none' without scopes or token
+      const resNoAuth = await registry.executeProviderRequest({
+        providerId: 'web_search',
+        action: 'search',
+        executeFn: async () => ({ searched: true })
+      });
+      expect(resNoAuth.status).toBe(200);
+
+      // executeProviderRequest sensitive action without approvalToken returns 403 APPROVAL_REQUIRED
+      let gateCalled = false;
+      const resSensitiveNoTok = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'push',
+        token: 'tok_123',
+        grantedScopes: ['repo'],
+        approvalGateHandler: () => { gateCalled = true; }
+      });
+      expect(resSensitiveNoTok.status).toBe(403);
+      expect(resSensitiveNoTok.error).toBe('APPROVAL_REQUIRED');
+      expect(gateCalled).toBe(true);
+
+      // executeProviderRequest with requireApproval: false on non-sensitive action succeeds
+      const resNonSens = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'read',
+        token: 'tok_123',
+        grantedScopes: ['repo'],
+        requireApproval: false,
+        executeFn: async () => ({ read: true })
+      });
+      expect(resNonSens.status).toBe(200);
+
+      // Thorough branch coverage for token validation & expiry
+      const t1 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      expect(approvals.consumeApprovalToken(null)).toBe(false);
+      expect(approvals.consumeApprovalToken(123)).toBe(false);
+      expect(approvals.consumeApprovalToken('non_existent_token')).toBe(false);
+      expect(approvals.consumeApprovalToken(t1, { providerId: 'wrong_provider' })).toBe(false);
+
+      const t2 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      expect(approvals.consumeApprovalToken(t2, { action: 'wrong_action' })).toBe(false);
+
+      const t3 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      expect(approvals.consumeApprovalToken(t3, { paramsHash: 'wrong_hash' })).toBe(false);
+
+      const t4 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      expect(approvals.consumeApprovalToken(t4, { params: { a: 999 } })).toBe(false);
+
+      // Verify token branches
+      expect(approvals.verifyApprovalToken(null)).toBe(false);
+      expect(approvals.verifyApprovalToken(123)).toBe(false);
+      expect(approvals.verifyApprovalToken('non_existent')).toBe(false);
+
+      // Registry token branches
+      expect(registry.consumeApprovalToken(null)).toBe(false);
+      expect(registry.consumeApprovalToken(123)).toBe(false);
+      expect(registry.consumeApprovalToken('non_existent_token')).toBe(false);
+      expect(registry.verifyApprovalToken(null)).toBe(false);
+      expect(registry.verifyApprovalToken(123)).toBe(false);
+      expect(registry.verifyApprovalToken('non_existent')).toBe(false);
+
+      // Expired token branch
+      const tExp = approvals.issueApprovalToken({ providerId: 'github', action: 'push' });
+      const rawExp = global.__nexusApprovalTokens.get(tExp);
+      if (rawExp) rawExp.expiresAt = Date.now() - 1000;
+      expect(approvals.verifyApprovalToken(tExp)).toBe(false);
+
+      const tExp2 = registry.issueApprovalToken({ providerId: 'github', action: 'push' });
+      const rawExp2 = global.__nexusApprovalTokens.get(tExp2);
+      if (rawExp2) rawExp2.expiresAt = Date.now() - 1000;
+      expect(registry.consumeApprovalToken(tExp2)).toBe(false);
     });
   });
 });

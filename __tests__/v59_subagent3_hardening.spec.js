@@ -54,12 +54,16 @@ describe('EG-Nexus-OS v5.9.0 Subagent 3 Hardening Suite', () => {
     });
 
     test('succeeds through scope validation when appropriate scope is granted', async () => {
+      const approvalToken = registry.issueApprovalToken({
+        providerId: 'gmail',
+        action: 'send'
+      });
       const result = await registry.executeProviderRequest({
         providerId: 'gmail',
         action: 'send',
         token: 'test-tok',
         grantedScopes: ['https://www.googleapis.com/auth/gmail.send'],
-        approved: true,
+        approvalToken,
         executeFn: async () => ({ sent: true })
       });
       expect(result.status).toBe(200);

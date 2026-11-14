@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.1.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.2.0 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -24292,7 +24292,7 @@ entropy -= p * Math.log2(p);
 
 
 function verifyWorkerSecretTimingSafe(provided, expected) {
-  if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 8) {
+  if (typeof provided !== "string" || typeof expected !== "string" || !provided || expected.trim().length < 32) {
     return false;
   }
   const enc = new TextEncoder();
@@ -24315,7 +24315,7 @@ function verifyWorkerSecretTimingSafe(provided, expected) {
 
 
 async function verifyWebhookHmacSha256(rawBodyText, signatureHeader, secret) {
-  if (!rawBodyText || !signatureHeader || !secret || String(secret).trim().length < 8) return false;
+  if (!rawBodyText || !signatureHeader || !secret || String(secret).trim().length < 32) return false;
   try {
 const cleanSig = String(signatureHeader).trim().replace(/^sha256=/i, "").toLowerCase();
 if (!/^[0-9a-f]{64}$/.test(cleanSig)) return false;
@@ -29902,6 +29902,79 @@ if (typeof document !== 'undefined') {
       'ffmpeg -version', 'ffprobe -version'
     ]);
     const SHELL_CHAINING_REGEX = /[;|\`$><]|&&|\|\||\$\(/;
+    const DANGEROUS_AGENT_FLAGS_REGEX = /(?:^|\s)(?:-c|-e|--eval|--prefix|push|run)(?:\s|$)/i;
+
+    function validateStructuredTermuxCommand(rawCmd) {
+      const cmd = String(rawCmd || '').trim();
+      if (!cmd) return { ok: false, error: 'دستور ترمینال خالی است' };
+      if (SHELL_CHAINING_REGEX.test(cmd)) {
+        return { ok: false, error: 'کاراکترهای زنجیره‌سازی شل (;, &&, ||, |, `, $()) در فراخوانی‌های خودکار ایجنت مسدود است' };
+      }
+      if (DANGEROUS_AGENT_FLAGS_REGEX.test(cmd)) {
+        return { ok: false, error: 'فلگ‌های خطرناک (-c, -e, --eval, --prefix, push, run) در حالت خودکار ایجنت مسدود است' };
+      }
+      const tokens = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+      const cleanTokens = tokens.map(t => (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")) ? t.slice(1, -1) : t);
+      const bin = (cleanTokens[0] || '').toLowerCase();
+      const args = cleanTokens.slice(1);
+
+      if (bin === 'git') {
+        const sub = args[0] || '';
+        if (sub === 'status') {
+          const allowed = new Set(['status', '--short', '-s', '--branch', '-b']);
+          const bad = args.find(a => !allowed.has(a));
+          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای git status: ${bad}` };
+          return { ok: true, tool: 'git_status' };
+        }
+        if (sub === 'diff') {
+          const allowed = new Set(['diff', '--stat', '--name-only', '--shortstat']);
+          const bad = args.find(a => !allowed.has(a));
+          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای git diff: ${bad}` };
+          return { ok: true, tool: 'git_diff' };
+        }
+        if (sub === 'log' || sub === 'branch') {
+          return { ok: true, tool: 'git_' + sub };
+        }
+        return { ok: false, error: `زیرفرمان git ${sub} در حالت خودکار مجاز نیست` };
+      }
+
+      if (bin === 'npm') {
+        const sub = args[0] || '';
+        if (sub === 'test') {
+          const allowed = new Set(['test', '--', '--runInBand', '-t', '--bail']);
+          const bad = args.find(a => !allowed.has(a));
+          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای npm test: ${bad}` };
+          return { ok: true, tool: 'npm_test' };
+        }
+        if (sub === 'audit') {
+          const allowed = new Set(['audit', '--json', '--audit-level=high', '--audit-level=moderate']);
+          const bad = args.find(a => !allowed.has(a));
+          if (bad) return { ok: false, error: `آرگومان غیرمجاز برای npm audit: ${bad}` };
+          return { ok: true, tool: 'npm_audit' };
+        }
+        return { ok: false, error: `دستور npm ${sub} در حالت خودکار مجاز نیست` };
+      }
+
+      if (bin === 'python' || bin === 'python3') {
+        const script = args[0] || '';
+        if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py' || script === '--version') {
+          return { ok: true, tool: 'python_audit' };
+        }
+        return { ok: false, error: `اجرای اسکریپت پایتون به اسکریپت‌های ممیزی محدود است: ${script}` };
+      }
+
+      if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
+        for (const arg of args) {
+          if (arg.startsWith('-')) continue;
+          if (arg.includes('..') || arg.startsWith('/') || arg.startsWith('\\') || arg.startsWith('~')) {
+            return { ok: false, error: `مسیر فایل خارج از دایرکتوری کاری رد شد: ${arg}` };
+          }
+        }
+        return { ok: true, tool: 'read_workspace_file' };
+      }
+
+      return { ok: false, error: `دستور در ابزارهای ساختاریافته (TERMUX_STRUCTURED_TOOLS) مجاز نیست: ${bin}` };
+    }
 
     // پیش‌فرض Fail-Closed: isUserInitiated = false تا هیچ فراخوانی خودکاری بدون تأیید کاربر از سد if_requested عبور نکند!
     async function executeLocalTermuxCommand(cmdOverride, isUserInitiated = false) {
@@ -29934,16 +30007,9 @@ if (typeof document !== 'undefined') {
       }
 
       if (!isUserInitiated) {
-        if (SHELL_CHAINING_REGEX.test(cmd)) {
-          showToast('⛔ کاراکترهای زنجیره‌سازی شل (;, &&, ||, |, `, $()) در فراخوانی‌های خودکار ایجنت مسدود است');
-          return false;
-        }
-        const cleanCmd = cmd.trim();
-        const isWhitelisted = TERMUX_ALLOWED_COMMANDS.some(allowed => {
-          return cleanCmd === allowed || cleanCmd.startsWith(allowed + ' ');
-        });
-        if (!isWhitelisted) {
-          showToast('⛔ دستور در لیست سفید خودکار ایجنت (TERMUX_ALLOWED_COMMANDS) نیست؛ اجرای خودکار مسدود شد');
+        const structRes = validateStructuredTermuxCommand(cmd);
+        if (!structRes.ok) {
+          showToast(`⛔ نقض خط‌مشی ابزار خودکار: ${structRes.error}`);
           return false;
         }
       }
@@ -30691,9 +30757,76 @@ http.createServer((req, res) => {
         spawnBin = cleanTokens[0] || 'echo';
         spawnArgs = cleanTokens.slice(1);
 
-        if (isAutomatedAgent && !TERMUX_ALLOWED_COMMANDS.includes(spawnBin.toLowerCase())) {
-          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-          return res.end(JSON.stringify({ ok: false, error: 'Command binary not in TERMUX_ALLOWED_COMMANDS whitelist: ' + spawnBin }));
+        if (isAutomatedAgent) {
+          const bin = spawnBin.toLowerCase();
+          const dFlags = /^(?:-c|-e|--eval|--prefix|push|run)$/i;
+          for (let ai = 0; ai < spawnArgs.length; ai++) {
+            if (dFlags.test(spawnArgs[ai])) {
+              res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+              return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: Dangerous flag rejected: ' + spawnArgs[ai] }));
+            }
+          }
+          let toolOk = false;
+          let policyReason = '';
+          if (bin === 'git') {
+            const sub = spawnArgs[0] || '';
+            if (sub === 'status') {
+              const allowedArgs = new Set(['status', '--short', '-s', '--branch', '-b']);
+              const bad = spawnArgs.find(a => !allowedArgs.has(a));
+              if (bad) policyReason = 'git status argument disallowed: ' + bad;
+              else toolOk = true;
+            } else if (sub === 'diff') {
+              const allowedArgs = new Set(['diff', '--stat', '--name-only', '--shortstat']);
+              const bad = spawnArgs.find(a => !allowedArgs.has(a));
+              if (bad) policyReason = 'git diff argument disallowed: ' + bad;
+              else toolOk = true;
+            } else if (sub === 'log' || sub === 'branch') {
+              toolOk = true;
+            } else {
+              policyReason = 'git subcommand not in structured whitelist: ' + sub;
+            }
+          } else if (bin === 'npm') {
+            const sub = spawnArgs[0] || '';
+            if (sub === 'test') {
+              const allowedArgs = new Set(['test', '--', '--runInBand', '-t', '--bail']);
+              const bad = spawnArgs.find(a => !allowedArgs.has(a));
+              if (bad) policyReason = 'npm test argument disallowed: ' + bad;
+              else toolOk = true;
+            } else if (sub === 'audit') {
+              const allowedArgs = new Set(['audit', '--json', '--audit-level=high', '--audit-level=moderate']);
+              const bad = spawnArgs.find(a => !allowedArgs.has(a));
+              if (bad) policyReason = 'npm audit argument disallowed: ' + bad;
+              else toolOk = true;
+            } else {
+              policyReason = 'npm command not in structured whitelist: ' + sub;
+            }
+          } else if (bin === 'python' || bin === 'python3') {
+            const script = spawnArgs[0] || '';
+            if (script === 'full_app_audit.py' || script === 'test_full_app_audit.py' || script === '--version') {
+              toolOk = true;
+            } else {
+              policyReason = 'Python script execution restricted to audit scripts: ' + script;
+            }
+          } else if (['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'].includes(bin)) {
+            let pathEscape = false;
+            for (let ai = 0; ai < spawnArgs.length; ai++) {
+              const arg = spawnArgs[ai];
+              if (arg.startsWith('-')) continue;
+              if (arg.includes('..') || arg.startsWith('/') || arg.startsWith('\\\\') || arg.startsWith('~')) {
+                pathEscape = true;
+                policyReason = 'External or relative path traversal rejected: ' + arg;
+                break;
+              }
+            }
+            if (!pathEscape) toolOk = true;
+          } else {
+            policyReason = 'Command binary not in TERMUX_STRUCTURED_TOOLS whitelist: ' + bin;
+          }
+
+          if (!toolOk) {
+            res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: ' + policyReason }));
+          }
         }
 
         spawnOpts = {

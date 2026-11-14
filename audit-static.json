@@ -1,8 +1,8 @@
 {
   "file": "index.html",
-  "lines": 32122,
-  "script_bytes": 1515459,
-  "function_count": 813,
+  "lines": 32255,
+  "script_bytes": 1522108,
+  "function_count": 814,
   "interactive_element_count": 58,
   "target_hits": {
     "bottom_mode_bar": {
@@ -699,18 +699,18 @@
     }
   ],
   "test_summary": {
-    "passed_tests": 569,
-    "total_tests": 569,
+    "passed_tests": 579,
+    "total_tests": 579,
     "passed_suites": 26,
     "total_suites": 26,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
   "coverage_summary": {
-    "lines_pct": 89.29,
-    "statements_pct": 87.8,
-    "functions_pct": 91.18,
-    "branches_pct": 80.27
+    "lines_pct": 89.5,
+    "statements_pct": 88.18,
+    "functions_pct": 91.24,
+    "branches_pct": 80.17
   },
   "npm_audit": {
     "vulnerabilities": 0,
