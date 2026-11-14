@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.2.3 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.2.4 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -3351,11 +3351,33 @@ body > header,
 
     // Wire directly to unified singleton from src/security/approvals.js
     function triggerApprovalGate(reason, onApprove, onReject) {
+      const NPM_TEST_WARNING = 'هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.';
+      let processedReason = reason;
+      if (typeof reason === 'string') {
+        if (/npm[_\s]+test\b/i.test(reason) && !reason.includes(NPM_TEST_WARNING)) {
+          processedReason = reason + ' — ' + NPM_TEST_WARNING;
+        }
+      } else if (typeof reason === 'object' && reason !== null) {
+        const action = String(reason.action || reason.tool || reason.target || reason.targetAction || '');
+        const msg = String(reason.reason || reason.text || reason.message || '');
+        if ((action === 'npm_test' || /npm[_\s]+test\b/i.test(msg) || /npm[_\s]+test\b/i.test(action)) && !msg.includes(NPM_TEST_WARNING)) {
+          processedReason = {
+            ...reason,
+            action: action || 'npm_test',
+            target: action || 'npm_test',
+            targetAction: action || 'npm_test',
+            riskLevel: 'high_risk',
+            requiresApproval: true,
+            reason: (msg ? msg + ' — ' : '') + NPM_TEST_WARNING,
+            text: (msg ? msg + ' — ' : '') + NPM_TEST_WARNING
+          };
+        }
+      }
       if (typeof window !== 'undefined' && window.NexusApprovals && typeof window.NexusApprovals.triggerApprovalGate === 'function') {
-        return window.NexusApprovals.triggerApprovalGate(reason, onApprove, onReject);
+        return window.NexusApprovals.triggerApprovalGate(processedReason, onApprove, onReject);
       }
       if (typeof window !== 'undefined' && window.NexusCore && typeof window.NexusCore.triggerApprovalGate === 'function') {
-        return window.NexusCore.triggerApprovalGate(reason, onApprove, onReject);
+        return window.NexusCore.triggerApprovalGate(processedReason, onApprove, onReject);
       }
       const ui = (typeof getUiState === 'function')
         ? getUiState()
@@ -3390,30 +3412,36 @@ body > header,
         approvalId = 'appr_' + Date.now().toString(36) + '_' + (ui.pendingApprovalQueue.length + 1);
       }
 
-      if (typeof reason === 'object' && reason !== null) {
-        const reasonText = String(reason.reason || reason.text || reason.message || '');
-        const actionName = String(reason.action || reason.target || reason.targetAction || '');
-        const id = String(reason.id || approvalId);
+      if (typeof processedReason === 'object' && processedReason !== null) {
+        const reasonText = String(processedReason.reason || processedReason.text || processedReason.message || '');
+        const actionName = String(processedReason.action || processedReason.target || processedReason.targetAction || '');
+        const isNpm = actionName === 'npm_test' || /npm[_\s]+test\b/i.test(reasonText);
+        const id = String(processedReason.id || approvalId);
         item = Object.freeze({
-          ...reason,
+          ...processedReason,
           id,
           reason: reasonText,
           text: reasonText,
           action: actionName,
           target: actionName,
           targetAction: actionName,
-          onApprove: reason.onApprove || onApprove,
-          onReject: reason.onReject || onReject
+          riskLevel: isNpm ? 'high_risk' : (processedReason.riskLevel || 'normal'),
+          requiresApproval: isNpm ? true : (processedReason.requiresApproval !== undefined ? processedReason.requiresApproval : true),
+          onApprove: processedReason.onApprove || onApprove,
+          onReject: processedReason.onReject || onReject
         });
       } else {
-        const reasonText = String(reason || '');
+        const reasonText = String(processedReason || '');
+        const isNpm = /npm[_\s]+test\b/i.test(reasonText);
         item = Object.freeze({
           id: approvalId,
           reason: reasonText,
           text: reasonText,
-          action: '',
-          target: '',
-          targetAction: '',
+          action: isNpm ? 'npm_test' : '',
+          target: isNpm ? 'npm_test' : '',
+          targetAction: isNpm ? 'npm_test' : '',
+          riskLevel: isNpm ? 'high_risk' : 'normal',
+          requiresApproval: true,
           onApprove,
           onReject
         });
@@ -3426,6 +3454,9 @@ body > header,
           let display = current.reason || current.text || '';
           if (current.action) display += ` [${current.action}]`;
           if (current.id && current.action) display += ` (${current.id})`;
+          if ((current.action === 'npm_test' || /npm[_\s]+test\b/i.test(display)) && !display.includes(NPM_TEST_WARNING)) {
+            display += '\n' + NPM_TEST_WARNING;
+          }
           txtEl.innerText = display;
         }
         document.getElementById('approvalGateBanner')?.classList.remove('hidden');
@@ -27149,6 +27180,15 @@ if (typeof document !== 'undefined') {
 
 
     function requestPhase5ConfirmModal({ title, message, confirmText = 'تأیید و اجرا', isDanger = false }) {
+      const NPM_TEST_WARNING = 'هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.';
+      let finalMessage = String(message || '');
+      let finalDanger = isDanger;
+      if (/npm[_\s]+test\b/i.test(finalMessage) || /npm[_\s]+test\b/i.test(String(title || ''))) {
+        finalDanger = true;
+        if (!finalMessage.includes(NPM_TEST_WARNING)) {
+          finalMessage = finalMessage ? (finalMessage + '\n\n⚠️ ' + NPM_TEST_WARNING) : ('⚠️ ' + NPM_TEST_WARNING);
+        }
+      }
       return new Promise(resolve => {
         if (typeof openNexusDialog === 'function' && typeof document !== 'undefined' && document.getElementById('settingsSubModal')) {
           let settled = false;
@@ -27165,10 +27205,10 @@ if (typeof document !== 'undefined') {
           };
           openNexusDialog({
             title: title || '🛡️ تأیید امنیتی فاز ۵',
-            message: message || 'آیا اجرای این عملیات را تأیید می‌کنید؟',
+            message: finalMessage || 'آیا اجرای این عملیات را تأیید می‌کنید؟',
             fields: [],
             confirmText,
-            isDanger,
+            isDanger: finalDanger,
             onConfirm: () => finish(true)
           });
           const modal = document.getElementById('settingsSubModal');
@@ -27194,7 +27234,7 @@ if (typeof document !== 'undefined') {
           return;
         }
         if (typeof confirm === 'function') {
-          resolve(Boolean(confirm(`${title || 'تأیید امنیتی'}\n\n${message || ''}`)));
+          resolve(Boolean(confirm(`${title || 'تأیید امنیتی'}\n\n${finalMessage || ''}`)));
           return;
         }
         resolve(false);
@@ -30008,22 +30048,23 @@ if (typeof document !== 'undefined') {
     }
 
 
-    const TERMUX_CAPABILITY_MATRIX = Object.freeze({
-      git_status: { tool: 'git_status', bin: 'git', allowedArgs: ['status', '--short', '-s', '--branch', '-b'] },
-      git_diff: { tool: 'git_diff', bin: 'git', allowedArgs: ['diff', '--stat', '--name-only', '--shortstat'] },
-      git_branch: { tool: 'git_branch', bin: 'git', allowedArgs: ['branch', '--show-current', '--list'] },
-      git_log: { tool: 'git_log', bin: 'git', allowedArgs: ['log', '--oneline', '--stat', '-n'] },
-      git_push_verified: { tool: 'git_push_verified', bin: 'git', allowedArgs: ['push', '-u', '--set-upstream', '--tags'] },
-      npm_test: { tool: 'npm_test', bin: 'npm', allowedArgs: ['test', '--', '--runInBand', '-t', '--bail'] },
-      npm_audit: { tool: 'npm_audit', bin: 'npm', allowedArgs: ['audit', '--json', '--audit-level=high', '--audit-level=moderate'] },
-      npm_install_locked: { tool: 'npm_install_locked', bin: 'npm', allowedArgs: ['ci', '--ignore-scripts'] },
-      grep_search: { tool: 'grep_search', bin: 'grep', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'] },
-      rg_search: { tool: 'rg_search', bin: 'rg', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'] },
-      ffprobe_inspect: { tool: 'ffprobe_inspect', bin: 'ffprobe', safeFlags: ['-v', 'error', '-show_format', '-show_streams', '-of', 'json'] },
-      ffmpeg_preset: { tool: 'ffmpeg_preset', bin: 'ffmpeg', presets: ['transcode_mp4_h264', 'extract_audio_mp3', 'compress_720p'] },
-      python_audit: { tool: 'python_audit', bin: 'python3', scripts: ['full_app_audit.py'] },
-      read_workspace_file: { tool: 'read_workspace_file', bins: ['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'] }
+    const TERMUX_STRUCTURED_TOOLS = Object.freeze({
+      git_status: { tool: 'git_status', bin: 'git', allowedArgs: ['status', '--short', '-s', '--branch', '-b'], riskLevel: 'read_only', requiresApproval: false },
+      git_diff: { tool: 'git_diff', bin: 'git', allowedArgs: ['diff', '--stat', '--name-only', '--shortstat'], riskLevel: 'read_only', requiresApproval: false },
+      git_branch: { tool: 'git_branch', bin: 'git', allowedArgs: ['branch', '--show-current', '--list'], riskLevel: 'read_only', requiresApproval: false },
+      git_log: { tool: 'git_log', bin: 'git', allowedArgs: ['log', '--oneline', '--stat', '-n'], riskLevel: 'read_only', requiresApproval: false },
+      git_push_verified: { tool: 'git_push_verified', bin: 'git', allowedArgs: ['push', '-u', '--set-upstream', '--tags'], riskLevel: 'high_risk', requiresApproval: true },
+      npm_test: { tool: 'npm_test', bin: 'npm', allowedArgs: ['test', '--', '--runInBand', '-t', '--bail'], riskLevel: 'high_risk', requiresApproval: true, warning: 'هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.' },
+      npm_audit: { tool: 'npm_audit', bin: 'npm', allowedArgs: ['audit', '--json', '--audit-level=high', '--audit-level=moderate'], riskLevel: 'read_only', requiresApproval: false },
+      npm_install_locked: { tool: 'npm_install_locked', bin: 'npm', allowedArgs: ['ci', '--ignore-scripts'], riskLevel: 'high_risk', requiresApproval: true },
+      grep_search: { tool: 'grep_search', bin: 'grep', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'], riskLevel: 'read_only', requiresApproval: false },
+      rg_search: { tool: 'rg_search', bin: 'rg', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'], riskLevel: 'read_only', requiresApproval: false },
+      ffprobe_inspect: { tool: 'ffprobe_inspect', bin: 'ffprobe', safeFlags: ['-v', 'error', '-show_format', '-show_streams', '-of', 'json'], riskLevel: 'read_only', requiresApproval: false },
+      ffmpeg_preset: { tool: 'ffmpeg_preset', bin: 'ffmpeg', presets: ['transcode_mp4_h264', 'extract_audio_mp3', 'compress_720p'], riskLevel: 'mutating', requiresApproval: true },
+      python_audit: { tool: 'python_audit', bin: 'python3', scripts: ['full_app_audit.py'], riskLevel: 'read_only', requiresApproval: false },
+      read_workspace_file: { tool: 'read_workspace_file', bins: ['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'], riskLevel: 'read_only', requiresApproval: false }
     });
+    const TERMUX_CAPABILITY_MATRIX = TERMUX_STRUCTURED_TOOLS;
 
     const TERMUX_ALLOWED_COMMANDS = Object.freeze([
       'git status', 'git log', 'git diff', 'git branch', 'git checkout', 'git pull', 'git add', 'git commit', 'git push',
@@ -30170,7 +30211,13 @@ if (typeof document !== 'undefined') {
           const allowed = new Set(['test', '--', '--runInBand', '-t', '--bail']);
           const bad = args.find(a => !allowed.has(a) && a.startsWith('-'));
           if (bad) return { ok: false, error: `آرگومان غیرمجاز برای npm test: ${bad}` };
-          return { ok: true, tool: 'npm_test' };
+          return {
+            ok: true,
+            tool: 'npm_test',
+            riskLevel: 'high_risk',
+            requiresApproval: true,
+            warning: 'هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.'
+          };
         }
         if (sub === 'audit') {
           const allowed = new Set(['audit', '--json', '--audit-level=high', '--audit-level=moderate']);
@@ -30341,11 +30388,13 @@ if (typeof document !== 'undefined') {
     }
 
     if (typeof window !== 'undefined') {
+      window.TERMUX_STRUCTURED_TOOLS = TERMUX_STRUCTURED_TOOLS;
       window.TERMUX_CAPABILITY_MATRIX = TERMUX_CAPABILITY_MATRIX;
       window.validateStructuredTermuxCommand = validateStructuredTermuxCommand;
       window._nexusTermuxDaemonValidator = validateStructuredTermuxCommand;
       window.validateServerTermuxRequest = validateStructuredTermuxCommand;
       if (typeof window.NexusCore === 'object' && window.NexusCore !== null) {
+        window.NexusCore.TERMUX_STRUCTURED_TOOLS = TERMUX_STRUCTURED_TOOLS;
         window.NexusCore.TERMUX_CAPABILITY_MATRIX = TERMUX_CAPABILITY_MATRIX;
         window.NexusCore._nexusTermuxDaemonValidator = validateStructuredTermuxCommand;
         window.NexusCore.validateStructuredTermuxCommand = validateStructuredTermuxCommand;
@@ -30414,13 +30463,18 @@ if (typeof document !== 'undefined') {
       }
 
 
+      const isNpmTest = (typeof structRes !== 'undefined' && structRes && structRes.tool === 'npm_test') || /^\s*npm\s+test\b/i.test(cmd);
       let explicitlyConfirmedByUser = false;
-      if (policy === 'ask' || (policy === 'if_requested' && !isUserInitiated) || category.key === 'policyPaymentAuth') {
+      if (policy === 'ask' || (policy === 'if_requested' && !isUserInitiated) || category.key === 'policyPaymentAuth' || isNpmTest) {
+        let warningExtra = '';
+        if (isNpmTest) {
+          warningExtra = '\n\n⚠️ هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.';
+        }
         const confirmed = await requestPhase5ConfirmModal({
           title: `🛡️ مجوز اجرای My Computer (${category.label})`,
-          message: `آیا اجازه می‌دهید این فرمان در پوشه مجاز (${appState.localComputerConfig.allowedFolders}) روی Termux گوشی شما اجرا شود؟\n\n$ ${cmd}`,
+          message: `آیا اجازه می‌دهید این فرمان در پوشه مجاز (${appState.localComputerConfig.allowedFolders}) روی Termux گوشی شما اجرا شود؟\n\n$ ${cmd}${warningExtra}`,
           confirmText: '✓ بله، در Termux اجرا کن',
-          isDanger: category.key === 'policyPaymentAuth' || category.key === 'policyShellFFmpeg'
+          isDanger: isNpmTest || category.key === 'policyPaymentAuth' || category.key === 'policyShellFFmpeg'
         });
         if (!confirmed) {
           showToast('اجرای فرمان توسط کاربر لغو شد');
@@ -30578,6 +30632,24 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const EXEC_TIMEOUT_MS = 30000;
 const MAX_CONCURRENT_JOBS = 2;
 const TERMUX_ALLOWED_COMMANDS = ['git', 'ls', 'dir', 'pwd', 'npm', 'python', 'python3', 'ffmpeg', 'ffprobe', 'cat', 'head', 'tail', 'grep', 'rg', 'stat', 'du', 'df', 'wc', 'file', 'tree', 'pytest'];
+// هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.
+const TERMUX_STRUCTURED_TOOLS = Object.freeze({
+  git_status: { tool: 'git_status', bin: 'git', allowedArgs: ['status', '--short', '-s', '--branch', '-b'], riskLevel: 'read_only', requiresApproval: false },
+  git_diff: { tool: 'git_diff', bin: 'git', allowedArgs: ['diff', '--stat', '--name-only', '--shortstat'], riskLevel: 'read_only', requiresApproval: false },
+  git_branch: { tool: 'git_branch', bin: 'git', allowedArgs: ['branch', '--show-current', '--list'], riskLevel: 'read_only', requiresApproval: false },
+  git_log: { tool: 'git_log', bin: 'git', allowedArgs: ['log', '--oneline', '--stat', '-n'], riskLevel: 'read_only', requiresApproval: false },
+  git_push_verified: { tool: 'git_push_verified', bin: 'git', allowedArgs: ['push', '-u', '--set-upstream', '--tags'], riskLevel: 'high_risk', requiresApproval: true },
+  npm_test: { tool: 'npm_test', bin: 'npm', allowedArgs: ['test', '--', '--runInBand', '-t', '--bail'], riskLevel: 'high_risk', requiresApproval: true, warning: 'هشدار امنیتی: اجرای npm test اسکریپت‌های تعریف‌شده در package.json را اجرا می‌کند.' },
+  npm_audit: { tool: 'npm_audit', bin: 'npm', allowedArgs: ['audit', '--json', '--audit-level=high', '--audit-level=moderate'], riskLevel: 'read_only', requiresApproval: false },
+  npm_install_locked: { tool: 'npm_install_locked', bin: 'npm', allowedArgs: ['ci', '--ignore-scripts'], riskLevel: 'high_risk', requiresApproval: true },
+  grep_search: { tool: 'grep_search', bin: 'grep', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'], riskLevel: 'read_only', requiresApproval: false },
+  rg_search: { tool: 'rg_search', bin: 'rg', safeFlags: ['-n', '-i', '-F', '--fixed-strings', '--max-count'], riskLevel: 'read_only', requiresApproval: false },
+  ffprobe_inspect: { tool: 'ffprobe_inspect', bin: 'ffprobe', safeFlags: ['-v', 'error', '-show_format', '-show_streams', '-of', 'json'], riskLevel: 'read_only', requiresApproval: false },
+  ffmpeg_preset: { tool: 'ffmpeg_preset', bin: 'ffmpeg', presets: ['transcode_mp4_h264', 'extract_audio_mp3', 'compress_720p'], riskLevel: 'mutating', requiresApproval: true },
+  python_audit: { tool: 'python_audit', bin: 'python3', scripts: ['full_app_audit.py'], riskLevel: 'read_only', requiresApproval: false },
+  read_workspace_file: { tool: 'read_workspace_file', bins: ['cat', 'head', 'tail', 'ls', 'dir', 'pwd', 'file', 'wc', 'stat', 'du', 'df', 'tree'], riskLevel: 'read_only', requiresApproval: false }
+});
+const TERMUX_CAPABILITY_MATRIX = TERMUX_STRUCTURED_TOOLS;
 const SHELL_CHAINING_REGEX = /[;|\\\`$><]|&&|\\|\\||\\$\\(/;
 const BLOCKED_CMD_REGEX = /(?:\\b(?:busybox|toybox)\\s+)?\\brm\\b(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*r|\\s--recursive))(?=[^;&|\\r\\n]*(?:\\s-[a-zA-Z]*f|\\s--force))[^;&|\\r\\n]*\\s+(?:\\/|\\*|\\.\\.?\\/?\\*?|~|\\$HOME|\\$PREFIX|\\/sdcard|\\/storage|--no-preserve-root)(?:$|[\\s;&|><)'"])|\\brm\\b\\s+-[a-zA-Z]*(?:rf|fr)\\s+(?:\\.|\\.\\.)(?:$|[\\s/;&|><)'"])|\\bfind\\b.*\\s-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fls|fprintf)\\b|\\brg\\b.*--pre(?:-glob)?\\b|\\b(?:mkfs\\.[a-z0-9]+|wipefs|shred)\\b|\\bdd\\b\\s+.*\\bof=\\/dev\\/|\\btruncate\\b\\s+.*\\s+\\/(?:$|\\s)|\\bchmod\\b\\s+-R\\s+000\\s+(?:\\/|\\.|~)|\\bchown\\b\\s+-R\\s+.*\\s+\\/|\\b(?:shutil\\.rmtree|os\\.(?:remove|unlink|rmdir|removedirs|system|popen)|fs\\.(?:rmSync|rmdirSync|unlinkSync)|child_process)\\b|:(\\s*)\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:/i;
 const SENSITIVE_CRED_REGEX = /(?:^|[\\s"'=/><|;&(])(?:\\.env[a-zA-Z0-9_.*?-]*|id_rsa[a-zA-Z0-9_.*?-]*|id_ed25519[a-zA-Z0-9_.*?-]*|authorized_keys|known_hosts|[^\\s"'=/><|;&()]*\\.(?:pem|key|keystore|jks|p12|pfx)|\\.netrc|\\.npmrc|\\.pypirc|\\.git-credentials|credentials\\.json|local\\.properties)(?:$|[\\s"';|&><)\`])/i;
@@ -30823,11 +30895,19 @@ function killProcessTreeSafe(childProc, immediateHardKill = false) {
     try { childProc.kill(sig); } catch (e) {}
   };
   if (immediateHardKill) {
+    if (!childProc.killed) {
+      try { childProc.kill('SIGKILL'); } catch (_) {}
+    }
     sendSig('SIGKILL');
     return;
   }
   sendSig('SIGTERM');
-  setTimeout(() => sendSig('SIGKILL'), 350).unref();
+  setTimeout(() => {
+    if (!childProc.killed) {
+      try { childProc.kill('SIGKILL'); } catch (_) {}
+    }
+    sendSig('SIGKILL');
+  }, 350).unref();
 }
 
 
@@ -30944,7 +31024,10 @@ http.createServer((req, res) => {
         if (activeJobsMap.has(targetJobId)) {
           const proc = activeJobsMap.get(targetJobId);
           proc._cancelling = true;
-          killProcessTreeSafe(proc);
+          if (!proc.killed) {
+            try { proc.kill('SIGKILL'); } catch (_) {}
+          }
+          killProcessTreeSafe(proc, true);
           killedCount = 1;
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           return res.end(JSON.stringify({ ok: true, killedCount, targetJobId }));
@@ -30955,11 +31038,17 @@ http.createServer((req, res) => {
       } else if (cancelAllRequested) {
         for (const [jid, proc] of activeJobsMap.entries()) {
           proc._cancelling = true;
-          killProcessTreeSafe(proc);
+          if (!proc.killed) {
+            try { proc.kill('SIGKILL'); } catch (_) {}
+          }
+          killProcessTreeSafe(proc, true);
           killedCount++;
         }
         for (const proc of activeChildProcs) {
-          killProcessTreeSafe(proc);
+          if (!proc.killed) {
+            try { proc.kill('SIGKILL'); } catch (_) {}
+          }
+          killProcessTreeSafe(proc, true);
         }
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         return res.end(JSON.stringify({ ok: true, killedCount, targetJobId: 'all' }));
@@ -31077,7 +31166,8 @@ http.createServer((req, res) => {
 
       // Remote LAN connections must ALWAYS require signed user confirmation, even for read-only commands (Fixes Reviewer #9)
       const isRemoteRequest = !isLoopbackIp;
-      const requiresSignedConfirmation = isRemoteRequest || serverCategory !== 'policyFileRead' || effectivePolicy === 'ask';
+      const isNpmTestCommand = /^\s*npm\s+test\b/i.test(command);
+      const requiresSignedConfirmation = isRemoteRequest || serverCategory !== 'policyFileRead' || effectivePolicy === 'ask' || isNpmTestCommand;
       if (requiresSignedConfirmation) {
         const tsVal = parsed.ts || req.headers['x-nexus-timestamp'];
         const nonceVal = parsed.nonce || req.headers['x-nexus-nonce'];
@@ -31490,6 +31580,7 @@ http.createServer((req, res) => {
         return res.end(JSON.stringify({ ok: false, error: '403 ARGUMENT_POLICY_VIOLATION: ' + policyReason }));
       }
 
+      const clientAbortCtrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
       const spawnOpts = {
         cwd: safeCwd,
         detached: true,
@@ -31500,15 +31591,54 @@ http.createServer((req, res) => {
         killSignal: 'SIGKILL',
         maxBuffer: 4 * 1024 * 1024
       };
+      if (clientAbortCtrl && clientAbortCtrl.signal) {
+        spawnOpts.signal = clientAbortCtrl.signal;
+      }
 
-      const childProc = spawn(spawnBin, spawnArgs, spawnOpts);
-      activeChildProcs.add(childProc);
-      activeJobsMap.set(activeJobId, childProc);
-      childProc.on('close', () => {
+      const child = spawn(spawnBin, spawnArgs, spawnOpts);
+      const childProc = child;
+      activeChildProcs.add(child);
+      activeJobsMap.set(activeJobId, child);
+      child.on('close', () => {
         activeJobsMap.delete(activeJobId);
-        activeChildProcs.delete(childProc);
+        activeChildProcs.delete(child);
       });
 
+      // Hook into request abortion / client disconnect (req.on('close', ...) or req.on('aborted', ...))
+      const onClientDisconnectOrAbort = () => {
+        if (!finished) {
+          finished = true;
+          activeJobsMap.delete(activeJobId);
+          activeChildProcs.delete(child);
+          clearTimeout(execTimer);
+          if (clientAbortCtrl && !clientAbortCtrl.signal.aborted) {
+            try { clientAbortCtrl.abort(); } catch (_) {}
+          }
+          if (!child.killed) {
+            try { child.kill('SIGKILL'); } catch (_) {}
+          }
+          killProcessTreeSafe(child, true);
+        }
+      };
+
+      req.on('aborted', onClientDisconnectOrAbort);
+      req.on('close', () => {
+        if (!finished && !res.writableEnded) {
+          onClientDisconnectOrAbort();
+        }
+      });
+      res.on('close', () => {
+        if (!finished && !res.writableEnded) {
+          onClientDisconnectOrAbort();
+        }
+      });
+      if (clientAbortCtrl && clientAbortCtrl.signal) {
+        clientAbortCtrl.signal.addEventListener('abort', () => {
+          if (!child.killed) {
+            try { child.kill('SIGKILL'); } catch (_) {}
+          }
+        });
+      }
 
       const appendChunk = (chunk) => {
         if (outLen >= MAX_OUTPUT_BYTES) return;
@@ -31518,23 +31648,26 @@ http.createServer((req, res) => {
         outLen += Math.min(buf.length, remain);
       };
 
-
-      if (childProc.stdout) childProc.stdout.on('data', appendChunk);
-      if (childProc.stderr) childProc.stderr.on('data', appendChunk);
-
+      if (child.stdout) child.stdout.on('data', appendChunk);
+      if (child.stderr) child.stderr.on('data', appendChunk);
 
       const execTimer = setTimeout(() => {
         if (!finished) {
           timedOut = true;
-          killProcessTreeSafe(childProc, true);
+          if (clientAbortCtrl && !clientAbortCtrl.signal.aborted) {
+            try { clientAbortCtrl.abort(); } catch (_) {}
+          }
+          if (!child.killed) {
+            try { child.kill('SIGKILL'); } catch (_) {}
+          }
+          killProcessTreeSafe(child, true);
         }
       }, EXEC_TIMEOUT_MS);
-
 
       const finalizeResponse = (exitCode, errMsg) => {
         if (finished) return;
         finished = true;
-        activeChildProcs.delete(childProc);
+        activeChildProcs.delete(child);
         clearTimeout(execTimer);
         if (res.writableEnded) return;
         const combinedOutput = Buffer.concat(outBuffers, outLen).toString('utf8');
@@ -31557,18 +31690,8 @@ http.createServer((req, res) => {
         }));
       };
 
-
-      childProc.on('error', err => finalizeResponse(1, err.message));
-      childProc.on('close', code => finalizeResponse(typeof code === 'number' ? code : 0, ''));
-
-
-      res.on('close', () => {
-        if (!finished && !res.writableEnded) {
-          activeChildProcs.delete(childProc);
-          clearTimeout(execTimer);
-          killProcessTreeSafe(childProc);
-        }
-      });
+      child.on('error', err => finalizeResponse(1, err.message));
+      child.on('close', code => finalizeResponse(typeof code === 'number' ? code : 0, ''));
     });
     return;
   }

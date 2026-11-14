@@ -1,4 +1,4 @@
-# 🚀 EG Nexus OS v6.2.3 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.2.4 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
@@ -8,11 +8,11 @@
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**EG Nexus OS v6.2.3** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10, OWASP ACS, OWASP MASWE v1.0.0)، مانیفست صریح خط‌مشی اکشن‌ها (`ACTION_POLICY_MANIFEST`) با اعمال قطعی سیاست Default-Deny بدون حدس پیشوند و مسدودسازی اکشن‌های ناشناخته با خطای صریح `UNLISTED_ACTION_DENIED`، گارد حاکمیتی اجرای ایجنت (`AgentExecutionGuard`) با محدودیت گام، تشخیص حلقه‌های تکراری و لغو عملیات، پروتکل مهاجرت دوفازی کلید در سکرت‌ها (Shadow-Key 2PC StrongBox Migration) با کلید میانی `_v2_staging` و تضمین عدم اتلاف داده در کرش، معماری گاردین محلی الهام‌گرفته از ACS با تصمیمات ۴گانه (allow/deny/ask/defer) و رد پای ممیزی زنجیره-هش‌شده (`prevHash`, `entryHash`)، قرنطینه ساندباکس دیمن Termux با اعتبارسنجی `realpathSync` و فیلتر دقیق پریست‌های ffmpeg، انتشار خودکار ریلیز و فایل APK امضاشده با توصیفگر قطعی اصالت (`SHA-Pinned Release Tag with CycloneDX SBOM & Provenance`) و بیش از ۶۰۰ تست خودکار Jest در ۲۷ سوئیت با موفقیت ۱۰۰٪ منتشر شده است.
+**EG Nexus OS v6.2.4** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10, OWASP ACS, OWASP MASWE v1.0.0)، مانیفست صریح خط‌مشی اکشن‌ها (`ACTION_POLICY_MANIFEST`) با اعمال قطعی سیاست Default-Deny بدون حدس پیشوند و مسدودسازی اکشن‌های ناشناخته با خطای صریح `UNLISTED_ACTION_DENIED`، گارد حاکمیتی اجرای ایجنت (`AgentExecutionGuard`) با محدودیت گام، تشخیص حلقه‌های تکراری و لغو عملیات، پروتکل مهاجرت دوفازی کلید در سکرت‌ها (Shadow-Key 2PC StrongBox Migration) با کلید میانی `_v2_staging` و تضمین عدم اتلاف داده در کرش، معماری گاردین محلی الهام‌گرفته از ACS با تصمیمات ۴گانه (allow/deny/ask/defer) و رد پای ممیزی زنجیره-هش‌شده (`prevHash`, `entryHash`)، قرنطینه ساندباکس دیمن Termux با اعتبارسنجی `realpathSync` و فیلتر دقیق پریست‌های ffmpeg، انتشار خودکار ریلیز و فایل APK امضاشده با توصیفگر قطعی اصالت (`SHA-Pinned Release Tag with CycloneDX SBOM & Provenance`) و بیش از ۶۰۰ تست خودکار Jest در ۲۷ سوئیت با موفقیت ۱۰۰٪ منتشر شده است.
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.2.3
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.2.4
 
 ### ۱. منشور معماری حاکمیتی محلی-محور و ماتریس انطباق استانداردهای ۲۰۲۶ (ADR-001 Section 5)
 - **سند رسمی ADR-001 و بخش ۵:** تدوین جدول ماتریس ردیابی کنترل‌ها و تطابق کامل با استانداردهای مدرن ۲۰۲۶ در `docs/ADR-001-sovereign-local-first.md`:
@@ -52,7 +52,7 @@
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.2.3 (تمام اکشن‌ها با SHA پین شده)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.2.4 (تمام اکشن‌ها با SHA پین شده)
 ├── __tests__/                      # مجموعه تست‌های جامع Jest (۲۷ سوئیت)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
@@ -81,16 +81,16 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها و مدیریت حالت (شامل AgentExecutionGuard)
 │   ├── providers/                 # رجیستری ارتباط با مدل‌های هوش مصنوعی (شامل ACTION_POLICY_MANIFEST)
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی، تاییدات و ژورنال 2PC StrongBox
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.2.3
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.2.4
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.2.3)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.2.3)
-├── package.json                   # شناسه پکیج نسخه 6.2.3 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.2.3)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.2.4)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.2.4)
+├── package.json                   # شناسه پکیج نسخه 6.2.4 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.2.4)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.2.3
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.2.4
 ```
 
 ---
@@ -99,7 +99,7 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.2.3`) را انتخاب کنید.
+2. آخرین نسخه منتشرشده (`v6.2.4`) را انتخاب کنید.
 3. فایل **`EG-Nexus-OS-v6.2.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است (توصیفگر اصالت: `SHA-Pinned Release Tag with CycloneDX SBOM & Provenance`).
 

@@ -19,6 +19,22 @@ const state = require('../src/core/state');
 const approvals = require('../src/security/approvals');
 const { createStorageMock } = require('./test_helpers');
 
+async function getApprovedToken(providerId, action, params = {}) {
+  const ui = approvals.getUiState();
+  if (ui) ui._isResolvingApproval = false;
+  let token = null;
+  approvals.triggerApprovalGate({
+    reason: 'Test approval',
+    providerId,
+    action,
+    params,
+    onApprove: (t) => { token = t; }
+  });
+  await approvals.resolveApprovalGate(true);
+  if (ui) ui._isResolvingApproval = false;
+  return token;
+}
+
 describe('EG-Nexus-OS v5.9.0 Audit Hardening & Feature Suite', () => {
 
   // =========================================================================
@@ -407,10 +423,7 @@ describe('EG-Nexus-OS v5.9.0 Audit Hardening & Feature Suite', () => {
     });
 
     it('returns 200 when exact required scope is granted and approved', async () => {
-      const approvalToken = registry.issueApprovalToken({
-        providerId: 'gmail',
-        action: 'send'
-      });
+      const approvalToken = await getApprovedToken('gmail', 'send');
       const resValid = await registry.executeProviderRequest({
         providerId: 'gmail',
         action: 'send',

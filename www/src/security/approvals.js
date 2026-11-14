@@ -78,21 +78,7 @@
   }
 
   // Authoritative internal storage: private closure Map
-  const _internalTokenStore = (typeof globalThis !== 'undefined' && globalThis.__nexusInternalTokenStoreInstance)
-    ? globalThis.__nexusInternalTokenStoreInstance
-    : new Map();
-  if (typeof globalThis !== 'undefined' && !globalThis.__nexusInternalTokenStoreInstance) {
-    try {
-      Object.defineProperty(globalThis, '__nexusInternalTokenStoreInstance', {
-        value: _internalTokenStore,
-        writable: true,
-        configurable: true,
-        enumerable: false
-      });
-    } catch (_) {
-      globalThis.__nexusInternalTokenStoreInstance = _internalTokenStore;
-    }
-  }
+  const _internalTokenStore = new Map();
   const _lifecycleAuditTrail = new Map();
 
   // Pure-JS SHA-256 for deterministic params hash in all environments
@@ -447,53 +433,49 @@
     return deepFreeze(clone);
   }
 
-  // One-time internal approval verifier registration with peer registry module
-  function registerWithRegistry() {
-    let registrar = null;
+  // Private One-Time Boot Link Between Approvals and Registry (Closure-Locked)
+  const _BOOT_HOOK = typeof Symbol === 'function' && Symbol.for
+    ? Symbol.for('__nexus_boot_verifier_hook__')
+    : '__nexus_boot_verifier_hook__';
+
+  function _linkWithRegistry() {
+    const handler = function(token, context) {
+      return consumeApprovalTokenInternal(token, context);
+    };
+    handler.consume = consumeApprovalTokenInternal;
+    handler.verify = verifyApprovalTokenInternal;
+    handler.clear = clearApprovalTokensInternal;
+    handler.issue = issueApprovalTokenInternal;
+
+    if (typeof globalThis !== 'undefined') {
+      if (typeof globalThis[_BOOT_HOOK] === 'function') {
+        try {
+          globalThis[_BOOT_HOOK](handler);
+        } catch (_) {}
+      } else {
+        try {
+          Object.defineProperty(globalThis, _BOOT_HOOK, {
+            value: handler,
+            configurable: true,
+            writable: true,
+            enumerable: false
+          });
+        } catch (_) {
+          globalThis[_BOOT_HOOK] = handler;
+        }
+      }
+    }
+
     if (typeof require === 'function') {
       try {
-        const regMod = require('../providers/registry.js');
-        registrar = regMod && regMod.registerInternalApprovalVerifier;
-      } catch (_) {}
-    }
-    /* istanbul ignore next */
-    if (!registrar && typeof globalThis !== 'undefined') {
-      registrar = globalThis.registerInternalApprovalVerifier ||
-        (globalThis.NexusProviders && globalThis.NexusProviders.registerInternalApprovalVerifier) ||
-        (globalThis.NexusCore && globalThis.NexusCore.registerInternalApprovalVerifier);
-    }
-    /* istanbul ignore next */
-    if (!registrar && target) {
-      registrar = target.registerInternalApprovalVerifier ||
-        (target.NexusProviders && target.NexusProviders.registerInternalApprovalVerifier) ||
-        (target.NexusCore && target.NexusCore.registerInternalApprovalVerifier);
-    }
-    if (typeof registrar === 'function') {
-      try {
-        registrar(consumeApprovalTokenInternal);
+        const reg = require('../providers/registry.js');
+        if (reg && typeof reg._registerTokenVerifier === 'function') {
+          reg._registerTokenVerifier(handler);
+        }
       } catch (_) {}
     }
   }
-  registerWithRegistry();
-
-  if (typeof globalThis !== 'undefined') {
-    // Backwards-compatibility for existing tests inspecting globalThis.__nexusApprovalTokens
-    try {
-      Object.defineProperty(globalThis, '__nexusApprovalTokens', {
-        get() {
-          return _internalTokenStore;
-        },
-        set(val) {
-          if (val && typeof val.forEach === 'function') {
-            _internalTokenStore.clear();
-            val.forEach((v, k) => _internalTokenStore.set(k, v));
-          }
-        },
-        configurable: true,
-        enumerable: false
-      });
-    } catch (_) {}
-  }
+  _linkWithRegistry();
 
   function triggerApprovalGate(reason, onApprove, onReject) {
     const ui = getUiState();
@@ -629,7 +611,8 @@
           action: item.action,
           params: item.params,
           paramsHash: item.paramsHash,
-          nonce: item.nonce
+          nonce: item.nonce,
+          ttlMs: item.ttlMs
         });
         try {
           if (item && !Object.isFrozen(item)) {
@@ -705,6 +688,11 @@
           providerId: item.providerId || item.id
         });
       }
+
+      if (approved && item) {
+        return approvalToken;
+      }
+      return null;
     } catch (err) {
       if (typeof console !== 'undefined' && typeof console.error === 'function') {
         console.error('Error in resolveApprovalGate:', err);
@@ -723,21 +711,235 @@
     }
   }
 
+  // OpenTelemetry GenAI Semantic Conventions (v1.29.0-dev)
+  const GEN_AI_SYSTEM = 'EG-Nexus-OS';
+  const GEN_AI_OPERATIONS = Object.freeze({
+    INVOKE_AGENT: 'invoke_agent',
+    PLAN: 'plan',
+    EXECUTE_TOOL: 'execute_tool'
+  });
+  const GEN_AI_ATTRIBUTES = Object.freeze({
+    SYSTEM: 'gen_ai.system',
+    REQUEST_MODEL: 'gen_ai.request.model',
+    TOOL_NAME: 'gen_ai.tool.name',
+    USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
+    USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens'
+  });
+
+  class GenAISpan {
+    constructor(operation, attributes = {}) {
+      this.name = String(operation || 'gen_ai.operation');
+      this.spanId = secureRandomHex(8);
+      this.traceId = attributes.traceId || secureRandomHex(16);
+      this.startTime = Date.now();
+      this.endTime = null;
+      this.durationMs = 0;
+      this.status = { code: 'UNSET' };
+      this.events = [];
+      this.attributes = {
+        'gen_ai.system': attributes['gen_ai.system'] || GEN_AI_SYSTEM,
+        ...attributes
+      };
+
+      if (attributes['gen_ai.request.model'] !== undefined || attributes.model !== undefined) {
+        this.attributes['gen_ai.request.model'] = String(attributes['gen_ai.request.model'] ?? attributes.model);
+      }
+      if (attributes['gen_ai.tool.name'] !== undefined || attributes.toolName !== undefined || attributes.tool !== undefined) {
+        this.attributes['gen_ai.tool.name'] = String(attributes['gen_ai.tool.name'] ?? (attributes.toolName || attributes.tool));
+      }
+      if (attributes['gen_ai.usage.input_tokens'] !== undefined || attributes.inputTokens !== undefined) {
+        this.attributes['gen_ai.usage.input_tokens'] = Number(attributes['gen_ai.usage.input_tokens'] ?? attributes.inputTokens) || 0;
+      }
+      if (attributes['gen_ai.usage.output_tokens'] !== undefined || attributes.outputTokens !== undefined) {
+        this.attributes['gen_ai.usage.output_tokens'] = Number(attributes['gen_ai.usage.output_tokens'] ?? attributes.outputTokens) || 0;
+      }
+    }
+
+    setAttribute(key, value) {
+      this.attributes[key] = value;
+      return this;
+    }
+
+    setAttributes(attrs) {
+      if (attrs && typeof attrs === 'object') {
+        for (const [k, v] of Object.entries(attrs)) {
+          this.attributes[k] = v;
+        }
+      }
+      return this;
+    }
+
+    addEvent(name, attributes = {}) {
+      this.events.push({
+        name: String(name),
+        timestamp: Date.now(),
+        attributes: { ...attributes }
+      });
+      return this;
+    }
+
+    setStatus(status, message) {
+      if (typeof status === 'string') {
+        this.status = { code: status.toUpperCase(), message };
+      } else if (status && typeof status === 'object') {
+        this.status = { code: String(status.code || 'UNSET').toUpperCase(), message: status.message || message };
+      }
+      return this;
+    }
+
+    end(endTime = Date.now()) {
+      this.endTime = endTime;
+      this.durationMs = Math.max(0, this.endTime - this.startTime);
+      return this;
+    }
+
+    toJSON() {
+      return {
+        name: this.name,
+        spanId: this.spanId,
+        traceId: this.traceId,
+        startTime: this.startTime,
+        endTime: this.endTime,
+        durationMs: this.durationMs,
+        status: this.status,
+        attributes: this.attributes,
+        events: this.events
+      };
+    }
+  }
+
+  function createGenAISpan(operation, attributes = {}) {
+    return new GenAISpan(operation, attributes);
+  }
+
+  const AUDIT_STORAGE_KEY = 'eg_nexus_os_lifecycle_audit_trail';
+
+  function persistAuditTrail(storage) {
+    const store = storage ||
+      (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
+      (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
+    const serialized = JSON.stringify(Array.from(_lifecycleAuditTrail.entries()));
+    if (store) {
+      try {
+        if (typeof store.setItem === 'function') {
+          store.setItem(AUDIT_STORAGE_KEY, serialized);
+        } else if (store instanceof Map) {
+          store.set(AUDIT_STORAGE_KEY, serialized);
+        } else if (typeof store === 'object') {
+          store[AUDIT_STORAGE_KEY] = serialized;
+        }
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  function verifyAuditTrailIntegrity(storage, options = {}) {
+    let raw = null;
+    let entries = null;
+    const store = storage ||
+      (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
+      (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
+
+    if (store) {
+      try {
+        if (typeof store.getItem === 'function') {
+          raw = store.getItem(AUDIT_STORAGE_KEY);
+        } else if (store instanceof Map) {
+          raw = store.get(AUDIT_STORAGE_KEY);
+        } else if (typeof store === 'object' && AUDIT_STORAGE_KEY in store) {
+          raw = store[AUDIT_STORAGE_KEY];
+        } else if (typeof store === 'string') {
+          raw = store;
+        } else if (Array.isArray(store)) {
+          entries = store;
+        }
+      } catch (_) {}
+    }
+
+    if (raw && typeof raw === 'string') {
+      try {
+        entries = JSON.parse(raw);
+      } catch (_) {
+        return options.detailed ? { valid: false, error: 'MALFORMED_JSON' } : false;
+      }
+    }
+
+    if (!entries) {
+      entries = Array.from(_lifecycleAuditTrail.entries());
+    }
+
+    if (!Array.isArray(entries)) {
+      return options.detailed ? { valid: false, error: 'INVALID_TRAIL_STRUCTURE' } : false;
+    }
+
+    let verifiedEntries = 0;
+    for (const item of entries) {
+      const record = Array.isArray(item) ? item[1] : item;
+      if (!record || typeof record !== 'object') {
+        return options.detailed ? { valid: false, error: 'INVALID_RECORD' } : false;
+      }
+      const history = record.history;
+      if (!Array.isArray(history)) {
+        return options.detailed ? { valid: false, error: 'INVALID_HISTORY' } : false;
+      }
+
+      let expectedPrevHash = 'GENESIS';
+      for (let i = 0; i < history.length; i++) {
+        const event = history[i];
+        if (!event || typeof event !== 'object') {
+          return options.detailed ? { valid: false, error: 'INVALID_EVENT' } : false;
+        }
+
+        // 1. Verify prevHash link
+        if (event.prevHash !== expectedPrevHash) {
+          return options.detailed ? {
+            valid: false,
+            error: 'HASH_CHAIN_BROKEN',
+            requestId: record.requestId,
+            index: i,
+            expected: expectedPrevHash,
+            actual: event.prevHash
+          } : false;
+        }
+
+        // 2. Verify SHA-256 entryHash computation
+        const metadata = (event.metadata && typeof event.metadata === 'object') ? event.metadata : {};
+        const expectedEntryHash = _sha256Hex(event.prevHash + '|' + JSON.stringify(metadata));
+        if (event.entryHash !== expectedEntryHash) {
+          return options.detailed ? {
+            valid: false,
+            error: 'ENTRY_HASH_TAMPERED',
+            requestId: record.requestId,
+            index: i,
+            expected: expectedEntryHash,
+            actual: event.entryHash
+          } : false;
+        }
+
+        expectedPrevHash = event.entryHash;
+        verifiedEntries++;
+      }
+    }
+
+    if (options.detailed) {
+      return {
+        valid: true,
+        recordsCount: entries.length,
+        verifiedEntries
+      };
+    }
+    return true;
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
     getUiState,
     triggerApprovalGate,
     resolveApprovalGate,
-    issueApprovalToken,
     consumeApprovalToken,
     verifyApprovalToken,
     clearApprovalTokens,
-    _getApprovalTokenStoreInternal,
-    issueApprovalTokenInternal,
-    verifyApprovalTokenInternal,
-    consumeApprovalTokenInternal,
-    clearApprovalTokensInternal,
     recordLifecycleEvent,
     getRequestLifecycle,
     canonicalizeJson,
@@ -747,6 +949,14 @@
     _sha256Hex,
     deepFreeze,
     secureRandomHex,
-    secureRandomId
+    secureRandomId,
+    createGenAISpan,
+    createSpan: createGenAISpan,
+    GenAISpan,
+    GEN_AI_SYSTEM,
+    GEN_AI_OPERATIONS,
+    GEN_AI_ATTRIBUTES,
+    persistAuditTrail,
+    verifyAuditTrailIntegrity
   };
 });

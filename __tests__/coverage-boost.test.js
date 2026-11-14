@@ -7,6 +7,23 @@ const registry = require('../src/providers/registry.js');
 const persistence = require('../src/core/persistence.js');
 const secrets = require('../src/security/secrets.js');
 const state = require('../src/core/state.js');
+const approvals = require('../src/security/approvals.js');
+
+async function getApprovedToken(providerId, action, params = {}) {
+  const ui = approvals.getUiState();
+  if (ui) ui._isResolvingApproval = false;
+  let token = null;
+  approvals.triggerApprovalGate({
+    reason: 'Test approval',
+    providerId,
+    action,
+    params,
+    onApprove: (t) => { token = t; }
+  });
+  await approvals.resolveApprovalGate(true);
+  if (ui) ui._isResolvingApproval = false;
+  return token;
+}
 
 describe('Coverage Boost Suite', () => {
   // =========================================================================
@@ -81,11 +98,7 @@ describe('Coverage Boost Suite', () => {
     test('One-Time Capability Approval Token enforces single-use atomic consumption and replay prevention', async () => {
       registry.clearApprovalTokens();
 
-      const token = registry.issueApprovalToken({
-        providerId: 'github',
-        action: 'push',
-        params: { branch: 'main' }
-      });
+      const token = await getApprovedToken('github', 'push', { branch: 'main' });
 
       expect(typeof token).toBe('string');
       expect(registry.verifyApprovalToken(token)).toBe(true);
@@ -711,6 +724,304 @@ describe('Coverage Boost Suite', () => {
 
       // getStorageSizeEstimate
       expect(persistence.getStorageSizeEstimate('non_existent_key')).toBe(0);
+    });
+
+    test('registry provider tiers, badges and catalog lookup branch coverage', () => {
+      // normalizeProviderTier branches
+      expect(registry.normalizeProviderTier(null)).toBe('Catalog-only');
+      expect(registry.normalizeProviderTier(undefined)).toBe('Catalog-only');
+      expect(registry.normalizeProviderTier(12345)).toBe('Catalog-only');
+      expect(registry.normalizeProviderTier('production-ready')).toBe('Production-ready');
+      expect(registry.normalizeProviderTier('contract-tested')).toBe('Contract-tested');
+      expect(registry.normalizeProviderTier('beta')).toBe('Beta');
+      expect(registry.normalizeProviderTier('catalog-only')).toBe('Catalog-only');
+      expect(registry.normalizeProviderTier('catalog-adapter')).toBe('Catalog-only');
+      expect(registry.normalizeProviderTier('unknown_tier_xyz')).toBe('Catalog-only');
+
+      // getProviderTierBadge branches
+      expect(registry.getProviderTierBadge('production-ready')).toContain('tier-production-ready');
+      expect(registry.getProviderTierBadge('contract-tested')).toContain('tier-contract-tested');
+      expect(registry.getProviderTierBadge('beta')).toContain('tier-beta');
+      expect(registry.getProviderTierBadge('catalog-only')).toContain('tier-catalog-only');
+      expect(registry.getProviderTierBadge(null)).toContain('tier-catalog-only');
+      expect(registry.getProviderTierBadge('')).toContain('tier-catalog-only');
+
+      // getProviderConfig branches
+      expect(registry.getProviderConfig(null)).toBeNull();
+      expect(registry.getProviderConfig(12345)).toBeNull();
+      expect(registry.getProviderConfig('')).toBeNull();
+      const ghCfg = registry.getProviderConfig('github');
+      expect(ghCfg).toBeDefined();
+      expect(ghCfg.tier).toBe('Production-ready');
+      const tailscaleCfg = registry.getProviderConfig('tailscale');
+      expect(tailscaleCfg).toBeDefined();
+      expect(tailscaleCfg.id).toBe('tailscale');
+      expect(registry.getProviderConfig('totally_unknown_provider_xyz')).toBeNull();
+
+      // getProviderTier branches
+      expect(registry.getProviderTier(null)).toBe('Catalog-only');
+      expect(registry.getProviderTier(12345)).toBe('Catalog-only');
+      expect(registry.getProviderTier('')).toBe('Catalog-only');
+      expect(registry.getProviderTier('github')).toBe('Production-ready');
+      expect(registry.getProviderTier('gmail')).toBe('Production-ready');
+      expect(registry.getProviderTier('telegram')).toBe('Contract-tested');
+      expect(registry.getProviderTier('termux')).toBe('Contract-tested');
+      expect(registry.getProviderTier('coingecko')).toBe('Contract-tested');
+      expect(registry.getProviderTier('instagram')).toBe('Beta');
+      expect(registry.getProviderTier('meta_ads')).toBe('Beta');
+      expect(registry.getProviderTier('unknown_app_12345')).toBe('Catalog-only');
+    });
+
+    test('registry canonicalizeJson, hashing and lifecycle helper branch coverage', () => {
+      // canonicalizeJson
+      expect(registry.canonicalizeJson(null)).toBe('null');
+      expect(registry.canonicalizeJson(42)).toBe('42');
+      expect(registry.canonicalizeJson('str')).toBe('"str"');
+      expect(registry.canonicalizeJson([1, null, 'a'])).toBe('[1,null,"a"]');
+      const complexObj = {
+        z: 10,
+        a: 20,
+        ignoredUndef: undefined,
+        ignoredFunc: () => {},
+        nested: { innerB: 2, innerA: 1 }
+      };
+      const canon = registry.canonicalizeJson(complexObj);
+      expect(canon).toBe('{"a":20,"nested":{"innerA":1,"innerB":2},"z":10}');
+
+      // _hashParams
+      expect(registry._hashParams(null)).toBe('');
+      expect(registry._hashParams('')).toBe('');
+      expect(registry._hashParams('raw_params_string')).toBeDefined();
+      expect(registry._hashParams({ k: 'v' })).toBeDefined();
+
+      // _sha256Hex
+      expect(registry._sha256Hex(null)).toBe('');
+      expect(registry._sha256Hex(undefined)).toBe('');
+      expect(registry._sha256Hex('')).toBeDefined();
+      expect(registry._sha256Hex('test-input')).toBeDefined();
+
+      // deepFreeze
+      expect(registry.deepFreeze(null)).toBeNull();
+      expect(registry.deepFreeze(123)).toBe(123);
+      expect(registry.deepFreeze('abc')).toBe('abc');
+      const targetObj = { x: 1, sub: { y: 2, arr: [3, 4] } };
+      const frozen = registry.deepFreeze(targetObj);
+      expect(Object.isFrozen(frozen)).toBe(true);
+      expect(Object.isFrozen(frozen.sub)).toBe(true);
+      expect(Object.isFrozen(frozen.sub.arr)).toBe(true);
+
+      // recordLifecycleEvent edge branches
+      const evtId = 'reg-lifecycle-edge-' + Date.now();
+      expect(registry.recordLifecycleEvent(evtId, 'queued')).toBeDefined();
+      // Token redaction branch with approvalToken
+      expect(registry.recordLifecycleEvent(evtId, 'awaiting_approval', { approvalToken: 'tok_test_secret_123' })).toBeDefined();
+      expect(registry.recordLifecycleEvent(evtId, 'approved', { approvalToken: '' })).toBeDefined();
+
+      // Auto-generated ID branch
+      expect(registry.recordLifecycleEvent(null, 'queued')).toBeDefined();
+
+      // getRequestLifecycle branches
+      expect(registry.getRequestLifecycle(null)).toBeNull();
+      expect(registry.getRequestLifecycle('nonexistent_req_id_xyz')).toBeNull();
+      const record = registry.getRequestLifecycle(evtId);
+      expect(record).toBeDefined();
+      expect(record.requestId).toBe(evtId);
+      expect(record.history.length).toBeGreaterThanOrEqual(3);
+    });
+
+    test('secrets forwardCompleteMigration, pure PBKDF2 & custom crypto branch coverage', async () => {
+      // 1. secrets._hmacSha256Pure & _purePbkdf2HmacSha256
+      const shortKey = new Uint8Array(32).fill(0xaa);
+      const longKey = new Uint8Array(80).fill(0xbb); // > 64 bytes exercises key shortening branch!
+      const msg = new Uint8Array([1, 2, 3, 4, 5]);
+
+      const hmacShort = secrets._hmacSha256Pure(shortKey, msg);
+      expect(hmacShort.length).toBe(32);
+
+      const hmacLong = secrets._hmacSha256Pure(longKey, msg);
+      expect(hmacLong.length).toBe(32);
+
+      const salt = new Uint8Array([10, 20, 30, 40]);
+      const pbkdfKey = secrets._purePbkdf2HmacSha256('test_passphrase', salt, 5, 32);
+      expect(pbkdfKey.length).toBe(32);
+
+      // 2. secrets._getNodeCrypto getter/setter
+      const origNodeCrypto = secrets._getNodeCrypto;
+      const mockFn = () => ({ createCipheriv: () => {} });
+      secrets._getNodeCrypto = mockFn;
+      expect(secrets._getNodeCrypto).toBeDefined();
+
+      const mockObj = { createCipheriv: () => {} };
+      secrets._getNodeCrypto = mockObj;
+      expect(secrets._getNodeCrypto).toBe(mockObj);
+
+      // Reset to original
+      secrets._getNodeCrypto = origNodeCrypto;
+
+      // 3. secrets.forwardCompleteMigration with mock storage and mock keystore
+      const memStore = {};
+      const mockStorage = {
+        getItem: k => memStore[k] || null,
+        setItem: (k, v) => { memStore[k] = v; },
+        removeItem: k => { delete memStore[k]; }
+      };
+
+      // Set up staging envelope
+      const mainKey = 'eg_nexus_os_v5_master_state_session_secrets';
+      const stagingKey = mainKey + '_v2_staging';
+      const stagingData = {
+        ciphertext: 'abcdef123456',
+        iv: '123456789012',
+        migrationState: 'V2_DATA_VERIFIED'
+      };
+      mockStorage.setItem(stagingKey, JSON.stringify(stagingData));
+
+      // Mock keystore
+      const origNative = global.window?.NexusKeystoreNative;
+      if (!global.window) global.window = {};
+      global.window.NexusKeystoreNative = {
+        getMigrationJournalState: async () => ({ journalState: 'V2_DATA_VERIFIED', activeAlias: 'key_v2' }),
+        decrypt: async () => ({ data: JSON.stringify({ secret1: 'val1' }) }),
+        commitKeyMigration: async () => ({ committed: true, journalState: 'ACTIVE_V2', activeAlias: 'key_v2', deletedOldKeys: true })
+      };
+
+      const fwdRes = await secrets.forwardCompleteMigration({ storage: mockStorage });
+      expect(fwdRes.verified).toBe(true);
+      expect(fwdRes.journalState).toBe('ACTIVE_V2');
+      expect(fwdRes.forwardCompleted).toBe(true);
+
+      // Verify staging key was promoted and removed
+      expect(mockStorage.getItem(stagingKey)).toBeNull();
+      expect(mockStorage.getItem(mainKey)).toBeDefined();
+
+      // 4. secrets.forwardCompleteMigration with non-JSON staging data and throwing commitKeyMigration
+      mockStorage.setItem(stagingKey, 'non_json_raw_string');
+      global.window.NexusKeystoreNative.commitKeyMigration = async () => {
+        throw new Error('Native Keystore Commit Failed');
+      };
+
+      const fwdErrRes = await secrets.forwardCompleteMigration({ storage: mockStorage });
+      expect(fwdErrRes).toBeDefined();
+
+      // 5. secrets.forwardCompleteMigration without store or native keystore
+      delete global.window.NexusKeystoreNative;
+      const fwdNoKs = await secrets.forwardCompleteMigration();
+      expect(fwdNoKs).toBeDefined();
+      expect(fwdNoKs.forwardCompleted).toBe(false);
+
+      if (origNative) {
+        global.window.NexusKeystoreNative = origNative;
+      }
+    });
+
+    test('secrets buffer zeroization, keystore backends, property accessors and legacy plaintext branches', () => {
+      // 1. _zeroizeBuffer branches
+      expect(() => secrets._zeroizeBuffer(null)).not.toThrow();
+      expect(() => secrets._zeroizeBuffer(undefined)).not.toThrow();
+
+      const u8 = new Uint8Array([1, 2, 3, 4]);
+      secrets._zeroizeBuffer(u8);
+      expect(Array.from(u8)).toEqual([0, 0, 0, 0]);
+
+      const nodeBuf = Buffer.from([5, 6, 7, 8]);
+      secrets._zeroizeBuffer(nodeBuf);
+      expect(Array.from(nodeBuf)).toEqual([0, 0, 0, 0]);
+
+      const ab = new ArrayBuffer(4);
+      new Uint8Array(ab).set([9, 10, 11, 12]);
+      secrets._zeroizeBuffer(ab);
+      expect(Array.from(new Uint8Array(ab))).toEqual([0, 0, 0, 0]);
+
+      const dv = new DataView(new ArrayBuffer(4));
+      new Uint8Array(dv.buffer).set([13, 14, 15, 16]);
+      secrets._zeroizeBuffer(dv);
+      expect(Array.from(new Uint8Array(dv.buffer))).toEqual([0, 0, 0, 0]);
+
+      // 2. getKeystoreBackend branches
+      if (!global.window) global.window = {};
+      const origNativeKs = global.window.NexusKeystoreNative;
+
+      // Native backend
+      global.window.NexusKeystoreNative = { decrypt: () => {} };
+      expect(secrets.getKeystoreBackend()).toBe('AndroidKeyStore');
+      delete global.window.NexusKeystoreNative;
+
+      // NodeCrypto backend
+      expect(secrets.getKeystoreBackend()).toBe('NodeCrypto');
+
+      // IndexedDB-WebCrypto backend
+      secrets._getNodeCrypto = null;
+      const origCrypto = global.crypto;
+      if (!global.crypto) global.crypto = {};
+      global.crypto.subtle = { digest: () => {} };
+      expect(secrets.getKeystoreBackend()).toBe('IndexedDB-WebCrypto');
+
+      // Memory-Fallback backend
+      const origGlobalCrypto = global.crypto;
+      Object.defineProperty(global, 'crypto', { value: undefined, configurable: true, writable: true });
+      if (global.window) Object.defineProperty(global.window, 'crypto', { value: undefined, configurable: true, writable: true });
+      expect(secrets.getKeystoreBackend()).toBe('Memory-Fallback');
+
+      // Restore crypto
+      Object.defineProperty(global, 'crypto', { value: origGlobalCrypto, configurable: true, writable: true });
+      if (origCrypto) global.crypto = origCrypto;
+      secrets._getNodeCrypto = secrets._getNodeCrypto; // restore
+      if (origNativeKs) global.window.NexusKeystoreNative = origNativeKs;
+
+      // 3. Property accessors on empty secrets structure
+      const emptySec = secrets._extractSecretsInput(null);
+      emptySec.telegramBotToken = 'bot_token_abc';
+      expect(emptySec.telegramBotToken).toBe('bot_token_abc');
+      emptySec.telegramBotToken = 99999;
+      expect(emptySec.telegramBotToken).toBe('99999');
+
+      emptySec.geminiApiKey = 'gemini_key_123';
+      expect(emptySec.geminiApiKey).toBe('gemini_key_123');
+      emptySec.geminiApiKey = 88888;
+      expect(emptySec.geminiApiKey).toBe(88888);
+
+      // Setter when apiKeys is null
+      emptySec.apiKeys = null;
+      emptySec.geminiApiKey = 'restored_gemini_key';
+      expect(emptySec.geminiApiKey).toBe('restored_gemini_key');
+
+      // 4. readSessionSecrets legacy plaintext transparent migration and version quarantine
+      let quarantineHit = false;
+      const memStore = {};
+      const mockStore = {
+        getItem: k => memStore[k] || null,
+        setItem: (k, v) => {
+          if (k.includes('_corrupted_')) quarantineHit = true;
+          memStore[k] = v;
+        },
+        removeItem: k => { delete memStore[k]; }
+      };
+
+      const secretsKey = 'eg_nexus_os_v5_master_state_session_secrets';
+
+      // Valid legacy plaintext envelope
+      memStore[secretsKey] = JSON.stringify({
+        encrypted: false,
+        version: 1,
+        botToken: 'migrated_plain_bot_token',
+        geminiApiKey: 'migrated_gemini_key'
+      });
+      secrets._resetSessionCryptoState();
+      const readPlain = secrets.readSessionSecrets(mockStore);
+      expect(readPlain.initialized).toBe(true);
+      expect(readPlain.botToken).toBe('migrated_plain_bot_token');
+
+      // Invalid version legacy plaintext envelope (quarantine branch)
+      quarantineHit = false;
+      memStore[secretsKey] = JSON.stringify({
+        encrypted: false,
+        version: 999,
+        botToken: 'bad_version_token'
+      });
+      secrets._resetSessionCryptoState();
+      const readBadVersion = secrets.readSessionSecrets(mockStore);
+      expect(quarantineHit).toBe(true);
+      expect(readBadVersion.initialized).toBe(false);
     });
   });
 });

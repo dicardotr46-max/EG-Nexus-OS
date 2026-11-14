@@ -15,6 +15,22 @@ const persistence = require('../src/core/persistence');
 const approvals = require('../src/security/approvals');
 const registry = require('../src/providers/registry');
 
+async function getApprovedToken(providerId, action, params = {}) {
+  const ui = approvals.getUiState();
+  if (ui) ui._isResolvingApproval = false;
+  let token = null;
+  approvals.triggerApprovalGate({
+    reason: 'Test approval',
+    providerId,
+    action,
+    params,
+    onApprove: (t) => { token = t; }
+  });
+  await approvals.resolveApprovalGate(true);
+  if (ui) ui._isResolvingApproval = false;
+  return token;
+}
+
 describe('EG-Nexus-OS v5.9.0 Subagent 3 Hardening Suite', () => {
 
   // =========================================================================
@@ -54,10 +70,7 @@ describe('EG-Nexus-OS v5.9.0 Subagent 3 Hardening Suite', () => {
     });
 
     test('succeeds through scope validation when appropriate scope is granted', async () => {
-      const approvalToken = registry.issueApprovalToken({
-        providerId: 'gmail',
-        action: 'send'
-      });
+      const approvalToken = await getApprovedToken('gmail', 'send');
       const result = await registry.executeProviderRequest({
         providerId: 'gmail',
         action: 'send',

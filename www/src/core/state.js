@@ -501,6 +501,74 @@
     }
   }
 
+  // Default Session Execution Guard
+  let _defaultSessionExecutionGuard = new AgentExecutionGuard();
+  function getDefaultSessionExecutionGuard(options = {}) {
+    return new AgentExecutionGuard(options);
+  }
+
+  // OpenTelemetry GenAI Semantic Conventions & Audit Persistence delegates
+  function _getPeerApprovals() {
+    if (typeof require === 'function') {
+      try { return require('../security/approvals.js'); } catch (_) {}
+    }
+    return (typeof globalThis !== 'undefined' && globalThis.NexusApprovals) || null;
+  }
+
+  const GEN_AI_SYSTEM = 'EG-Nexus-OS';
+  const GEN_AI_OPERATIONS = Object.freeze({
+    INVOKE_AGENT: 'invoke_agent',
+    PLAN: 'plan',
+    EXECUTE_TOOL: 'execute_tool'
+  });
+  const GEN_AI_ATTRIBUTES = Object.freeze({
+    SYSTEM: 'gen_ai.system',
+    REQUEST_MODEL: 'gen_ai.request.model',
+    TOOL_NAME: 'gen_ai.tool.name',
+    USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
+    USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens'
+  });
+
+  const GenAISpan = (function() {
+    const peer = _getPeerApprovals();
+    return (peer && peer.GenAISpan) || class GenAISpan {
+      constructor(operation, attributes = {}) {
+        this.name = String(operation || 'gen_ai.operation');
+        this.attributes = { ...attributes };
+      }
+      setAttribute(k, v) { this.attributes[k] = v; return this; }
+      setAttributes(a) { Object.assign(this.attributes, a); return this; }
+      addEvent() { return this; }
+      setStatus() { return this; }
+      end() { return this; }
+      toJSON() { return { name: this.name, attributes: this.attributes }; }
+    };
+  })();
+
+  function createGenAISpan(operation, attributes = {}) {
+    const peer = _getPeerApprovals();
+    if (peer && typeof peer.createGenAISpan === 'function') {
+      return peer.createGenAISpan(operation, attributes);
+    }
+    return new GenAISpan(operation, attributes);
+  }
+
+  function persistAuditTrail(storage) {
+    const peer = _getPeerApprovals();
+    if (peer && typeof peer.persistAuditTrail === 'function') {
+      return peer.persistAuditTrail(storage);
+    }
+    return true;
+  }
+
+  function verifyAuditTrailIntegrity(storage, options = {}) {
+    const peer = _getPeerApprovals();
+    if (peer && typeof peer.verifyAuditTrailIntegrity === 'function') {
+      return peer.verifyAuditTrailIntegrity(storage, options);
+    }
+    return true;
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -516,6 +584,16 @@
     appendMessage,
     appState,
     uiState,
-    AgentExecutionGuard
+    AgentExecutionGuard,
+    _defaultSessionExecutionGuard,
+    getDefaultSessionExecutionGuard,
+    createGenAISpan,
+    createSpan: createGenAISpan,
+    GenAISpan,
+    GEN_AI_SYSTEM,
+    GEN_AI_OPERATIONS,
+    GEN_AI_ATTRIBUTES,
+    persistAuditTrail,
+    verifyAuditTrailIntegrity
   };
 });

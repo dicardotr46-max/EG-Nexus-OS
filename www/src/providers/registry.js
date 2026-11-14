@@ -506,31 +506,53 @@
     return aKey ? p[aKey] : null;
   }
 
-  // One-Time Internal Approval Verifier Registrar
+  // Private One-Time Boot Link Between Registry and Approvals (Closure-Locked)
+  const _BOOT_HOOK = typeof Symbol === 'function' && Symbol.for
+    ? Symbol.for('__nexus_boot_verifier_hook__')
+    : '__nexus_boot_verifier_hook__';
+
   let _approvalVerifier = null;
   let _verifierLocked = false;
-  function registerInternalApprovalVerifier(fn) {
-    if (_verifierLocked) throw new Error('Approval verifier already locked');
-    _approvalVerifier = fn;
-    _verifierLocked = true;
-  }
 
-  // Internal fallback token store if approvals.js is not loaded
-  const _internalTokenStore = (typeof globalThis !== 'undefined' && globalThis.__nexusInternalTokenStoreInstance)
-    ? globalThis.__nexusInternalTokenStoreInstance
-    : new Map();
-  if (typeof globalThis !== 'undefined' && !globalThis.__nexusInternalTokenStoreInstance) {
-    try {
-      Object.defineProperty(globalThis, '__nexusInternalTokenStoreInstance', {
-        value: _internalTokenStore,
-        writable: true,
-        configurable: true,
-        enumerable: false
-      });
-    } catch (_) {
-      globalThis.__nexusInternalTokenStoreInstance = _internalTokenStore;
+  function _registerTokenVerifier(verifier) {
+    if (_verifierLocked) return;
+    if (typeof verifier === 'function') {
+      _approvalVerifier = verifier;
+      _verifierLocked = true;
+      if (typeof globalThis !== 'undefined' && globalThis[_BOOT_HOOK]) {
+        try { delete globalThis[_BOOT_HOOK]; } catch (_) { globalThis[_BOOT_HOOK] = null; }
+      }
     }
   }
+
+  function _ensureBootLink() {
+    if (_verifierLocked) return;
+    if (typeof globalThis !== 'undefined') {
+      if (typeof globalThis[_BOOT_HOOK] === 'function' && globalThis[_BOOT_HOOK] !== _registerTokenVerifier) {
+        _registerTokenVerifier(globalThis[_BOOT_HOOK]);
+      } else if (!globalThis[_BOOT_HOOK]) {
+        try {
+          Object.defineProperty(globalThis, _BOOT_HOOK, {
+            value: function(fn) { _registerTokenVerifier(fn); },
+            configurable: true,
+            writable: true,
+            enumerable: false
+          });
+        } catch (_) {
+          globalThis[_BOOT_HOOK] = function(fn) { _registerTokenVerifier(fn); };
+        }
+      }
+    }
+    if (!_approvalVerifier && typeof require === 'function') {
+      try {
+        require('../security/approvals.js');
+      } catch (_) {}
+    }
+  }
+  _ensureBootLink();
+
+  // Internal fallback token store if approvals.js is not loaded
+  const _internalTokenStore = new Map();
   const _lifecycleAuditTrail = new Map();
 
   // Pure-JS SHA-256 for deterministic params hash in all environments
@@ -673,109 +695,34 @@
     }
   }
 
-  function _getTokenStore() {
-    if (typeof globalThis !== 'undefined' && globalThis.__nexusApprovalTokens) {
-      return globalThis.__nexusApprovalTokens;
-    }
-    return _internalTokenStore;
-  }
-
-  function _getApprovalTokenStoreInternal() {
-    return _getTokenStore();
-  }
-
-  function issueApprovalTokenInternal(spec = {}) {
-    const { providerId, action, params, paramsHash, nonce, requestId } = spec;
-    const token = 'appr_' + _generateTokenNonce() + '_' + Date.now().toString(36);
-    const computedParamsHash = paramsHash || (params ? _hashParams(params) : '');
-    const entry = {
-      token,
-      requestId: requestId || null,
-      providerId: String(providerId || '').toLowerCase(),
-      action: String(action || '').toLowerCase(),
-      paramsHash: computedParamsHash,
-      nonce: nonce || _generateTokenNonce(),
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (typeof spec.ttlMs === 'number' ? spec.ttlMs : 60000)
-    };
-    const store = _getTokenStore();
-    store.set(token, entry);
-    if (store !== _internalTokenStore) {
-      _internalTokenStore.set(token, entry);
-    }
-    return token;
-  }
-
-  function consumeApprovalTokenInternal(token, context = {}) {
-    if (!token || typeof token !== 'string') return false;
-    const store = _getTokenStore();
-    let entry = store.get(token);
-    if (!entry && store !== _internalTokenStore) {
-      entry = _internalTokenStore.get(token);
-    }
-    if (!entry) return false;
-
-    // Atomic consumption: delete immediately upon first use to prevent Replay and Prompt Injection
-    store.delete(token);
-    _internalTokenStore.delete(token);
-
-    if (Date.now() > entry.expiresAt) {
-      return false; // Expired
-    }
-
-    if (context.providerId && entry.providerId && entry.providerId !== String(context.providerId).toLowerCase()) {
-      return false;
-    }
-    if (context.action && entry.action && entry.action !== String(context.action).toLowerCase()) {
-      return false;
-    }
-    if (context.paramsHash && entry.paramsHash && entry.paramsHash !== context.paramsHash) {
-      return false;
-    }
-    if (context.params && entry.paramsHash) {
-      const pHash = _hashParams(context.params);
-      if (pHash && entry.paramsHash !== pHash) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function verifyApprovalTokenInternal(token) {
-    if (!token || typeof token !== 'string') return false;
-    const store = _getTokenStore();
-    let entry = store.get(token);
-    if (!entry && store !== _internalTokenStore) {
-      entry = _internalTokenStore.get(token);
-    }
-    if (!entry) return false;
-    if (Date.now() > entry.expiresAt) {
-      store.delete(token);
-      _internalTokenStore.delete(token);
-      return false;
-    }
-    return true;
-  }
-
-  function clearApprovalTokensInternal() {
-    _getTokenStore().clear();
-    _internalTokenStore.clear();
-  }
-
-  function issueApprovalToken(spec = {}) {
-    return issueApprovalTokenInternal(spec);
-  }
-
   function consumeApprovalToken(token, context = {}) {
-    return consumeApprovalTokenInternal(token, context);
+    if (typeof _approvalVerifier === 'function') {
+      return _approvalVerifier(token, context);
+    }
+    if (_approvalVerifier && typeof _approvalVerifier.consume === 'function') {
+      return _approvalVerifier.consume(token, context);
+    }
+    return false;
   }
 
   function verifyApprovalToken(token) {
-    return verifyApprovalTokenInternal(token);
+    if (_approvalVerifier && typeof _approvalVerifier.verify === 'function') {
+      return _approvalVerifier.verify(token);
+    }
+    return false;
   }
 
   function clearApprovalTokens() {
-    clearApprovalTokensInternal();
+    if (_approvalVerifier && typeof _approvalVerifier.clear === 'function') {
+      _approvalVerifier.clear();
+    }
+  }
+
+  function issueApprovalToken(spec) {
+    if (_approvalVerifier && typeof _approvalVerifier.issue === 'function') {
+      return _approvalVerifier.issue(spec);
+    }
+    return null;
   }
 
   // Pure-JS SHA-256 for deterministic hex strings in all environments
@@ -878,25 +825,7 @@
     return deepFreeze(clone);
   }
 
-  /* istanbul ignore next */
-  if (typeof globalThis !== 'undefined') {
-    // Backwards-compatibility for existing tests inspecting globalThis.__nexusApprovalTokens
-    try {
-      Object.defineProperty(globalThis, '__nexusApprovalTokens', {
-        get() {
-          return _internalTokenStore;
-        },
-        set(val) {
-          if (val && typeof val.forEach === 'function') {
-            _internalTokenStore.clear();
-            val.forEach((v, k) => _internalTokenStore.set(k, v));
-          }
-        },
-        configurable: true,
-        enumerable: false
-      });
-    } catch (_) {}
-  }
+
 
   function validateProviderScope(providerId, action, grantedScopes = null) {
     const pid = String(providerId || '').trim().toLowerCase();
@@ -940,6 +869,31 @@
       return canonicalScope === canonicalRequired;
     });
   }
+
+  // Standard MCP Actions Enumeration (ACS 2026 Default-Deny Strict Contract)
+  const STANDARD_MCP_ACTIONS = Object.freeze({
+    'tools/list': 'read_only',
+    list_tools: 'read_only',
+    'resources/list': 'read_only',
+    list_resources: 'read_only',
+    'resources/read': 'read_only',
+    read_resource: 'read_only',
+    'tools/call': 'mutating',
+    call_tool: 'mutating',
+    query: 'read_only',
+    search: 'read_only',
+    fetch: 'read_only',
+    connect: 'mutating',
+    status: 'read_only',
+    inspect: 'read_only',
+    transcribe: 'mutating',
+    generate: 'mutating',
+    scrape: 'read_only',
+    crawl: 'mutating',
+    execute: 'mutating',
+    test: 'mutating',
+    debug: 'read_only'
+  });
 
   // OWASP Agent Control Standard (ACS 2026) Action Policy Manifest
   // Explicit 3-tier capability mapping: 'read_only' | 'mutating' | 'high_risk'
@@ -1239,9 +1193,9 @@
       kv_delete: 'high_risk'
     }),
     coingecko: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
       list: 'read_only',
       get_price: 'read_only',
-      search: 'read_only',
       get: 'read_only'
     }),
     tavily: Object.freeze({
@@ -1266,16 +1220,81 @@
       search: 'read_only',
       query_database: 'read_only'
     }),
-    mcp: Object.freeze({
-      'tools/list': 'read_only',
-      list_tools: 'read_only',
-      'resources/list': 'read_only',
-      list_resources: 'read_only',
-      'resources/read': 'read_only',
-      read_resource: 'read_only',
-      'tools/call': 'mutating',
-      call_tool: 'mutating',
-      execute: 'mutating'
+    mcp: STANDARD_MCP_ACTIONS,
+    tailscale: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      disconnect: 'mutating',
+      list_devices: 'read_only'
+    }),
+    neimo: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      check: 'read_only',
+      compliance_check: 'read_only'
+    }),
+    explorium: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      enrich: 'read_only',
+      prospects: 'read_only'
+    }),
+    jam: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      get_log: 'read_only',
+      console_logs: 'read_only'
+    }),
+    sentry: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      list_issues: 'read_only',
+      get_issue: 'read_only',
+      resolve_issue: 'mutating'
+    }),
+    minimax: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      generate_speech: 'mutating',
+      generate_image: 'mutating',
+      generate_music: 'mutating'
+    }),
+    posthog: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      capture: 'mutating',
+      feature_flags: 'read_only'
+    }),
+    firecrawl: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      map: 'read_only',
+      extract: 'mutating'
+    }),
+    neon: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      run_sql: 'mutating',
+      execute_sql: 'mutating',
+      list_projects: 'read_only'
+    }),
+    context7: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      get_docs: 'read_only'
+    }),
+    serena: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      ast_search: 'read_only'
+    }),
+    playwright: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      navigate: 'mutating',
+      screenshot: 'read_only',
+      click: 'mutating',
+      fill: 'mutating',
+      evaluate: 'mutating'
+    }),
+    elevenlabs: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      text_to_speech: 'mutating',
+      clone_voice: 'mutating',
+      get_voices: 'read_only'
+    }),
+    picsart: Object.freeze({
+      ...STANDARD_MCP_ACTIONS,
+      remove_background: 'mutating',
+      vectorize: 'mutating'
     }),
     system: Object.freeze({
       read_info: 'read_only',
@@ -1301,7 +1320,7 @@
       else if (pid === 'clash') providerManifest = ACTION_POLICY_MANIFEST.clash_royale;
       else {
         const catItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === pid);
-        if (catItem && catItem.type === 'MCP') providerManifest = ACTION_POLICY_MANIFEST.mcp;
+        if (catItem && catItem.type === 'MCP') providerManifest = ACTION_POLICY_MANIFEST[pid] || ACTION_POLICY_MANIFEST.mcp;
       }
     }
 
@@ -1313,12 +1332,6 @@
       if (!tier) {
         const noUnderscore = act.replace(/_/g, '');
         tier = providerManifest[noUnderscore];
-      }
-    }
-    if (!tier) {
-      const catItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === pid);
-      if (catItem && catItem.type === 'MCP') {
-        tier = 'mutating';
       }
     }
 
@@ -1453,6 +1466,16 @@
     }
   }
 
+  function getSessionExecutionGuard(options = {}) {
+    const GuardCls = AgentExecutionGuard || (function() {
+      if (typeof require === 'function') {
+        try { return require('../core/state.js').AgentExecutionGuard; } catch (_) {}
+      }
+      return (typeof globalThis !== 'undefined' && globalThis.AgentExecutionGuard) || null;
+    })();
+    return GuardCls ? new GuardCls(options) : null;
+  }
+
   async function executeProviderRequest(request) {
     if (!request || typeof request !== 'object') {
       return { status: 400, error: 'BAD_REQUEST', message: 'Invalid provider request payload' };
@@ -1481,8 +1504,76 @@
       approvalToken = null,
       retryOptions = { maxRetries: 3, baseDelayMs: 100 },
       appConnections = null,
-      approvalGateHandler = null
+      approvalGateHandler = null,
+      options = {}
     } = request;
+
+    // Task 3: Universal AgentExecutionGuard - Mandatory for every tool or provider request!
+    const guard = request.executionGuard ||
+      options.executionGuard ||
+      request.guard ||
+      options.guard ||
+      getSessionExecutionGuard();
+
+    let signal = null;
+    if (guard) {
+      const isCancelled = (typeof guard.isCancelled === 'function')
+        ? guard.isCancelled()
+        : Boolean(guard.cancelled || (guard.abortController && guard.abortController.signal && guard.abortController.signal.aborted));
+      if (isCancelled) {
+        const cancelMsg = guard.cancelReason || (guard.abortController && guard.abortController.signal && guard.abortController.signal.reason) || 'Execution was cancelled';
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'EXECUTION_CANCELLED' });
+        return {
+          status: 429,
+          error: 'EXECUTION_CANCELLED',
+          message: cancelMsg
+        };
+      }
+
+      signal = guard.abortController?.signal;
+      if (options && typeof options === 'object') options.signal = signal;
+      if (request && typeof request === 'object') request.signal = signal;
+
+      if (typeof guard.recordStep === 'function') {
+        guard.recordStep();
+      }
+
+      const tokens = Number(request.tokensUsed || options.tokensUsed || 0);
+
+      try {
+        if (typeof guard.checkExecutionLimits === 'function') {
+          guard.checkExecutionLimits(action, params);
+        }
+      } catch (guardErr) {
+        const errCode = guardErr.code || 'EXECUTION_LIMIT_EXCEEDED';
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: errCode });
+        return {
+          status: 429,
+          error: errCode,
+          message: guardErr.message
+        };
+      }
+
+      if (typeof guard.recordToolCall === 'function') {
+        try {
+          guard.recordToolCall(action, params, tokens);
+        } catch (_) {}
+      }
+
+      try {
+        if (typeof guard.checkExecutionLimits === 'function') {
+          guard.checkExecutionLimits();
+        }
+      } catch (guardErr) {
+        const errCode = guardErr.code || 'EXECUTION_LIMIT_EXCEEDED';
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: errCode });
+        return {
+          status: 429,
+          error: errCode,
+          message: guardErr.message
+        };
+      }
+    }
 
     const catalogItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === providerId);
     const providerDef = PROVIDERS[providerId] || Object.values(PROVIDERS).find(p => (p.id || '').toLowerCase() === providerId) || catalogItem;
@@ -1537,20 +1628,6 @@
         error: 'UNLISTED_ACTION_DENIED',
         message: `Action '${rawAct || action}' is not registered in ACTION_POLICY_MANIFEST and strictly denied.`
       };
-    }
-
-    // Step 0.5: Check AgentExecutionGuard limits if provided
-    if (request.executionGuard && typeof request.executionGuard.checkExecutionLimits === 'function') {
-      try {
-        request.executionGuard.checkExecutionLimits(action, params);
-      } catch (guardErr) {
-        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: guardErr.code || guardErr.message });
-        return {
-          status: 429,
-          error: guardErr.code || 'EXECUTION_LIMIT_EXCEEDED',
-          message: guardErr.message
-        };
-      }
     }
 
     // Step 2: Validate provider action scope with mandatory Default-Deny
@@ -1609,19 +1686,14 @@
           params
         });
       } else {
-        let peerApprovals = null;
-        if (typeof require === 'function') {
-          try { peerApprovals = require('../security/approvals.js'); } catch (_) {}
+        _ensureBootLink();
+        if (typeof _approvalVerifier === 'function') {
+          valid = _approvalVerifier(approvalToken, {
+            providerId,
+            action,
+            params
+          });
         }
-        const fallbackVerifier = (peerApprovals && peerApprovals.consumeApprovalToken) ||
-          (target && target.NexusApprovals && target.NexusApprovals.consumeApprovalToken) ||
-          (target && target.NexusCore && target.NexusCore.consumeApprovalToken) ||
-          consumeApprovalTokenInternal;
-        valid = fallbackVerifier(approvalToken, {
-          providerId,
-          action,
-          params
-        });
       }
       if (!valid) {
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'INVALID_APPROVAL_TOKEN' });
@@ -1644,22 +1716,13 @@
 
     // Step 5: Execute with retry and handle standard HTTP errors
     if (typeof executeFn !== 'function') {
-      if (request.executionGuard && typeof request.executionGuard.recordToolCall === 'function') {
-        try {
-          request.executionGuard.recordToolCall(action, params);
-        } catch (_) {}
-      }
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, message: 'Request validated successfully' };
     }
 
     try {
-      const result = await executeWithRetry(executeFn, retryOptions);
-      if (request.executionGuard && typeof request.executionGuard.recordToolCall === 'function') {
-        try {
-          request.executionGuard.recordToolCall(action, params);
-        } catch (_) {}
-      }
+      const runFn = executeFn.length > 0 ? () => executeFn({ ...params, signal }) : () => executeFn();
+      const result = await executeWithRetry(runFn, retryOptions);
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
       return { status: 200, success: true, data: result };
     } catch (err) {
@@ -2219,6 +2282,68 @@
     };
   }
 
+  // OpenTelemetry GenAI Semantic Conventions & Audit Persistence delegates
+  function _getPeerApprovals() {
+    if (typeof require === 'function') {
+      try { return require('../security/approvals.js'); } catch (_) {}
+    }
+    return (typeof globalThis !== 'undefined' && globalThis.NexusApprovals) || null;
+  }
+
+  const GEN_AI_SYSTEM = 'EG-Nexus-OS';
+  const GEN_AI_OPERATIONS = Object.freeze({
+    INVOKE_AGENT: 'invoke_agent',
+    PLAN: 'plan',
+    EXECUTE_TOOL: 'execute_tool'
+  });
+  const GEN_AI_ATTRIBUTES = Object.freeze({
+    SYSTEM: 'gen_ai.system',
+    REQUEST_MODEL: 'gen_ai.request.model',
+    TOOL_NAME: 'gen_ai.tool.name',
+    USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
+    USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens'
+  });
+
+  const GenAISpan = (function() {
+    const peer = _getPeerApprovals();
+    return (peer && peer.GenAISpan) || class GenAISpan {
+      constructor(operation, attributes = {}) {
+        this.name = String(operation || 'gen_ai.operation');
+        this.attributes = { ...attributes };
+      }
+      setAttribute(k, v) { this.attributes[k] = v; return this; }
+      setAttributes(a) { Object.assign(this.attributes, a); return this; }
+      addEvent() { return this; }
+      setStatus() { return this; }
+      end() { return this; }
+      toJSON() { return { name: this.name, attributes: this.attributes }; }
+    };
+  })();
+
+  function createGenAISpan(operation, attributes = {}) {
+    const peer = _getPeerApprovals();
+    if (peer && typeof peer.createGenAISpan === 'function') {
+      return peer.createGenAISpan(operation, attributes);
+    }
+    return new GenAISpan(operation, attributes);
+  }
+
+  function persistAuditTrail(storage) {
+    const peer = _getPeerApprovals();
+    if (peer && typeof peer.persistAuditTrail === 'function') {
+      return peer.persistAuditTrail(storage);
+    }
+    return true;
+  }
+
+  function verifyAuditTrailIntegrity(storage, options = {}) {
+    const peer = _getPeerApprovals();
+    if (peer && typeof peer.verifyAuditTrailIntegrity === 'function') {
+      return peer.verifyAuditTrailIntegrity(storage, options);
+    }
+    return true;
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -2238,7 +2363,6 @@
     isMutatingOrSensitiveAction,
     isSensitiveProviderAction,
     getActionPolicyCategory,
-    registerInternalApprovalVerifier,
     AgentExecutionGuard,
     _withTimeout,
     formatProviderError,
@@ -2268,15 +2392,11 @@
     isAppGenuinelyConnected,
     secureRandomId,
     ACTION_POLICY_MANIFEST,
+    _registerTokenVerifier,
     issueApprovalToken,
     consumeApprovalToken,
     verifyApprovalToken,
     clearApprovalTokens,
-    _getApprovalTokenStoreInternal,
-    issueApprovalTokenInternal,
-    verifyApprovalTokenInternal,
-    consumeApprovalTokenInternal,
-    clearApprovalTokensInternal,
     recordLifecycleEvent,
     getRequestLifecycle,
     canonicalizeJson,
@@ -2284,6 +2404,14 @@
     _generateTokenNonce,
     _sha256Pure,
     _sha256Hex,
-    deepFreeze
+    deepFreeze,
+    createGenAISpan,
+    createSpan: createGenAISpan,
+    GenAISpan,
+    GEN_AI_SYSTEM,
+    GEN_AI_OPERATIONS,
+    GEN_AI_ATTRIBUTES,
+    persistAuditTrail,
+    verifyAuditTrailIntegrity
   };
 });

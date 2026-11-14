@@ -6,6 +6,25 @@
 describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
   const secrets = require('../src/security/secrets.js');
   const persistence = require('../src/core/persistence.js');
+  const approvals = require('../src/security/approvals.js');
+  const registry = require('../src/providers/registry.js');
+
+  async function getApprovedToken(providerId, action, params = {}, options = {}) {
+    const ui = approvals.getUiState();
+    if (ui) ui._isResolvingApproval = false;
+    let token = null;
+    approvals.triggerApprovalGate({
+      reason: 'Test approval',
+      providerId,
+      action,
+      params,
+      ...options,
+      onApprove: (t) => { token = t; }
+    });
+    await approvals.resolveApprovalGate(true);
+    if (ui) ui._isResolvingApproval = false;
+    return token;
+  }
 
   afterEach(() => {
     delete global.window;
@@ -241,43 +260,39 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
       expect(registry.verifyApprovalToken('appr_nonexistent_token')).toBe(false);
 
       // 3. token with mismatched providerId
-      const tok1 = registry.issueApprovalToken({ providerId: 'github', action: 'push' });
+      const tok1 = await getApprovedToken('github', 'push');
       expect(registry.consumeApprovalToken(tok1, { providerId: 'wrong_provider' })).toBe(false);
 
       // 4. token with mismatched action
-      const tok2 = registry.issueApprovalToken({ providerId: 'github', action: 'push' });
+      const tok2 = await getApprovedToken('github', 'push');
       expect(registry.consumeApprovalToken(tok2, { providerId: 'github', action: 'delete' })).toBe(false);
 
       // 5. token with mismatched paramsHash
-      const tok3 = registry.issueApprovalToken({ providerId: 'github', action: 'push', paramsHash: 'hash_1' });
+      const tok3 = await getApprovedToken('github', 'push', {}, { paramsHash: 'hash_1' });
       expect(registry.consumeApprovalToken(tok3, { providerId: 'github', action: 'push', paramsHash: 'hash_2' })).toBe(false);
 
       // 6. token with params mismatch
-      const tok4 = registry.issueApprovalToken({ providerId: 'github', action: 'push', params: { file: 'a.txt' } });
+      const tok4 = await getApprovedToken('github', 'push', { file: 'a.txt' });
       expect(registry.consumeApprovalToken(tok4, { providerId: 'github', action: 'push', params: { file: 'b.txt' } })).toBe(false);
 
       // 7. token with params match
-      const tok5 = registry.issueApprovalToken({ providerId: 'github', action: 'push', params: { file: 'a.txt' } });
+      const tok5 = await getApprovedToken('github', 'push', { file: 'a.txt' });
       expect(registry.consumeApprovalToken(tok5, { providerId: 'github', action: 'push', params: { file: 'a.txt' } })).toBe(true);
 
       // 8. token expiration
-      const tok6 = registry.issueApprovalToken({ providerId: 'github', action: 'push' });
-      const entry = globalThis.__nexusApprovalTokens.get(tok6);
-      entry.expiresAt = Date.now() - 1000; // expired
+      const tok6 = await getApprovedToken('github', 'push', {}, { ttlMs: -1000 });
       expect(registry.verifyApprovalToken(tok6)).toBe(false);
-      const tok7 = registry.issueApprovalToken({ providerId: 'github', action: 'push' });
-      const entry7 = globalThis.__nexusApprovalTokens.get(tok7);
-      entry7.expiresAt = Date.now() - 1000;
+      const tok7 = await getApprovedToken('github', 'push', {}, { ttlMs: -1000 });
       expect(registry.consumeApprovalToken(tok7)).toBe(false);
 
       // 9. approvals.js module token functions
-      const tokAppr = approvals.issueApprovalToken({ providerId: 'gmail', action: 'send' });
+      const tokAppr = await getApprovedToken('gmail', 'send');
       expect(approvals.verifyApprovalToken(tokAppr)).toBe(true);
       expect(approvals.consumeApprovalToken(tokAppr, { providerId: 'gmail', action: 'send' })).toBe(true);
       expect(approvals.consumeApprovalToken(tokAppr)).toBe(false); // replay blocked
 
       // 10. clearApprovalTokens
-      const tokClear = approvals.issueApprovalToken({ providerId: 'gmail', action: 'send' });
+      const tokClear = await getApprovedToken('gmail', 'send');
       approvals.clearApprovalTokens();
       expect(approvals.verifyApprovalToken(tokClear)).toBe(false);
 
@@ -516,19 +531,19 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
       expect(resNonSens.status).toBe(200);
 
       // Thorough branch coverage for token validation & expiry
-      const t1 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      const t1 = await getApprovedToken('github', 'push', { a: 1 });
       expect(approvals.consumeApprovalToken(null)).toBe(false);
       expect(approvals.consumeApprovalToken(123)).toBe(false);
       expect(approvals.consumeApprovalToken('non_existent_token')).toBe(false);
       expect(approvals.consumeApprovalToken(t1, { providerId: 'wrong_provider' })).toBe(false);
 
-      const t2 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      const t2 = await getApprovedToken('github', 'push', { a: 1 });
       expect(approvals.consumeApprovalToken(t2, { action: 'wrong_action' })).toBe(false);
 
-      const t3 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      const t3 = await getApprovedToken('github', 'push', { a: 1 }, { paramsHash: 'hash_1' });
       expect(approvals.consumeApprovalToken(t3, { paramsHash: 'wrong_hash' })).toBe(false);
 
-      const t4 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { a: 1 } });
+      const t4 = await getApprovedToken('github', 'push', { a: 1 });
       expect(approvals.consumeApprovalToken(t4, { params: { a: 999 } })).toBe(false);
 
       // Verify token branches
@@ -545,14 +560,10 @@ describe('v6.1 Hardware Keystore, Bridges & Storage Resilience', () => {
       expect(registry.verifyApprovalToken('non_existent')).toBe(false);
 
       // Expired token branch
-      const tExp = approvals.issueApprovalToken({ providerId: 'github', action: 'push' });
-      const rawExp = global.__nexusApprovalTokens.get(tExp);
-      if (rawExp) rawExp.expiresAt = Date.now() - 1000;
+      const tExp = await getApprovedToken('github', 'push', {}, { ttlMs: -1000 });
       expect(approvals.verifyApprovalToken(tExp)).toBe(false);
 
-      const tExp2 = registry.issueApprovalToken({ providerId: 'github', action: 'push' });
-      const rawExp2 = global.__nexusApprovalTokens.get(tExp2);
-      if (rawExp2) rawExp2.expiresAt = Date.now() - 1000;
+      const tExp2 = await getApprovedToken('github', 'push', {}, { ttlMs: -1000 });
       expect(registry.consumeApprovalToken(tExp2)).toBe(false);
     });
   });

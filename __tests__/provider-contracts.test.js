@@ -4,6 +4,23 @@
  */
 
 const registry = require('../src/providers/registry.js');
+const approvals = require('../src/security/approvals.js');
+
+async function getApprovedToken(providerId, action, params = {}) {
+  const ui = approvals.getUiState();
+  if (ui) ui._isResolvingApproval = false;
+  let token = null;
+  approvals.triggerApprovalGate({
+    reason: 'Test approval',
+    providerId,
+    action,
+    params,
+    onApprove: (t) => { token = t; }
+  });
+  await approvals.resolveApprovalGate(true);
+  if (ui) ui._isResolvingApproval = false;
+  return token;
+}
 
 describe('Provider Contracts & Resilience Suite', () => {
   // =========================================================================
@@ -446,10 +463,7 @@ describe('Provider Contracts & Resilience Suite', () => {
     });
 
     test('executeProviderRequest succeeds when sensitive action is approved', async () => {
-      const approvalToken = registry.issueApprovalToken({
-        providerId: 'termux',
-        action: 'exec'
-      });
+      const approvalToken = await getApprovedToken('termux', 'exec');
       const result = await registry.executeProviderRequest({
         providerId: 'termux',
         action: 'exec',

@@ -1,4 +1,4 @@
-name: EG Nexus OS v6.2.3 - Auto Audit & Signed APK Factory
+name: EG Nexus OS v6.2.4 - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.2.3..."
+          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.2.4..."
           if [ ! -f "index.html" ]; then
             echo "❌ خطا: فایل index.html یافت نشد!"
             exit 1
@@ -246,7 +246,7 @@ jobs:
           APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.2.apk.sha256)
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.2.3-${GITHUB_SHA}"
+          RELEASE_TAG="v6.2.4-${GITHUB_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -283,12 +283,12 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.2.3 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v6.2.4 (${{ env.SHORT_SHA }})"
           make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v6.2.3`
+            - **Release Version:** `v6.2.4`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**

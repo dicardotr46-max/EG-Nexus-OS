@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * EG-Nexus-OS v6.2.3 — Policy Engine, StrongBox 2PC Journal, Termux Capability Matrix, AgentExecutionGuard & Lifecycle Suite
+ * EG-Nexus-OS v6.2.4 — Policy Engine, StrongBox 2PC Journal, Termux Capability Matrix, AgentExecutionGuard & Lifecycle Suite
  * Comprehensive verification of:
  * 1. ACTION_POLICY_MANIFEST & Strict Default-Deny without prefix guessing (UNLISTED_ACTION_DENIED)
  * 2. StrongBox Shadow-Key 2PC Two-Phase Commit Crash Journal & Migration Recovery (MASWE-0015)
@@ -14,13 +14,31 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const vm = require('vm');
 const registry = require('../src/providers/registry.js');
 const approvals = require('../src/security/approvals.js');
 const secrets = require('../src/security/secrets.js');
 const state = require('../src/core/state.js');
 
-describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite', () => {
+async function getApprovedToken(providerId, action, params = {}, options = {}) {
+  const ui = approvals.getUiState();
+  if (ui) ui._isResolvingApproval = false;
+  let token = null;
+  approvals.triggerApprovalGate({
+    reason: 'Test approval',
+    providerId,
+    action,
+    params,
+    ...options,
+    onApprove: (t) => { token = t; }
+  });
+  await approvals.resolveApprovalGate(true);
+  if (ui) ui._isResolvingApproval = false;
+  return token;
+}
+
+describe('EG Nexus OS v6.2.4 — Standards, Policy & Keystore Resilience Suite', () => {
 
   afterEach(() => {
     delete global.window;
@@ -276,11 +294,7 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
     });
 
     test('executeProviderRequest succeeds for mutating action when valid single-use approvalToken is supplied', async () => {
-      const approvalToken = registry.issueApprovalToken({
-        providerId: 'github',
-        action: 'push',
-        params: { ref: 'main' }
-      });
+      const approvalToken = await getApprovedToken('github', 'push', { ref: 'main' });
 
       const res = await registry.executeProviderRequest({
         providerId: 'github',
@@ -676,7 +690,7 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
   });
 
   describe('6. Exhaustive Branch Coverage Booster for Approvals and Keystore', () => {
-    test('approvals lifecycle eviction and edge parameter coverage', () => {
+    test('approvals lifecycle eviction and edge parameter coverage', async () => {
       const recordEvent = approvals.recordLifecycleEvent;
       // 1. null requestId creates random id
       const r1 = recordEvent(null, 'queued', null);
@@ -690,16 +704,8 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       expect(approvals.getRequestLifecycle('req_fill_504')).not.toBeNull(); // kept
 
       // 3. Handshake internal functions
-      if (typeof approvals._getApprovalTokenStoreInternal === 'function') {
-        const store = approvals._getApprovalTokenStoreInternal();
-        expect(store instanceof Map).toBe(true);
-      }
-      if (typeof approvals.issueApprovalTokenInternal === 'function') {
-        const tok = approvals.issueApprovalTokenInternal({ providerId: 'github', action: 'push' });
-        expect(approvals.verifyApprovalTokenInternal(tok)).toBe(true);
-        expect(approvals.consumeApprovalTokenInternal(tok, { providerId: 'github', action: 'push' })).toBe(true);
-        approvals.clearApprovalTokensInternal();
-      }
+      const tok = await getApprovedToken('github', 'push');
+      expect(approvals.consumeApprovalToken(tok, { providerId: 'github', action: 'push' })).toBe(true);
     });
 
     test('keystore journal state and recovery plugin branches', async () => {
@@ -857,23 +863,23 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       await expect(secrets.importEncryptedBackup({ version: 2, iv: '00'.repeat(12), ciphertext: '00'.repeat(16), salt: 'short' }, 'pass')).rejects.toThrow(/salt must be at least 16 bytes/);
 
       // 7. approvals consumeApprovalToken condition branches (mismatch & expiry)
-      const tok1 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { ref: 'main' }, ttlMs: 100000 });
+      const tok1 = await getApprovedToken('github', 'push', { ref: 'main' });
       // mismatch providerId
       expect(approvals.consumeApprovalToken(tok1, { providerId: 'gitlab', action: 'push' })).toBe(false);
 
-      const tok2 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { ref: 'main' }, ttlMs: 100000 });
+      const tok2 = await getApprovedToken('github', 'push', { ref: 'main' });
       // mismatch action
       expect(approvals.consumeApprovalToken(tok2, { providerId: 'github', action: 'delete' })).toBe(false);
 
-      const tok3 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { ref: 'main' }, ttlMs: 100000 });
+      const tok3 = await getApprovedToken('github', 'push', { ref: 'main' });
       // mismatch paramsHash
       expect(approvals.consumeApprovalToken(tok3, { providerId: 'github', action: 'push', paramsHash: 'bad_hash_xyz' })).toBe(false);
 
-      const tok4 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', params: { ref: 'main' }, ttlMs: 100000 });
+      const tok4 = await getApprovedToken('github', 'push', { ref: 'main' });
       // mismatch params object
       expect(approvals.consumeApprovalToken(tok4, { providerId: 'github', action: 'push', params: { ref: 'dev' } })).toBe(false);
 
-      const tok5 = approvals.issueApprovalToken({ providerId: 'github', action: 'push', ttlMs: -1000 }); // expired
+      const tok5 = await getApprovedToken('github', 'push', {}, { ttlMs: -1000 });
       expect(approvals.consumeApprovalToken(tok5, { providerId: 'github', action: 'push' })).toBe(false);
 
       // 8. resolveApprovalGate with frozen item and rejection
@@ -960,6 +966,20 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       return '';
     }
 
+    function extractVerifyWorkspacePathFn() {
+      const scriptCode = extractDaemonScript();
+      const startIndex = scriptCode.indexOf('function verifyWorkspacePath(');
+      if (startIndex === -1) {
+        throw new Error('function verifyWorkspacePath not found in daemon script');
+      }
+      const endIndex = scriptCode.indexOf('function killProcessTreeSafe(', startIndex);
+      const fnCode = scriptCode.slice(startIndex, endIndex !== -1 ? endIndex : startIndex + 2500).trim();
+      const sandbox = { fs, path, Error };
+      vm.createContext(sandbox);
+      vm.runInContext(fnCode, sandbox);
+      return sandbox.verifyWorkspacePath;
+    }
+
     test('generateTermuxBridgeScript compiles into vm.Script without syntax errors', () => {
       const scriptCode = extractDaemonScript();
       expect(typeof scriptCode).toBe('string');
@@ -1010,6 +1030,47 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       for (const vector of symlinkTestVectors) {
         const allowed = isInsideAllowedRoots(vector.resolvedRealpath, allowedRoots);
         expect(allowed).toBe(vector.shouldAllow);
+      }
+    });
+
+    test('real file-system symlink pointing outside workspace root strictly fails closed via verifyWorkspacePath', () => {
+      const verifyWorkspacePath = extractVerifyWorkspacePathFn();
+      expect(typeof verifyWorkspacePath).toBe('function');
+
+      const tempBase = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-termux-test-'));
+      const wsDir = path.join(tempBase, 'workspace');
+      const outsideDir = path.join(tempBase, 'outside');
+      fs.mkdirSync(wsDir, { recursive: true });
+      fs.mkdirSync(outsideDir, { recursive: true });
+
+      const outsideFile = path.join(outsideDir, 'sensitive_secret.env');
+      fs.writeFileSync(outsideFile, 'CRITICAL_SECRET_TOKEN=xyz123', 'utf8');
+
+      const symlinkPath = path.join(wsDir, 'escaped_symlink.txt');
+      fs.symlinkSync(outsideFile, symlinkPath);
+
+      try {
+        // Absolute symlink path escape must fail closed with symlink escape error
+        expect(() => {
+          verifyWorkspacePath(symlinkPath, wsDir);
+        }).toThrow(/Symlink traversal outside workspace detected/);
+
+        // Relative symlink path inside workspace pointing outside must fail closed
+        expect(() => {
+          verifyWorkspacePath('escaped_symlink.txt', wsDir);
+        }).toThrow(/Symlink traversal outside workspace detected/);
+
+        // Legitimate file inside workspace passes
+        const legitimateFile = path.join(wsDir, 'normal.txt');
+        fs.writeFileSync(legitimateFile, 'safe inside workspace', 'utf8');
+        const legitResult = verifyWorkspacePath('normal.txt', wsDir);
+        expect(legitResult).toBe(fs.realpathSync(legitimateFile));
+      } finally {
+        try {
+          if (fs.existsSync(symlinkPath)) fs.unlinkSync(symlinkPath);
+          if (fs.existsSync(outsideFile)) fs.unlinkSync(outsideFile);
+          fs.rmSync(tempBase, { recursive: true, force: true });
+        } catch (_) {}
       }
     });
 
@@ -1196,6 +1257,95 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       const primaryData = JSON.parse(mockStore.getItem('eg_nexus_os_v5_master_state_session_secrets'));
       expect(primaryData.ciphertext).toBe('v1_original_ciphertext');
     });
+
+    test('FSM & Point-of-No-Return: commitKeyMigration rejects premature ACTIVE_V2 without STORAGE_COMMITTED or when mainStorageVerified is false without deleting V1 key, and rollbackKeyMigration rejects post-commit rollback with COMMIT_POINT_PASSED', async () => {
+      let v1KeyDeleted = false;
+      let pluginJournalState = 'V2_DATA_VERIFIED'; // Initial state before STORAGE_COMMITTED
+
+      const mockKeystoreFsm = {
+        isAvailable: async () => ({ available: true, hardwareBacked: true, securityLevel: 'strongbox' }),
+        commitKeyMigration: jest.fn(async (opts = {}) => {
+          const stage = opts.stage;
+          const mainStorageVerified = opts.mainStorageVerified !== false;
+
+          // Reject premature ACTIVE_V2 if current state is not STORAGE_COMMITTED or mainStorageVerified is false
+          if (stage === 'ACTIVE_V2') {
+            if (pluginJournalState !== 'STORAGE_COMMITTED' || !mainStorageVerified) {
+              return {
+                committed: false,
+                error: 'INVALID_STAGE_TRANSITION: current state must be STORAGE_COMMITTED and mainStorageVerified must be true before committing ACTIVE_V2',
+                deletedOldKeys: false
+              };
+            }
+            pluginJournalState = 'ACTIVE_V2';
+            v1KeyDeleted = true;
+            return { committed: true, journalState: 'ACTIVE_V2', deletedOldKeys: true };
+          }
+
+          if (stage === 'STORAGE_COMMITTED') {
+            pluginJournalState = 'STORAGE_COMMITTED';
+            return { committed: true, journalState: 'STORAGE_COMMITTED' };
+          }
+
+          return { committed: false, error: 'UNKNOWN_STAGE' };
+        }),
+        rollbackKeyMigration: jest.fn(async () => {
+          // Point of No Return: rollback is strictly forbidden once STORAGE_COMMITTED or ACTIVE_V2 is reached
+          if (pluginJournalState === 'STORAGE_COMMITTED' || pluginJournalState === 'ACTIVE_V2') {
+            return {
+              rolledBack: false,
+              error: 'COMMIT_POINT_PASSED: Cannot rollback after STORAGE_COMMITTED has been persisted'
+            };
+          }
+          pluginJournalState = 'ACTIVE_V1';
+          return { rolledBack: true, journalState: 'ACTIVE_V1' };
+        })
+      };
+
+      global.window = {
+        Capacitor: {
+          Plugins: {
+            NexusKeystore: mockKeystoreFsm
+          }
+        }
+      };
+
+      // 1. Calling commitKeyMigration({ stage: 'ACTIVE_V2' }) when current state is V2_DATA_VERIFIED (NOT STORAGE_COMMITTED)
+      const prematureCommit = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2' });
+      expect(prematureCommit.committed).toBe(false);
+      expect(prematureCommit.error).toContain('INVALID_STAGE_TRANSITION');
+      expect(v1KeyDeleted).toBe(false); // V1 key must NOT be deleted
+
+      // 2. Calling commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: false })
+      const unverifiedCommit = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: false });
+      expect(unverifiedCommit.committed).toBe(false);
+      expect(v1KeyDeleted).toBe(false);
+
+      // 3. Rollback works when state is prior to STORAGE_COMMITTED
+      const preRollback = await secrets.rollbackKeyMigration();
+      expect(preRollback.rolledBack).toBe(true);
+
+      // 4. Now transition to STORAGE_COMMITTED (point of no return)
+      const commitRes = await secrets.commitKeyMigration({ stage: 'STORAGE_COMMITTED' });
+      expect(commitRes.committed).toBe(true);
+      expect(pluginJournalState).toBe('STORAGE_COMMITTED');
+
+      // 5. Calling rollbackKeyMigration() when current state is STORAGE_COMMITTED must be strictly rejected with COMMIT_POINT_PASSED
+      const rollbackAttempt1 = await secrets.rollbackKeyMigration();
+      expect(rollbackAttempt1.rolledBack).toBe(false);
+      expect(rollbackAttempt1.error).toContain('COMMIT_POINT_PASSED');
+
+      // 6. Transition to ACTIVE_V2
+      const finalCommit = await secrets.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: true });
+      expect(finalCommit.committed).toBe(true);
+      expect(v1KeyDeleted).toBe(true);
+      expect(pluginJournalState).toBe('ACTIVE_V2');
+
+      // 7. Calling rollbackKeyMigration() when current state is ACTIVE_V2 must also be strictly rejected with COMMIT_POINT_PASSED
+      const rollbackAttempt2 = await secrets.rollbackKeyMigration();
+      expect(rollbackAttempt2.rolledBack).toBe(false);
+      expect(rollbackAttempt2.error).toContain('COMMIT_POINT_PASSED');
+    });
   });
 
   // =========================================================================
@@ -1360,7 +1510,85 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       });
       expect(resGuard.status).toBe(429);
       expect(resGuard.error).toBe('STEP_LIMIT_EXCEEDED');
+    });
 
+    test('executeProviderRequest enforces AgentExecutionGuard limits: tracks 15 max steps, records token usage, and cancels requests immediately on guard.cancelTask()', async () => {
+      const guard = new GuardClass({ maxSteps: 15, maxTokenBudget: 500 });
+      expect(guard.maxSteps).toBe(15);
+
+      // 1. Tracks step counts up to 15
+      for (let s = 0; s < 15; s++) {
+        expect(guard.currentSteps).toBe(s);
+        guard.recordStep();
+      }
+      expect(guard.currentSteps).toBe(15);
+
+      // Now at 15 steps (max reached), executeProviderRequest must fail closed with 429 STEP_LIMIT_EXCEEDED
+      const stepLimitRes = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'list',
+        token: 'ghp_valid_test_token',
+        grantedScopes: ['repo'],
+        executionGuard: guard
+      });
+      expect(stepLimitRes.status).toBe(429);
+      expect(stepLimitRes.error).toBe('STEP_LIMIT_EXCEEDED');
+
+      // 2. Records token usage
+      const tokenGuard = new GuardClass({ maxSteps: 20, maxTokenBudget: 250 });
+      tokenGuard.recordToolCall('list', {}, 200);
+      expect(tokenGuard.usedTokens).toBe(200);
+
+      // Successful request with tokens within budget
+      const validTokenRes = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'list',
+        token: 'ghp_valid_test_token',
+        grantedScopes: ['repo'],
+        executionGuard: tokenGuard,
+        executeFn: async () => ({ repos: ['repo_a', 'repo_b'] })
+      });
+      expect(validTokenRes.status).toBe(200);
+      expect(validTokenRes.success).toBe(true);
+
+      // Consume remainder of budget
+      tokenGuard.recordToolCall('list', {}, 60); // 200 + 60 = 260 > 250
+      expect(tokenGuard.usedTokens).toBe(260);
+
+      const budgetExceededRes = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'list',
+        token: 'ghp_valid_test_token',
+        grantedScopes: ['repo'],
+        executionGuard: tokenGuard
+      });
+      expect(budgetExceededRes.status).toBe(429);
+      expect(budgetExceededRes.error).toBe('TOKEN_BUDGET_EXCEEDED');
+
+      // 3. Immediately cancels running requests when guard.cancelTask() is called
+      const cancelGuard = new GuardClass({ maxSteps: 15 });
+      expect(cancelGuard.isCancelled()).toBe(false);
+
+      // Cancel the task
+      cancelGuard.cancelTask('User emergency stop');
+      expect(cancelGuard.isCancelled()).toBe(true);
+      expect(cancelGuard.cancelReason).toBe('User emergency stop');
+
+      // Request must immediately reject with 429 and EXECUTION_CANCELLED
+      const cancelledRes = await registry.executeProviderRequest({
+        providerId: 'github',
+        action: 'list',
+        token: 'ghp_valid_test_token',
+        grantedScopes: ['repo'],
+        executionGuard: cancelGuard,
+        executeFn: async () => ({ shouldNotRun: true })
+      });
+      expect(cancelledRes.status).toBe(429);
+      expect(cancelledRes.error).toBe('EXECUTION_CANCELLED');
+      expect(cancelledRes.message).toContain('User emergency stop');
+    });
+
+    test('formatProviderError coverage and MCP app catalog policy fallback', () => {
       // formatProviderError coverage
       const serverErrNoMsg = registry.formatProviderError({ status: 503 }, 'github');
       expect(serverErrNoMsg.error).toBe('ProviderServerError');
@@ -1435,7 +1663,7 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       expect(ev3).toBeDefined();
 
       // Event 4: executed
-      const ev4 = recordEvent(reqId, 'executed', { status: 200, releaseTag: 'v6.2.3' });
+      const ev4 = recordEvent(reqId, 'executed', { status: 200, releaseTag: 'v6.2.4' });
       expect(ev4).toBeDefined();
 
       const audit = getLifecycle(reqId);
@@ -1544,11 +1772,7 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       expect(gatedRes.error).toBe('APPROVAL_REQUIRED');
 
       // 2. Mutating tool with valid single-use token executes and formats July 2026 content envelope
-      const approvalToken = registry.issueApprovalToken({
-        providerId: 'github',
-        action: 'push',
-        params: { branch: 'main' }
-      });
+      const approvalToken = await getApprovedToken('github', 'push', { branch: 'main' });
 
       const successRes = await registry.executeProviderRequest({
         providerId: 'github',
@@ -1570,6 +1794,174 @@ describe('EG Nexus OS v6.2.3 — Standards, Policy & Keystore Resilience Suite',
       expect(Array.isArray(successRes.data.content)).toBe(true);
       expect(successRes.data.content[0].type).toBe('text');
       expect(successRes.data.content[0].text).toContain('successfully pushed');
+    });
+
+    test('MCP Strict Default-Deny: unlisted action on any MCP provider (picsart, tailscale) is strictly rejected with 403 and UNLISTED_ACTION_DENIED', async () => {
+      // 1. Unlisted action on picsart MCP provider
+      const picsartRes = await registry.executeProviderRequest({
+        providerId: 'picsart',
+        action: 'unlisted_action_denied_probe',
+        token: 'mcp-dummy-key-12345',
+        params: { prompt: 'malicious payload' }
+      });
+      expect(picsartRes.status).toBe(403);
+      expect(picsartRes.error).toBe('UNLISTED_ACTION_DENIED');
+      expect(picsartRes.message).toContain('not registered in ACTION_POLICY_MANIFEST and strictly denied');
+
+      // 2. Unlisted action on tailscale MCP provider
+      const tailscaleRes = await registry.executeProviderRequest({
+        providerId: 'tailscale',
+        action: 'arbitrary_unlisted_action_probe',
+        token: 'ts-dummy-key-67890',
+        params: { port: 8080 }
+      });
+      expect(tailscaleRes.status).toBe(403);
+      expect(tailscaleRes.error).toBe('UNLISTED_ACTION_DENIED');
+      expect(tailscaleRes.message).toContain('not registered in ACTION_POLICY_MANIFEST and strictly denied');
+    });
+  });
+
+  // =========================================================================
+  // 12. OpenTelemetry GenAI Semantic Conventions & Cryptographic Audit Trail
+  // =========================================================================
+  describe('12. OpenTelemetry GenAI Semantic Conventions & Cryptographic Audit Trail', () => {
+    test('createGenAISpan creates standard telemetry spans complying with v1.29.0-dev conventions', () => {
+      const span = approvals.createGenAISpan(approvals.GEN_AI_OPERATIONS.EXECUTE_TOOL, {
+        model: 'gemini-2.5-pro',
+        toolName: 'read_file',
+        inputTokens: 120,
+        outputTokens: 85,
+        traceId: 'trace-test-12345678'
+      });
+
+      expect(span.name).toBe('execute_tool');
+      expect(span.traceId).toBe('trace-test-12345678');
+      expect(span.spanId).toBeDefined();
+      expect(span.attributes['gen_ai.system']).toBe('EG-Nexus-OS');
+      expect(span.attributes['gen_ai.request.model']).toBe('gemini-2.5-pro');
+      expect(span.attributes['gen_ai.tool.name']).toBe('read_file');
+      expect(span.attributes['gen_ai.usage.input_tokens']).toBe(120);
+      expect(span.attributes['gen_ai.usage.output_tokens']).toBe(85);
+
+      span.setAttribute('custom.tag', 'test-val');
+      expect(span.attributes['custom.tag']).toBe('test-val');
+
+      span.setAttributes({ 'extra.k1': 'v1', 'extra.k2': 'v2' });
+      expect(span.attributes['extra.k1']).toBe('v1');
+
+      span.addEvent('token_consumed', { count: 50 });
+      expect(span.events.length).toBe(1);
+      expect(span.events[0].name).toBe('token_consumed');
+
+      span.setStatus('ok', 'Success');
+      expect(span.status.code).toBe('OK');
+
+      span.setStatus({ code: 'error', message: 'Fatal' });
+      expect(span.status.code).toBe('ERROR');
+      expect(span.status.message).toBe('Fatal');
+
+      span.end();
+      expect(span.endTime).toBeDefined();
+      expect(span.durationMs).toBeGreaterThanOrEqual(0);
+
+      const json = span.toJSON();
+      expect(json.name).toBe('execute_tool');
+      expect(json.attributes['gen_ai.system']).toBe('EG-Nexus-OS');
+
+      // Test delegates in state and registry
+      const stateSpan = state.createGenAISpan('plan', { model: 'claude-3-opus' });
+      expect(stateSpan.attributes['gen_ai.request.model']).toBe('claude-3-opus');
+
+      const regSpan = registry.createGenAISpan('invoke_agent', { tool: 'bash' });
+      expect(regSpan.attributes['gen_ai.tool.name']).toBe('bash');
+    });
+
+    test('persistAuditTrail and verifyAuditTrailIntegrity persist and cryptographically verify audit trails across storage engines', () => {
+      // Record sample lifecycle events to establish verified hash chains
+      const reqId = 'audit-trail-test-' + Date.now();
+      approvals.recordLifecycleEvent(reqId, 'queued', { p: 1 });
+      approvals.recordLifecycleEvent(reqId, 'awaiting_approval', { p: 2 });
+      approvals.recordLifecycleEvent(reqId, 'approved', { p: 3 });
+      approvals.recordLifecycleEvent(reqId, 'executed', { p: 4 });
+
+      // 1. Storage in custom storage mock with setItem/getItem
+      const storeObj = {};
+      const storageMock = {
+        setItem: (k, v) => { storeObj[k] = v; },
+        getItem: (k) => storeObj[k] || null
+      };
+
+      expect(approvals.persistAuditTrail(storageMock)).toBe(true);
+      const verifyRes = approvals.verifyAuditTrailIntegrity(storageMock, { detailed: true });
+      expect(verifyRes.valid).toBe(true);
+      expect(verifyRes.verifiedEntries).toBeGreaterThanOrEqual(4);
+
+      // Verify simple boolean return without detailed flag
+      expect(approvals.verifyAuditTrailIntegrity(storageMock)).toBe(true);
+
+      // 2. Storage in Map
+      const mapStore = new Map();
+      expect(state.persistAuditTrail(mapStore)).toBe(true);
+      expect(state.verifyAuditTrailIntegrity(mapStore)).toBe(true);
+
+      // 3. Storage in plain object
+      const plainStore = {};
+      expect(registry.persistAuditTrail(plainStore)).toBe(true);
+      expect(registry.verifyAuditTrailIntegrity(plainStore)).toBe(true);
+
+      // 4. Verification from raw string and raw Array
+      const rawString = storageMock.getItem('eg_nexus_os_lifecycle_audit_trail');
+      expect(approvals.verifyAuditTrailIntegrity(rawString)).toBe(true);
+
+      const rawArray = JSON.parse(rawString);
+      expect(approvals.verifyAuditTrailIntegrity(rawArray)).toBe(true);
+
+      // 5. Verification from memory when store is null
+      expect(approvals.verifyAuditTrailIntegrity(null)).toBe(true);
+
+      // 6. Negative integrity tests: Malformed JSON
+      const malformedRes = approvals.verifyAuditTrailIntegrity('not-valid-json{{{', { detailed: true });
+      expect(malformedRes.valid).toBe(false);
+      expect(malformedRes.error).toBe('MALFORMED_JSON');
+      expect(approvals.verifyAuditTrailIntegrity('bad-json')).toBe(false);
+
+      // 7. Negative integrity tests: Invalid trail structure
+      expect(approvals.verifyAuditTrailIntegrity(JSON.stringify('not-an-array'), { detailed: true }).error).toBe('INVALID_TRAIL_STRUCTURE');
+      expect(approvals.verifyAuditTrailIntegrity(JSON.stringify([null]), { detailed: true }).error).toBe('INVALID_RECORD');
+      expect(approvals.verifyAuditTrailIntegrity(JSON.stringify([{ requestId: '1', history: 'not-array' }]), { detailed: true }).error).toBe('INVALID_HISTORY');
+      expect(approvals.verifyAuditTrailIntegrity(JSON.stringify([{ requestId: '1', history: [null] }]), { detailed: true }).error).toBe('INVALID_EVENT');
+
+      // 8. Negative integrity tests: Tampered prevHash (HASH_CHAIN_BROKEN)
+      const tamperedChain = JSON.parse(rawString);
+      const targetRecord = tamperedChain.find(item => {
+        const rec = Array.isArray(item) ? item[1] : item;
+        return rec.requestId === reqId;
+      });
+      const recActual = Array.isArray(targetRecord) ? targetRecord[1] : targetRecord;
+      recActual.history[1].prevHash = 'TAMPERED_HASH_VAL';
+      const brokenRes = approvals.verifyAuditTrailIntegrity(tamperedChain, { detailed: true });
+      expect(brokenRes.valid).toBe(false);
+      expect(brokenRes.error).toBe('HASH_CHAIN_BROKEN');
+      expect(approvals.verifyAuditTrailIntegrity(tamperedChain)).toBe(false);
+
+      // 9. Negative integrity tests: Tampered entryHash (ENTRY_HASH_TAMPERED)
+      const tamperedEntry = JSON.parse(rawString);
+      const targetRecord2 = tamperedEntry.find(item => {
+        const rec = Array.isArray(item) ? item[1] : item;
+        return rec.requestId === reqId;
+      });
+      const recActual2 = Array.isArray(targetRecord2) ? targetRecord2[1] : targetRecord2;
+      recActual2.history[0].entryHash = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+      const tamperedEntryRes = approvals.verifyAuditTrailIntegrity(tamperedEntry, { detailed: true });
+      expect(tamperedEntryRes.valid).toBe(false);
+      expect(tamperedEntryRes.error).toBe('ENTRY_HASH_TAMPERED');
+      expect(approvals.verifyAuditTrailIntegrity(tamperedEntry)).toBe(false);
+
+      // 10. Fault-tolerant handling in persistAuditTrail when store throws
+      const explodingStore = {
+        setItem: () => { throw new Error('QuotaExceededError'); }
+      };
+      expect(approvals.persistAuditTrail(explodingStore)).toBe(true);
     });
   });
 });

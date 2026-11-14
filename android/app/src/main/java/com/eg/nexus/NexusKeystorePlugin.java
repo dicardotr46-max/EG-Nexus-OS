@@ -33,6 +33,7 @@ import javax.crypto.spec.GCMParameterSpec;
 public class NexusKeystorePlugin extends Plugin {
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
     public static final String KEY_ALIAS_V1 = "eg_nexus_master_aes_key";
+    public static final String KEY_ALIAS_MASTER_V1 = KEY_ALIAS_V1;
     public static final String KEY_ALIAS_STRONGBOX_V2 = "eg_nexus_master_aes_key_sb_v2";
     public static final String KEY_ALIAS_LEGACY = "eg_nexus_master_key_v1";
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
@@ -110,6 +111,29 @@ public class NexusKeystorePlugin extends Plugin {
     }
 
     /**
+     * Asserts that transitioning from currentState to nextState follows the
+     * strict sequential finite-state machine (FSM):
+     * ACTIVE_V1 -> MIGRATION_PREPARED -> V2_KEY_CREATED -> V2_DATA_VERIFIED -> STORAGE_COMMITTED -> ACTIVE_V2
+     */
+    public void assertValidTransition(String currentState, String nextState) {
+        boolean valid = false;
+        if (STATE_ACTIVE_V1.equals(currentState) && STATE_MIGRATION_PREPARED.equals(nextState)) {
+            valid = true;
+        } else if (STATE_MIGRATION_PREPARED.equals(currentState) && STATE_V2_KEY_CREATED.equals(nextState)) {
+            valid = true;
+        } else if (STATE_V2_KEY_CREATED.equals(currentState) && STATE_V2_DATA_VERIFIED.equals(nextState)) {
+            valid = true;
+        } else if (STATE_V2_DATA_VERIFIED.equals(currentState) && STATE_STORAGE_COMMITTED.equals(nextState)) {
+            valid = true;
+        } else if (STATE_STORAGE_COMMITTED.equals(currentState) && STATE_ACTIVE_V2.equals(nextState)) {
+            valid = true;
+        }
+        if (!valid) {
+            throw new IllegalStateException("Invalid migration transition from " + currentState + " to " + nextState);
+        }
+    }
+
+    /**
      * Critical crash recovery routine.
      * Evaluates journal state on boot / method execution:
      * - Intermediate states ("MIGRATION_PREPARED", "V2_KEY_CREATED", "V2_DATA_VERIFIED"):
@@ -141,8 +165,8 @@ public class NexusKeystorePlugin extends Plugin {
                 recovered = true;
             } else if (STATE_STORAGE_COMMITTED.equals(state)) {
                 setJournalState(STATE_ACTIVE_V2);
-                if (keyStore.containsAlias(KEY_ALIAS_V1)) {
-                    keyStore.deleteEntry(KEY_ALIAS_V1);
+                if (keyStore.containsAlias(KEY_ALIAS_MASTER_V1)) {
+                    keyStore.deleteEntry(KEY_ALIAS_MASTER_V1);
                 }
                 if (keyStore.containsAlias(KEY_ALIAS_LEGACY)) {
                     keyStore.deleteEntry(KEY_ALIAS_LEGACY);
@@ -361,6 +385,7 @@ public class NexusKeystorePlugin extends Plugin {
             }
 
             // Step 1: Record MIGRATION_PREPARED in journal
+            assertValidTransition(state, STATE_MIGRATION_PREPARED);
             setJournalState(STATE_MIGRATION_PREPARED);
 
             String activeAlias = getActiveKeyAlias(keyStore);
@@ -388,6 +413,7 @@ public class NexusKeystorePlugin extends Plugin {
 
                 // Step 2: Generate new StrongBox-backed key without touching the old key
                 newStrongBoxKey = generateSecretKey(KEY_ALIAS_STRONGBOX_V2, true);
+                assertValidTransition(getJournalState(keyStore), STATE_V2_KEY_CREATED);
                 setJournalState(STATE_V2_KEY_CREATED);
 
                 // Step 3: Re-encrypt with new StrongBox key
@@ -413,6 +439,7 @@ public class NexusKeystorePlugin extends Plugin {
                 }
 
                 // Step 5: Mark data verified in journal
+                assertValidTransition(getJournalState(keyStore), STATE_V2_DATA_VERIFIED);
                 setJournalState(STATE_V2_DATA_VERIFIED);
 
                 ret.put("newCiphertext", Base64.encodeToString(newCiphertext, Base64.NO_WRAP));
@@ -423,6 +450,7 @@ public class NexusKeystorePlugin extends Plugin {
             } else {
                 // No existing ciphertext to re-encrypt; generate and verify new StrongBox key
                 newStrongBoxKey = generateSecretKey(KEY_ALIAS_STRONGBOX_V2, true);
+                assertValidTransition(getJournalState(keyStore), STATE_V2_KEY_CREATED);
                 setJournalState(STATE_V2_KEY_CREATED);
 
                 Cipher testEnc = Cipher.getInstance(TRANSFORMATION);
@@ -436,6 +464,7 @@ public class NexusKeystorePlugin extends Plugin {
                     throw new IllegalStateException("StrongBox probe roundtrip test failed");
                 }
 
+                assertValidTransition(getJournalState(keyStore), STATE_V2_DATA_VERIFIED);
                 setJournalState(STATE_V2_DATA_VERIFIED);
             }
 
@@ -476,8 +505,11 @@ public class NexusKeystorePlugin extends Plugin {
             String stage = call.getString("stage", call.getString("state", null));
             String currentState = getJournalState(keyStore);
 
-            if (STATE_STORAGE_COMMITTED.equals(stage)
-                    || (stage == null && STATE_V2_DATA_VERIFIED.equals(currentState))) {
+            if (STATE_STORAGE_COMMITTED.equals(stage)) {
+                if (!STATE_V2_DATA_VERIFIED.equals(currentState)) {
+                    throw new IllegalStateException("Invalid migration transition to STORAGE_COMMITTED from " + currentState);
+                }
+                assertValidTransition(currentState, STATE_STORAGE_COMMITTED);
                 setJournalState(STATE_STORAGE_COMMITTED);
                 ret.put("committed", true);
                 ret.put("journalState", STATE_STORAGE_COMMITTED);
@@ -486,28 +518,75 @@ public class NexusKeystorePlugin extends Plugin {
                 return;
             }
 
-            setJournalState(STATE_STORAGE_COMMITTED);
-            setJournalState(STATE_ACTIVE_V2);
-            boolean deletedOld = false;
-            if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
-                if (keyStore.containsAlias(KEY_ALIAS_V1)) {
-                    keyStore.deleteEntry(KEY_ALIAS_V1);
-                    deletedOld = true;
+            if (STATE_ACTIVE_V2.equals(stage)) {
+                boolean mainStorageVerified = Boolean.TRUE.equals(call.getBoolean("mainStorageVerified", false));
+                if (!STATE_STORAGE_COMMITTED.equals(currentState) || !mainStorageVerified) {
+                    call.reject("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true and current state must be STORAGE_COMMITTED to reach ACTIVE_V2 (was: " + currentState + ")");
+                    return;
                 }
-                if (keyStore.containsAlias(KEY_ALIAS_LEGACY)) {
-                    keyStore.deleteEntry(KEY_ALIAS_LEGACY);
-                    deletedOld = true;
+                assertValidTransition(currentState, STATE_ACTIVE_V2);
+                setJournalState(STATE_ACTIVE_V2);
+                boolean deletedOld = false;
+                if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                    if (keyStore.containsAlias(KEY_ALIAS_MASTER_V1)) {
+                        keyStore.deleteEntry(KEY_ALIAS_MASTER_V1);
+                        deletedOld = true;
+                    }
+                    if (keyStore.containsAlias(KEY_ALIAS_LEGACY)) {
+                        keyStore.deleteEntry(KEY_ALIAS_LEGACY);
+                        deletedOld = true;
+                    }
+                }
+                ret.put("committed", true);
+                ret.put("deletedOldKeys", deletedOld);
+                ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
+                ret.put("journalState", STATE_ACTIVE_V2);
+                call.resolve(ret);
+                return;
+            }
+
+            if (stage == null) {
+                if (STATE_V2_DATA_VERIFIED.equals(currentState)) {
+                    assertValidTransition(currentState, STATE_STORAGE_COMMITTED);
+                    setJournalState(STATE_STORAGE_COMMITTED);
+                    ret.put("committed", true);
+                    ret.put("journalState", STATE_STORAGE_COMMITTED);
+                    ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
+                    call.resolve(ret);
+                    return;
+                } else if (STATE_STORAGE_COMMITTED.equals(currentState)) {
+                    boolean mainStorageVerified = Boolean.TRUE.equals(call.getBoolean("mainStorageVerified", false));
+                    if (!mainStorageVerified) {
+                        call.reject("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true and current state must be STORAGE_COMMITTED to reach ACTIVE_V2 (was: " + currentState + ")");
+                        return;
+                    }
+                    assertValidTransition(currentState, STATE_ACTIVE_V2);
+                    setJournalState(STATE_ACTIVE_V2);
+                    boolean deletedOld = false;
+                    if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                        if (keyStore.containsAlias(KEY_ALIAS_MASTER_V1)) {
+                            keyStore.deleteEntry(KEY_ALIAS_MASTER_V1);
+                            deletedOld = true;
+                        }
+                        if (keyStore.containsAlias(KEY_ALIAS_LEGACY)) {
+                            keyStore.deleteEntry(KEY_ALIAS_LEGACY);
+                            deletedOld = true;
+                        }
+                    }
+                    ret.put("committed", true);
+                    ret.put("deletedOldKeys", deletedOld);
+                    ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
+                    ret.put("journalState", STATE_ACTIVE_V2);
+                    call.resolve(ret);
+                    return;
                 }
             }
-            ret.put("committed", true);
-            ret.put("deletedOldKeys", deletedOld);
-            ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
-            ret.put("journalState", STATE_ACTIVE_V2);
-            call.resolve(ret);
+
+            call.reject("MIGRATION_COMMIT_FAILED: invalid migration commit request for stage " + stage + " at current state " + currentState);
+        } catch (IllegalStateException e) {
+            call.reject(e.getMessage(), e);
         } catch (Exception e) {
-            ret.put("committed", false);
-            ret.put("error", e.getMessage());
-            call.resolve(ret);
+            call.reject(e.getMessage(), e);
         }
     }
 
@@ -520,6 +599,11 @@ public class NexusKeystorePlugin extends Plugin {
         try {
             KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
             keyStore.load(null);
+            String currentState = getJournalState(keyStore);
+            if (STATE_STORAGE_COMMITTED.equals(currentState) || STATE_ACTIVE_V2.equals(currentState)) {
+                call.reject("COMMIT_POINT_PASSED: Rollback is forbidden after STORAGE_COMMITTED; use forward recovery");
+                return;
+            }
             if (keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
                 keyStore.deleteEntry(KEY_ALIAS_STRONGBOX_V2);
             }
@@ -530,9 +614,7 @@ public class NexusKeystorePlugin extends Plugin {
             ret.put("journalState", STATE_ACTIVE_V1);
             call.resolve(ret);
         } catch (Exception e) {
-            ret.put("rolledBack", false);
-            ret.put("error", e.getMessage());
-            call.resolve(ret);
+            call.reject("Rollback failed: " + e.getMessage(), e);
         }
     }
 
