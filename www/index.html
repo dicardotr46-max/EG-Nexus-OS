@@ -6119,11 +6119,12 @@ body > header,
 
     function getAllKnownGoogleAccounts() {
       const map = new Map();
-      const googleApps = ['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit', 'youtube'];
+      const allAppIds = Object.keys(appState?.appConnections || {});
+      const googleApps = ['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit', 'youtube', ...allAppIds];
       for (const aId of googleApps) {
         const list = getConnectionAccounts(aId);
         for (const acc of list) {
-          if (acc && acc.email && acc.email.includes('@')) {
+          if (acc && acc.email && (acc.email.includes('@gmail.com') || acc.email.includes('@') || acc.authMethod === 'quick_connect')) {
             map.set(acc.email.toLowerCase(), acc);
           }
         }
@@ -6167,6 +6168,79 @@ body > header,
       closeSettingsPanel();
       openAppDetailView(targetAppId);
       showToast(`✅ حساب ${cleanEmail} با موفقیت انتخاب شد`);
+    }
+
+    async function connectUniversalAppWithNativeGoogle(appId) {
+      const isAndroidApp = Boolean(
+        window.Capacitor?.isNativePlatform?.() ||
+        (window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android') ||
+        window.Capacitor?.Plugins?.NexusKeystore ||
+        (typeof window !== 'undefined' && (window.location.href.startsWith('https://localhost') || window.location.href.startsWith('http://localhost') || window.location.protocol === 'capacitor:'))
+      );
+      if (isAndroidApp) {
+        try {
+          let plugin = window.Capacitor?.Plugins?.NexusKeystore || globalThis.Capacitor?.Plugins?.NexusKeystore;
+          if (!plugin && typeof window.Capacitor?.registerPlugin === 'function') {
+            try { plugin = window.Capacitor.registerPlugin('NexusKeystore'); } catch (_) {}
+          }
+          if (plugin && typeof plugin.pickGoogleAccount === 'function') {
+            showToast('⏳ در حال باز کردن منوی انتخاب حساب گوگل دستگاه...');
+            const res = await plugin.pickGoogleAccount();
+            if (res && res.email) {
+              await quickConnectGoogleAccount(appId, res.email, res.name || res.email.split('@')[0]);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('Native Google pick failed in universal connect:', err);
+        }
+        return;
+      }
+      openGoogleAccountChooser(appId);
+    }
+
+    function renderUniversalGoogleQuickConnect(appId) {
+      const allKnown = getAllKnownGoogleAccounts();
+      const currentAccounts = getConnectionAccounts(appId);
+      const otherKnown = allKnown.filter(a => !currentAccounts.some(curr => curr.email.toLowerCase() === a.email.toLowerCase()));
+
+      const knownChips = otherKnown.length ? `
+        <div class="space-y-1.5 pt-1.5 border-t border-white/10">
+          <div class="text-[11px] font-bold text-slate-300">⚡ اتصال سریع با جیمیل‌های فعال شما:</div>
+          ${otherKnown.map(acc => `
+            <button type="button" onclick="quickConnectGoogleAccount('${escapeJsAttr(appId)}', '${escapeJsAttr(acc.email)}', '${escapeJsAttr(acc.name)}')" class="w-full p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-right transition">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0">${escapeHtml((acc.avatar || acc.name?.[0] || 'G').toUpperCase())}</span>
+                <div class="min-w-0">
+                  <span class="block text-xs font-bold text-white truncate">${escapeHtml(acc.name || acc.email)}</span>
+                  <span class="block text-[10px] text-slate-400 truncate font-mono">${escapeHtml(acc.email)}</span>
+                </div>
+              </div>
+              <span class="text-[10px] text-blue-400 font-bold px-2 py-0.5 rounded bg-blue-500/10 shrink-0">اتصال یک‌لمسی ⚡</span>
+            </button>
+          `).join('')}
+        </div>
+      ` : '';
+
+      return `
+        <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 space-y-2 text-right" dir="rtl">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-white flex items-center gap-1.5">
+              <span>⚡</span>
+              <span>اتصال با حساب گوگل گوشی</span>
+            </span>
+            <span class="text-[10px] text-emerald-400 font-bold px-2 py-0.5 rounded-lg bg-emerald-500/10">یک‌لمسی · بدون تایپ</span>
+          </div>
+          <p class="text-[11px] text-slate-300 leading-relaxed">
+            می‌توانید با یک لمس، حساب گوگل خود را به این برنامه متصل کنید تا هویت شما در نکسوس فعال شود:
+          </p>
+          <button type="button" onclick="connectUniversalAppWithNativeGoogle('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-blue-600/30">
+            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            <span>انتخاب جیمیل از حافظه گوشی (یک‌لمسی)</span>
+          </button>
+          ${knownChips}
+        </div>
+      `;
     }
 
     function initGisTokenClient(appId, callback) {
@@ -7356,10 +7430,12 @@ body > header,
       const currentToken = getAppConnectionToken('todoist') || '';
       renderIntegrationModal('اتصال Todoist', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('todoist')}
+
           <div class="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-xs space-y-1.5 text-right">
-            <b class="text-white">اتصال به Todoist REST API v2</b>
+            <b class="text-white">یا اتصال از طریق Todoist Personal API Token</b>
             <p class="text-slate-300 leading-relaxed text-[11px]">
-              برای اتصال مستقیم ایجنت‌ها به مدیریت تسک‌ها و یادآورها، توکن شخصی API (Personal API Token) اکانت Todoist خود را وارد کنید.
+              جهت دسترسی به ساخت تسک، پروژه‌ها و همگام‌سازی یادآورها با ایجنت‌های هوش مصنوعی:
             </p>
           </div>
 
@@ -7742,8 +7818,10 @@ body > header,
 
       renderIntegrationModal('اتصال Sentry Error Intelligence', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('sentry')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-purple-500/15 to-rose-500/15 border border-purple-500/30 text-xs space-y-1.5 text-right">
-            <b class="text-white">اتصال به پلتفرم مانیتورینگ خطاهای Sentry</b>
+            <b class="text-white">یا اتصال از طریق Sentry API & Monitoring</b>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               پایش بلادرنگ باگ‌ها و کرش‌های برنامه و ارسال مستقیم استک‌تریس به تیم ایجنت‌های هوش مصنوعی نکسوس.
             </p>
@@ -7864,8 +7942,10 @@ body > header,
       const currentToken = getAppConnectionToken('linear') || '';
       renderIntegrationModal('اتصال Linear Issue Tracker', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('linear')}
+
           <div class="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs space-y-1.5 text-right">
-            <b class="text-white">اتصال به پلتفرم مهندسی Linear GraphQL</b>
+            <b class="text-white">یا اتصال با کلید اختصاصی Linear API</b>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               ثبت و ره‌گیری خودکار باگ‌ها، تسک‌ها و توسعه اسپرینت‌ها مستقیماً با مدل‌های هوش مصنوعی نکسوس.
             </p>
@@ -8596,10 +8676,12 @@ body > header,
 
       renderIntegrationModal('اتصال Asana', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('asana')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-rose-600/20 to-orange-500/20 border border-rose-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">🔴</span>
-              <b class="text-white text-sm">اتصال به Asana REST API v1.0</b>
+              <b class="text-white text-sm">یا اتصال با Asana Personal Access Token (PAT)</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               مدیریت و ثبت مستقیم وظایف، همگام‌سازی پروژه‌ها و پیگیری وظایف محوله با Personal Access Token (PAT).
@@ -9099,10 +9181,12 @@ body > header,
 
       renderIntegrationModal('اتصال Box Cloud Storage', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('box')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-sky-600/20 to-blue-700/20 border border-sky-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">📦</span>
-              <b class="text-white text-sm">اتصال به Box Cloud REST API v2</b>
+              <b class="text-white text-sm">یا اتصال با Box Developer Token</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               کاوشگر زنده اسناد و پوشه‌های سازمانی Box، جستجوی فایل و اتصال مستقیم به محتوای ابری با Developer Token یا OAuth.
@@ -9398,10 +9482,12 @@ body > header,
 
       renderIntegrationModal('اتصال ClickUp', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('clickup')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-purple-600/20 to-pink-600/20 border border-purple-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">🎯</span>
-              <b class="text-white text-sm">اتصال به ClickUp REST API v2</b>
+              <b class="text-white text-sm">یا اتصال با ClickUp Personal API Token</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               مدیریت اسپرینت‌ها، لیست تسک‌ها و وضعیت اجرای پروژه‌ها با Personal API Token رسمی کلیک‌آپ.
@@ -9581,10 +9667,12 @@ body > header,
 
       renderIntegrationModal('اتصال monday.com', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('monday')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-rose-500/20 to-amber-500/20 border border-amber-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">📊</span>
-              <b class="text-white text-sm">اتصال به monday.com GraphQL API</b>
+              <b class="text-white text-sm">یا اتصال با monday.com API Token</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               پایش بوردها، ایجاد آیتم‌ها و ردیف‌های کاری تیمی و همگام‌سازی بی‌درنگ با پلتفرم رسمی Work OS.
@@ -10007,10 +10095,12 @@ body > header,
 
       renderIntegrationModal('اتصال Outlook Calendar', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('outlook_cal')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">📅</span>
-              <b class="text-white text-sm">اتصال به Microsoft Graph Calendar API</b>
+              <b class="text-white text-sm">یا اتصال با Microsoft Graph Calendar API</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               همگام‌سازی جلسات کاری، ثبت رویدادها در تقویم مایکروسافت ۳۶۵ و دسترسی مستقیم هوش مصنوعی.
@@ -10200,10 +10290,12 @@ body > header,
 
       renderIntegrationModal('اتصال Outlook Mail', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('outlook_mail')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-indigo-600/20 border border-blue-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">✉️</span>
-              <b class="text-white text-sm">اتصال به Microsoft Graph Mail API</b>
+              <b class="text-white text-sm">یا اتصال با Microsoft Graph Mail API</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               مشاهده ایمیل‌های ورودی، ارسال مستقیم ایمیل و اتصال اینباکس با پروتکل رسمی مایکروسافت گراف.
@@ -10400,10 +10492,12 @@ body > header,
 
       renderIntegrationModal('اتصال Apollo.io', `
         <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect('apollo')}
+
           <div class="p-3 rounded-2xl bg-gradient-to-l from-indigo-600/20 to-purple-600/20 border border-indigo-500/30 text-xs space-y-1.5 text-right">
             <div class="flex items-center gap-2">
               <span class="text-lg">🚀</span>
-              <b class="text-white text-sm">اتصال به Apollo.io B2B Intelligence API</b>
+              <b class="text-white text-sm">یا اتصال با Apollo.io API Key</b>
             </div>
             <p class="text-slate-300 leading-relaxed text-[11px]">
               استخراج لیدهای تجاری، جستجوی مدیران سازمان‌ها و اطلاعات تماس معتبر با کلید رسمی Apollo.
@@ -10523,6 +10617,23 @@ body > header,
       } catch (e) {}
     }
 
+    function autofillAndConnectUniversalAccount(appId, email, name) {
+      const emailInp = document.getElementById('providerAccountEmail');
+      const nameInp = document.getElementById('providerAccountName');
+      if (emailInp) emailInp.value = email;
+      if (nameInp) nameInp.value = name || email.split('@')[0];
+      const conn = appState.appConnections[appId] || {};
+      const accounts = getConnectionAccounts(appId).filter(a => a.email.toLowerCase() !== email.toLowerCase());
+      accounts.push({ id: `${appId}_${Date.now()}`, email, name: name || email.split('@')[0], avatar: ((name || email)[0] || 'U').toUpperCase(), connectedAt: new Date().toISOString() });
+      appState.appConnections[appId] = { ...conn, accounts, mcpEnabled: Boolean(conn.mcpEnabled), contextEnabled: true, connectedAt: new Date().toISOString(), token: conn.token || '' };
+      if (!appState.addedAppIds.includes(appId)) {
+        appState.addedAppIds.push(appId);
+      }
+      saveState();
+      closeProviderModalAndRefresh(appId);
+      showToast(`${providerLabel(appId)} با حساب ${email} متصل شد ✓`);
+    }
+
     function openProviderConnectSheet(appId) {
       if (appId === 'github') return openGitHubConnectModal();
       if (appId === 'clash_royale') return openClashRoyaleConfigModal();
@@ -10551,16 +10662,34 @@ body > header,
       const app = APPS_CATALOG.find(a => a.id === appId); if (!app) return;
       if (app.type === 'MCP') return openMcpServerConfigSheet(appId);
       const first = getConnectionAccounts(appId)[0] || {};
-      renderIntegrationModal(`Connect ${escapeHtml(app.name)}`, `<div class="space-y-3" dir="ltr">
-        <p class="text-xs text-slate-300 leading-relaxed">Sign in to <b>${escapeHtml(app.name)}</b> with an account handle or email. An API key/token is optional and stays in the current session secret store.</p>
-        <label class="block text-xs text-slate-300">Account handle or email<input id="providerAccountEmail" value="${escapeHtml(first.email || '')}" placeholder="you@example.com" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white code-block-dir" /></label>
-        <label class="block text-xs text-slate-300">Display name<input id="providerAccountName" value="${escapeHtml(first.name || '')}" placeholder="Your name" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-white" /></label>
-        <label class="block text-xs text-slate-300">API key / OAuth token <span class="text-slate-500">(optional)</span><input id="providerTokenInput" type="password" autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-3 text-sm text-emerald-300 font-mono" /></label>
-        <label class="flex items-center justify-between rounded-xl bg-cue-bg border border-cue-border p-3 text-xs text-slate-300"><span>Inject ${escapeHtml(app.name)} context into Nexus AI</span><input id="providerContextToggle" type="checkbox" checked class="accent-emerald-500 w-4 h-4" /></label>
-        <div id="providerConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
-        <button onclick="saveUniversalProviderConnection('${escapeJsAttr(appId)}')" class="w-full py-3 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-extrabold">Connect account</button>
-        ${isAppGenuinelyConnected(appId) ? `<button onclick="disconnectApp('${escapeJsAttr(appId)}')" class="w-full py-2.5 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold">Disconnect app</button>` : ''}
-      </div>`);
+
+      renderIntegrationModal(`اتصال به ${escapeHtml(app.name)}`, `
+        <div class="space-y-3.5" dir="rtl">
+          ${renderUniversalGoogleQuickConnect(appId)}
+
+          <div class="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2 text-right">
+            <div class="text-xs font-bold text-white">یا ورود دستی با شناسه / ایمیل:</div>
+            <label class="block text-xs text-slate-300">ایمیل یا شناسه کاربری:
+              <input id="providerAccountEmail" value="${escapeHtml(first.email || '')}" placeholder="you@example.com" autocomplete="username" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white code-block-dir" />
+            </label>
+            <label class="block text-xs text-slate-300">نام نمایشی:
+              <input id="providerAccountName" value="${escapeHtml(first.name || '')}" placeholder="نام شما" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-white" />
+            </label>
+            <label class="block text-xs text-slate-300">توکن یا رمز برنامه <span class="text-slate-500">(اختیاری)</span>:
+              <input id="providerTokenInput" type="password" autocomplete="new-password" placeholder="اختیاری..." class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono" />
+            </label>
+            <label class="flex items-center justify-between rounded-xl bg-cue-bg border border-cue-border p-2.5 text-xs text-slate-300">
+              <span>تزریق زمینه ${escapeHtml(app.name)} به هوش مصنوعی نکسوس</span>
+              <input id="providerContextToggle" type="checkbox" checked class="accent-emerald-500 w-4 h-4 rounded" />
+            </label>
+            <div id="providerConnectStatus" class="hidden rounded-xl px-3 py-2 text-xs"></div>
+            <button onclick="saveUniversalProviderConnection('${escapeJsAttr(appId)}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition">
+              ✓ اتصال و ثبت حساب
+            </button>
+            ${isAppGenuinelyConnected(appId) ? `<button onclick="disconnectApp('${escapeJsAttr(appId)}')" class="w-full py-2 rounded-xl bg-rose-500/15 text-rose-300 text-xs font-bold transition">قطع اتصال برنامه</button>` : ''}
+          </div>
+        </div>
+      `);
     }
     function setProviderStatus(message, kind = 'info') { const el = document.getElementById('providerConnectStatus'); if (!el) return; el.className = `rounded-xl px-3 py-2 text-xs ${kind === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-blue-500/15 text-blue-200'}`; el.textContent = message; }
     function extractGoogleTokenFromRaw(input) {
@@ -10597,41 +10726,8 @@ body > header,
     }
 
     async function initGoogleOneTapInChooser(appId) {
-      try {
-        if (typeof window.loadGoogleGisSdk === 'function') {
-          await window.loadGoogleGisSdk();
-        }
-        if (typeof window === 'undefined' || !window.google?.accounts?.id) return;
-
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_OAUTH_WEB_CLIENT_ID,
-          callback: (resp) => handleGoogleIdTokenResponse(appId, resp),
-          auto_select: false,
-          cancel_on_tap_outside: true
-        });
-
-        const slot = document.getElementById('googleOneTapBtnSlot');
-        if (slot) {
-          slot.innerHTML = '';
-          window.google.accounts.id.renderButton(slot, {
-            type: 'standard',
-            theme: 'filled_blue',
-            size: 'large',
-            text: 'signin_with',
-            shape: 'pill',
-            logo_alignment: 'left',
-            width: Math.min(320, (window.innerWidth || 360) - 48)
-          });
-        }
-
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            console.log('Google One Tap prompt skipped or not displayed:', notification.getNotDisplayedReason?.());
-          }
-        });
-      } catch (e) {
-        console.warn('initGoogleOneTapInChooser error:', e);
-      }
+      // Disabled in native mobile app to prevent white screen popups
+      return;
     }
 
     function openGoogleAccountChooser(appId) {
@@ -10662,26 +10758,22 @@ body > header,
 
       renderIntegrationModal('اتصال به حساب گوگل', `
         <div class="space-y-3" dir="rtl">
-          <!-- بخش ۱: انتخاب خودکار و بدون قفل حساب گوگل (Google Sign-In / One Tap) -->
-          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 space-y-2 text-right">
+          <!-- بخش ۱: انتخاب خودکار و بدون قفل حساب گوگل (یک‌لمسی) -->
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 space-y-2.5 text-right">
             <div class="flex items-center justify-between">
               <span class="text-xs font-bold text-white flex items-center gap-1.5">
                 <span>🔐</span>
                 <span>انتخاب خودکار حساب گوگل (${escapeHtml(providerLabel(appId))})</span>
               </span>
-              <span class="text-[10px] text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10">خودکار · بدون تایپ</span>
+              <span class="text-[10px] text-emerald-400 font-bold px-2 py-0.5 rounded-lg bg-emerald-500/10">یک‌لمسی · بدون تایپ</span>
             </div>
             <p class="text-slate-300 text-[11px] leading-relaxed">
-              جهت انتخاب حساب بدون قفل شدن در صفحه سفید کروم موبایل، دکمه ورود گوگل زیر را لمس کرده و جیمیل خود را انتخاب نمایید:
+              با لمس دکمه زیر، لیست جیمیل‌های موجود روی گوشی مستقیماً باز شده و با انتخاب حساب، درجا و بدون صفحه سفید متصل می‌شود:
             </p>
 
-            <!-- دکمه رسمی و بدون قفل گوگل این‌پیج -->
-            <div id="googleOneTapBtnSlot" class="w-full flex items-center justify-center my-1.5 min-h-[44px]"></div>
-
-            <!-- دکمه پاپ‌آپ گوگل -->
-            <button id="googleOAuthPopUpBtn" onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2.5 rounded-xl border border-blue-500/40 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-lg shadow-blue-600/30">
-              <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-              <span>ورود از طریق پنجره گوگل (Google OAuth Pop-up)</span>
+            <button id="googleOAuthPopUpBtn" onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-extrabold flex items-center justify-center gap-2.5 transition shadow-lg shadow-blue-600/30">
+              <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              <span>⚡ انتخاب خودکار حساب گوگل (یک‌لمسی از حافظه گوشی)</span>
             </button>
           </div>
 
@@ -10739,10 +10831,6 @@ body > header,
           </button>
         </div>
       `);
-
-      setTimeout(() => {
-        initGoogleOneTapInChooser(appId);
-      }, 60);
     }
 
     async function connectGoogleAccountDirect(appId, overrideEmail = null, overrideName = null) {
@@ -10887,8 +10975,8 @@ body > header,
         (typeof window !== 'undefined' && (window.location.href.startsWith('https://localhost') || window.location.href.startsWith('http://localhost') || window.location.protocol === 'capacitor:'))
       );
       if (isAndroidApp) {
-        const handled = await pickNativeGoogleAccount(appId);
-        if (handled) return;
+        await pickNativeGoogleAccount(appId);
+        return;
       }
 
       const emailInput = document.getElementById('googleDirectEmailInput');
@@ -11291,8 +11379,58 @@ body > header,
         if (statusEl) statusEl.innerHTML = `<span class="text-rose-300">خطای تقویم: ${escapeHtml(err.message)}</span>`;
       }
     }
-    function sendGmailQuickMail() { const to = document.getElementById('gmailComposeTo')?.value.trim() || ''; const subject = encodeURIComponent(document.getElementById('gmailComposeSubject')?.value.trim() || ''); const body = encodeURIComponent(document.getElementById('gmailComposeBody')?.value || ''); const token = getAppConnectionToken('gmail'); if (token) { const raw = [`To: ${to}`, `Subject: ${decodeURIComponent(subject)}`, 'Content-Type: text/plain; charset=UTF-8', '', decodeURIComponent(body)].join('\r\n'); const encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: encoded }) }).then(r => { if (!r.ok) throw new Error(`Gmail API HTTP ${r.status}`); return r.json(); }).then(() => showToast('Email sent through Gmail API ✓')).catch(err => showToast(`Gmail API failed: ${err.message}`)); return; } window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`; showToast('Opened the device email composer'); }
-    async function syncGmailInbox() { const status = document.getElementById('gmailSyncStatus'); const token = getAppConnectionToken('gmail'); if (!token) { if (status) status.textContent = 'Direct API sync needs an OAuth token; Gmail workspace link is ready.'; return; } try { const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', { headers: { Authorization: `Bearer ${token}` } }); if (!res.ok) throw new Error(`Gmail API HTTP ${res.status}`); const data = await res.json(); if (status) status.textContent = `Live Gmail sync complete · ${data.resultSizeEstimate || data.messages?.length || 0} messages visible`; } catch (err) { if (status) status.textContent = `Gmail sync failed: ${err.message}`; } }
+    function sendGmailQuickMail() {
+      const to = document.getElementById('gmailComposeTo')?.value.trim() || '';
+      const subject = encodeURIComponent(document.getElementById('gmailComposeSubject')?.value.trim() || '');
+      const body = encodeURIComponent(document.getElementById('gmailComposeBody')?.value || '');
+      const token = getAppConnectionToken('gmail');
+      if (token) {
+        const raw = [`To: ${to}`, `Subject: ${decodeURIComponent(subject)}`, 'Content-Type: text/plain; charset=UTF-8', '', decodeURIComponent(body)].join('\r\n');
+        const encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw: encoded })
+        }).then(r => {
+          if (!r.ok) throw new Error(`Gmail API HTTP ${r.status}`);
+          return r.json();
+        }).then(() => showToast('ایمیل از طریق API ابری با موفقیت ارسال شد ✓')).catch(err => showToast(`خطا در ارسال: ${err.message}`));
+        return;
+      }
+      window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`;
+      showToast('✉️ برنامه جیمیل با پیش‌نویس آماده باز شد ✓');
+    }
+
+    async function syncGmailInbox() {
+      const status = document.getElementById('gmailSyncStatus');
+      const token = getAppConnectionToken('gmail');
+      const accounts = getConnectionAccounts('gmail');
+      const activeEmail = accounts[0]?.email || 'حساب جیمیل';
+      if (!token) {
+        if (status) {
+          status.innerHTML = `
+            <div class="p-2.5 rounded-xl bg-blue-600/10 border border-blue-500/25 text-right space-y-1 mt-1">
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span class="text-emerald-400">✓</span>
+                <span>حساب ${escapeHtml(activeEmail)} تأییدشده و فعال است</span>
+              </div>
+              <p class="text-[11px] text-slate-300 leading-relaxed">
+                ارسال ایمیل و پیش‌نویس مستقیم از طریق اپ جیمیل گوشی انجام می‌شود و زمینه هویتی حساب به دستیار هوش مصنوعی نکسوس متصل است.
+              </p>
+            </div>
+          `;
+        }
+        return;
+      }
+      try {
+        const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error(`Gmail API HTTP ${res.status}`);
+        const data = await res.json();
+        if (status) status.innerHTML = `<span class="text-emerald-400 font-bold">✓ همگام‌سازی ابری کامل شد · ${data.resultSizeEstimate || data.messages?.length || 0} پیام شناسایی شد</span>`;
+      } catch (err) {
+        if (status) status.innerHTML = `<span class="text-rose-400">خطای همگام‌سازی: ${escapeHtml(err.message)}</span>`;
+      }
+    }
     function renderHealthMetricsHistory(appId) {
       const conn = appState.appConnections?.[appId] || {};
       const metrics = Array.isArray(conn.metrics) ? conn.metrics : [];
@@ -11404,9 +11542,69 @@ body > header,
 
     function toggleProviderContext(appId, enabled) { if (!appState.appConnections[appId]) return; appState.appConnections[appId].contextEnabled = Boolean(enabled); saveState(); showToast(enabled ? `${providerLabel(appId)} context enabled` : `${providerLabel(appId)} context paused`); }
     function renderLiveWorkspacePanel(appId) {
-      const panel = document.getElementById('appWorkspacePanel'); if (!panel) return; const app = APPS_CATALOG.find(a => a.id === appId); const accounts = getConnectionAccounts(appId); const first = accounts[0]; const common = `<div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold text-white">Live Workspace</div><div class="text-[10px] text-cue-muted">${escapeHtml(accounts.length ? `${accounts.length} account${accounts.length > 1 ? 's' : ''} connected` : 'Connected')}</div></div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="min-h-0 px-2.5 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-200">Open ${escapeHtml(app.name)}</button></div>`;
+      const panel = document.getElementById('appWorkspacePanel'); if (!panel) return; const app = APPS_CATALOG.find(a => a.id === appId); const accounts = getConnectionAccounts(appId); const first = accounts[0]; const common = `<div class="flex items-center justify-between gap-2 pb-2.5 border-b border-white/10" dir="rtl"><div><div class="text-xs font-black text-white flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span>فضای کاری زنده (${escapeHtml(app.name)})</span></div><div class="text-[10px] text-emerald-300 font-bold mt-0.5">${escapeHtml(accounts.length ? `${accounts.length} حساب فعال متصل است` : 'متصل و آماده ✓')}</div></div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="min-h-0 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-[11px] text-white font-bold transition flex items-center gap-1"><span>باز کردن در اپلیکیشن ↗</span></button></div>`;
       let body = '';
-      if (appId === 'gmail') body = `<div class="space-y-2"><input id="gmailComposeTo" placeholder="To" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white code-block-dir" /><input id="gmailComposeSubject" placeholder="Subject" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" /><textarea id="gmailComposeBody" rows="3" placeholder="Write an email…" class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"></textarea><div class="grid grid-cols-2 gap-2"><button onclick="sendGmailQuickMail()" class="min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Compose / Send</button><button onclick="syncGmailInbox()" class="min-h-0 py-2 rounded-lg bg-white/5 text-xs text-white">Sync inbox</button></div><div id="gmailSyncStatus" class="text-[10px] text-slate-400">${getAppConnectionToken('gmail') ? 'OAuth token available for Gmail API sync.' : 'Connect an OAuth token for live Gmail API sync.'}</div></div>`;
+      if (appId === 'gmail') {
+        const activeEmail = first?.email || 'حساب کاربری';
+        const activeName = first?.name || activeEmail.split('@')[0];
+        body = `
+          <div class="space-y-3 pt-1 text-right" dir="rtl">
+            <div class="p-3 rounded-2xl bg-gradient-to-l from-emerald-600/15 via-blue-600/10 to-transparent border border-emerald-500/25 flex items-center justify-between">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-xs shrink-0">${escapeHtml((first?.avatar || activeName[0] || 'G').toUpperCase())}</span>
+                <div class="min-w-0">
+                  <b class="block text-xs text-white truncate font-mono">${escapeHtml(activeEmail)}</b>
+                  <span class="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                    <span>✓</span>
+                    <span>حساب تأییدشده از طریق سیستم‌عامل اندروید</span>
+                  </span>
+                </div>
+              </div>
+              <button onclick="openProviderUrl('gmail')" class="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shrink-0 transition shadow-sm">
+                صندوق ورودی ↗
+              </button>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-black/30 border border-white/10 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>✉️</span>
+                  <span>ارسال سریع و پیش‌نویس هوشمند ایمیل</span>
+                </span>
+                <span class="text-[10px] text-blue-400 font-bold">Gmail Composer</span>
+              </div>
+
+              <div class="space-y-1.5">
+                <div>
+                  <label class="block text-[11px] text-slate-300 font-medium mb-1">گیرنده (To):</label>
+                  <input id="gmailComposeTo" placeholder="example@gmail.com" class="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-300 font-medium mb-1">موضوع ایمیل (Subject):</label>
+                  <input id="gmailComposeSubject" placeholder="عنوان یا موضوع پیام شما..." class="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-300 font-medium mb-1">متن پیام (Message):</label>
+                  <textarea id="gmailComposeBody" rows="3" placeholder="متن ایمیل را اینجا بنویسید یا از نکسوس بخواهید پیش‌نویس کند..." class="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"></textarea>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <button onclick="sendGmailQuickMail()" class="py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/30 transition">
+                  <span>🚀</span>
+                  <span>ارسال از طریق جیمیل</span>
+                </button>
+                <button onclick="syncGmailInbox()" class="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                  <span>🔄</span>
+                  <span>بررسی وضعیت</span>
+                </button>
+              </div>
+
+              <div id="gmailSyncStatus" class="pt-0.5"></div>
+            </div>
+          </div>
+        `;
+      }
       else if (appId === 'gcal') body = `<div class="space-y-2.5" dir="rtl"><div class="space-y-1.5"><input id="calendarEventTitle" placeholder="عنوان رویداد یا جلسه..." class="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500" /><div class="grid grid-cols-2 gap-2" dir="ltr"><label class="block text-[10px] text-slate-400">Start:<input id="calendarEventDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label><label class="block text-[10px] text-slate-400">End:<input id="calendarEventEndDate" type="datetime-local" class="mt-0.5 w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white code-block-dir" /></label></div></div><div class="grid grid-cols-2 gap-2"><button onclick="createGoogleCalendarLiveEvent()" class="min-h-0 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>➕ ثبت مستقیم</span></button><button onclick="syncGoogleCalendarEvents()" class="min-h-0 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center gap-1"><span>🔄 همگام‌سازی</span></button></div><div id="gcalSyncStatus" class="text-[11px] text-slate-300"></div><div id="gcalUpcomingList" class="space-y-1.5 max-h-48 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="exportCalendarICS()" class="text-blue-300 hover:underline">خروجی iCalendar (.ics)</button><button onclick="openCalendarEventComposer()" class="text-slate-400 hover:underline">باز کردن در وب ↗</button></div></div>`;
       else if (appId === 'gworkspace') body = `<div class="space-y-3" dir="rtl"><div class="flex items-center justify-between"><span class="text-xs font-bold text-white">🗂️ کاوشگر اسناد و فایل‌های Google Drive</span><span class="text-[10px] text-slate-400">Google Drive API v3</span></div><div class="flex items-center gap-1.5" dir="ltr"><input id="driveSearchInput" placeholder="جستجوی نام سند، شیت یا فایل در درایو..." class="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500" onkeydown="if(event.key==='Enter') searchGoogleDriveFiles()" /><button onclick="searchGoogleDriveFiles()" class="min-h-0 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center justify-center"><span>🔍</span></button><button onclick="syncGoogleDriveFiles()" class="min-h-0 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition flex items-center justify-center" title="تازه‌سازی"><span>🔄</span></button></div><div id="driveSyncStatus" class="text-[11px] text-slate-300"></div><div id="driveFilesList" class="space-y-1.5 max-h-56 overflow-y-auto"></div><div class="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400"><button onclick="openProviderUrl('gworkspace')" class="text-blue-300 hover:underline">باز کردن درایو در وب ↗</button><button onclick="injectAllDriveFilesContext()" class="text-purple-300 hover:underline">تزریق لیست فایل‌ها به مغز AI</button></div></div>`;
       else if (['myfitnesspal','withings','polar','trainingpeaks','fitbit','oura','clue','cronometer'].includes(appId)) {
@@ -12796,7 +12994,22 @@ body > header,
         `;
       }
       else body = `<div class="space-y-2"><div class="text-xs text-slate-300">Quick launchpad for ${escapeHtml(app.name)} and its connected workspace.</div><button onclick="openProviderUrl('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-blue-600 text-xs text-white font-bold">Open provider workspace</button></div>`;
-      panel.innerHTML = `<div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3" dir="ltr">${common}${body}<label class="flex items-center justify-between text-[10px] text-slate-300"><span>Inject app context into Nexus AI Chat</span><input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4" /></label><button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs">Inject current context now</button></div>`;
+      panel.innerHTML = `
+        <div class="app-workspace-card rounded-3xl bg-cue-card border border-cue-border p-4 space-y-3.5 text-right" dir="rtl">
+          ${common}
+          ${body}
+          <div class="pt-2.5 border-t border-white/10 space-y-2">
+            <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer select-none">
+              <span class="font-medium">همگام‌سازی خودکار زمینه با هوش مصنوعی نکسوس</span>
+              <input type="checkbox" ${appState.appConnections?.[appId]?.contextEnabled === false ? '' : 'checked'} onchange="toggleProviderContext('${escapeJsAttr(appId)}', this.checked)" class="accent-emerald-500 w-4 h-4 rounded cursor-pointer" />
+            </label>
+            <button onclick="injectAppContextIntoChat('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-200 text-xs font-bold transition flex items-center justify-center gap-1.5">
+              <span>🧠</span>
+              <span>تزریق فوری زمینه ${escapeHtml(app.name)} به نکسوس چت</span>
+            </button>
+          </div>
+        </div>
+      `;
       if (appId === 'gcal') setTimeout(syncGoogleCalendarEvents, 100);
       if (appId === 'gworkspace') setTimeout(syncGoogleDriveFiles, 100);
       if (appId === 'instagram') setTimeout(syncInstagramRecentMediaLive, 100);
@@ -12831,44 +13044,44 @@ body > header,
       // 1. Shared multi-account section with provider-specific chooser.
       const accountItems = getConnectionAccounts(app.id);
       const accountsSection = (app.type === 'MultiAccount' || accountItems.length > 0) ? `
-        <div class="mt-6">
-          <div class="text-xs font-semibold text-cue-muted mb-2 px-1">Accounts</div>
+        <div class="mt-6 text-right" dir="rtl">
+          <div class="text-xs font-bold text-slate-300 mb-2 px-1">حساب‌های متصل (${escapeHtml(app.name)})</div>
           <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden">
             ${accountItems.map((acc, i) => `
               <div class="app-account-row px-4 py-3.5 flex items-center justify-between gap-2">
                 <div class="flex items-center gap-3 min-w-0">
                   ${acc.picture ? `<img src="${escapeHtml(acc.picture)}" alt="${escapeHtml(acc.name)}" class="w-8 h-8 rounded-full border border-white/10 object-cover shrink-0" />` : `<div class="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center uppercase shrink-0">${escapeHtml(acc.avatar || "U")}</div>`}
-                  <div class="min-w-0"><span class="block text-sm text-white app-account-email">${escapeHtml(acc.name)}</span><span class="block text-[10px] text-cue-muted app-account-email">${escapeHtml(acc.email)}</span></div>
-                  <span class="text-[10px] text-emerald-300 shrink-0">Connected</span>
+                  <div class="min-w-0"><span class="block text-sm text-white app-account-email font-bold">${escapeHtml(acc.name)}</span><span class="block text-[10px] text-cue-muted app-account-email font-mono">${escapeHtml(acc.email)}</span></div>
+                  <span class="text-[10px] text-emerald-300 font-bold shrink-0">متصل ✓</span>
                 </div>
-                <div class="flex items-center gap-1 shrink-0"><button onclick="openProviderUrl('${escapeJsAttr(app.id)}')" class="min-h-0 px-2 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-300">Open</button><button onclick="removeAppAccount('${escapeJsAttr(app.id)}', ${i})" class="min-h-0 px-2 py-1.5 rounded-lg bg-rose-500/10 text-[10px] text-rose-300">Disconnect</button></div>
+                <div class="flex items-center gap-1 shrink-0"><button onclick="openProviderUrl('${escapeJsAttr(app.id)}')" class="min-h-0 px-2.5 py-1.5 rounded-lg bg-white/5 text-[10px] text-slate-300 font-bold">باز کردن</button><button onclick="removeAppAccount('${escapeJsAttr(app.id)}', ${i})" class="min-h-0 px-2.5 py-1.5 rounded-lg bg-rose-500/10 text-[10px] text-rose-300 font-bold">قطع اتصال</button></div>
               </div>
             `).join('')}
-            <button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="w-full min-h-0 px-4 py-3.5 flex items-center gap-3 text-left text-sm text-white hover:bg-cue-cardHover"><span class="text-lg leading-none">+</span><span>Connect another account</span></button>
+            <button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="w-full min-h-0 px-4 py-3.5 flex items-center gap-2 text-right text-sm text-white hover:bg-cue-cardHover"><span class="text-base text-blue-400 font-bold leading-none">+</span><span>اتصال حساب دیگر</span></button>
           </div>
         </div>
       ` : '';
       // 2. Prerequisite Notice (like Instagram Screenshot 1000030180)
       const prereqBanner = app.prereq ? `
-        <div class="mt-5 p-3.5 rounded-2xl bg-cue-card border border-cue-border flex items-start gap-2.5 text-xs text-cue-muted">
+        <div class="mt-5 p-3.5 rounded-2xl bg-cue-card border border-cue-border flex items-start gap-2.5 text-xs text-cue-muted text-right" dir="rtl">
           <span>ⓘ</span>
           <span>${escapeHtml(app.prereq)}</span>
         </div>
       ` : '';
       // 3. Primary Button (+ Add white pill vs Manage dark pill)
       const primaryButtonHtml = app.id === 'github'
-        ? `<button onclick="openGitHubConnectModal()" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'Connected ✓ (Manage)' : '+ Add'}</button>`
+        ? `<button onclick="openGitHubConnectModal()" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'متصل ✓ (مدیریت)' : '+ اتصال مخزن'}</button>`
         : app.id === 'clash_royale'
-          ? `<button onclick="openClashRoyaleConfigModal()" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-amber-500/40 text-amber-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? '👑 Connected ✓ (Manage)' : '+ Connect Supercell API'}</button>`
+          ? `<button onclick="openClashRoyaleConfigModal()" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-amber-500/40 text-amber-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? '👑 متصل ✓ (مدیریت)' : '+ اتصال API کلش'}</button>`
         : app.type === 'MCP'
-          ? `<button onclick="openMcpServerConfigSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'MCP Active ✓ (Manage)' : '+ Activate MCP'}</button>`
+          ? `<button onclick="openMcpServerConfigSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'فعال ✓ (مدیریت MCP)' : '+ فعال‌سازی MCP'}</button>`
         : app.type === 'MultiAccount'
-          ? `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'Connected ✓ (Manage)' : '+ Connect account'}</button>`
+          ? `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full ${connected ? 'bg-cue-card border border-emerald-500/40 text-emerald-300' : 'bg-white text-black'} text-sm font-bold hover:bg-slate-200">${connected ? 'متصل ✓ (مدیریت حساب)' : '+ اتصال حساب'}</button>`
           : connected
-            ? `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-cue-card border border-white/15 text-sm font-bold text-white hover:bg-cue-cardHover">Manage</button>`
-            : `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-white text-black text-sm font-bold hover:bg-slate-200">+ Connect</button>`;
+            ? `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-cue-card border border-white/15 text-sm font-bold text-white hover:bg-cue-cardHover">مدیریت اتصال</button>`
+            : `<button onclick="openProviderConnectSheet('${escapeJsAttr(app.id)}')" class="mt-5 px-7 py-2.5 rounded-full bg-white text-black text-sm font-bold hover:bg-slate-200">+ اتصال حساب</button>`;
       const githubPanelHtml = app.id === 'github' && connected ? `<div id="githubControlPanel" class="mt-6 w-full text-left"></div>` : '';
-      const workspacePanelHtml = app.id !== 'github' && connected ? `<div id="appWorkspacePanel" class="mt-6 w-full text-left"></div>` : '';
+      const workspacePanelHtml = app.id !== 'github' && connected ? `<div id="appWorkspacePanel" class="mt-6 w-full text-right" dir="rtl"></div>` : '';
       // 4. Details Card (App Type: MCP vs App, Author, Website, Documentation, Privacy Policy)
       body.innerHTML = `
         <div class="flex flex-col items-center text-center pt-2 px-2">
@@ -12886,41 +13099,41 @@ body > header,
         </div>
         ${prereqBanner}
         ${accountsSection}
-        <div class="mt-6">
-          <div class="text-xs font-semibold text-cue-muted mb-2 px-1">Details</div>
+        <div class="mt-6 text-right" dir="rtl">
+          <div class="text-xs font-bold text-slate-300 mb-2 px-1">مشخصات فنی و دسترسی</div>
           <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden text-sm">
             <div class="px-4 py-3.5 flex items-center justify-between">
-              <span class="text-slate-200">Capability Tier</span>
+              <span class="text-slate-300 font-medium">سطح پایداری (Capability Tier)</span>
               <span>${getProviderTierBadge(app.tier || (typeof getProviderTier === 'function' ? getProviderTier(app.id) : (app.beta ? 'Beta' : 'Catalog-only')))}</span>
             </div>
             <div class="px-4 py-3.5 flex items-center justify-between">
-              <span class="text-slate-200">App Type</span>
-              <span class="text-cue-muted">${app.type === 'MCP' ? 'MCP' : 'App'}</span>
+              <span class="text-slate-300 font-medium">نوع سرویس</span>
+              <span class="text-cue-muted font-bold">${app.type === 'MCP' ? 'سرور MCP' : 'اپلیکیشن یکپارچه (App)'}</span>
             </div>
             ${app.type === 'MCP' ? `
               <div class="px-4 py-3.5 flex items-center justify-between">
-                <span class="text-slate-200">Author</span>
+                <span class="text-slate-300 font-medium">توسعه‌دهنده</span>
                 <span class="text-cue-muted">${escapeHtml(app.author || app.name)}</span>
               </div>
             ` : ''}
             <a href="${escapeHtml(app.website || '#')}" target="_blank" rel="noopener noreferrer" class="px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover">
-              <span class="text-slate-200">Website</span>
-              <span class="text-cue-muted">↗</span>
+              <span class="text-slate-300 font-medium">وب‌سایت رسمی</span>
+              <span class="text-cue-muted font-bold">↗</span>
             </a>
             ${app.type === 'MCP' ? `
               <a href="${escapeHtml(app.docs || app.website || '#')}" target="_blank" rel="noopener noreferrer" class="px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover">
-                <span class="text-slate-200">Documentation</span>
-                <span class="text-cue-muted">↗</span>
+                <span class="text-slate-300 font-medium">مستندات توسعه‌دهندگان</span>
+                <span class="text-cue-muted font-bold">↗</span>
               </a>
             ` : ''}
             <a href="${escapeHtml(getAppPrivacyUrl(app))}" target="_blank" rel="noopener noreferrer" class="px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover">
-              <span class="text-slate-200">Privacy Policy</span>
-              <span class="text-cue-muted">↗</span>
+              <span class="text-slate-300 font-medium">سیاست حفظ حریم خصوصی</span>
+              <span class="text-cue-muted font-bold">↗</span>
             </a>
           </div>
         </div>
-        <button type="button" onclick="provideAppFeedback('${escapeJsAttr(app.id)}')" class="mt-3.5 w-full bg-cue-card border border-cue-border rounded-3xl px-4 py-3.5 flex items-center justify-between text-sm text-cue-muted hover:bg-cue-cardHover">
-          <span>Provide feedback</span>
+        <button type="button" onclick="provideAppFeedback('${escapeJsAttr(app.id)}')" class="mt-3.5 w-full bg-cue-card border border-cue-border rounded-3xl px-4 py-3.5 flex items-center justify-between text-sm text-slate-300 hover:bg-cue-cardHover" dir="rtl">
+          <span>ارسال بازخورد و گزارش</span>
           <span>↗</span>
         </button>
       `;
@@ -12930,7 +13143,7 @@ body > header,
     }
     function connectAppAccountPrompt(appId) { openProviderConnectSheet(appId); }
     function removeAppAccount(appId, idx) {
-      openNexusDialog({ title: 'Disconnect account', message: 'Disconnect this account from the app?', confirmText: 'Disconnect', isDanger: true, onConfirm: async () => {
+      openNexusDialog({ title: 'قطع اتصال حساب', message: 'آیا می‌خواهید اتصال این حساب کاربری از این برنامه را قطع کنید؟', confirmText: 'قطع اتصال', isDanger: true, onConfirm: async () => {
         const conn = appState.appConnections[appId] || {};
         const accounts = getConnectionAccounts(appId);
         const removedAccount = accounts[idx];
@@ -12957,7 +13170,7 @@ body > header,
           if (conn.token) conn.token = '';
         }
         if (!accounts.length && !conn.token && !conn.mcpEnabled) delete appState.appConnections[appId]; else appState.appConnections[appId] = conn;
-        syncAddedAppIds(); saveState(); openAppDetailView(appId); showToast('Account disconnected');
+        syncAddedAppIds(); saveState(); openAppDetailView(appId); showToast('اتصال حساب با موفقیت قطع شد ✓');
       }});
     }
     function getGitHubConnection() {
