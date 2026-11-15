@@ -1,9 +1,9 @@
 {
   "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 34358,
-  "script_bytes": 1628857,
-  "function_count": 846,
+  "lines": 34565,
+  "script_bytes": 1640434,
+  "function_count": 849,
   "interactive_element_count": 58,
   "target_hits": {
     "bottom_mode_bar": {
@@ -56,6 +56,10 @@
     },
     {
       "function": "clearPhase2WebResearchCache",
+      "reason": "toast-heavy first 1200 chars; manual review required"
+    },
+    {
+      "function": "connectGitHubWithGoogle",
       "reason": "toast-heavy first 1200 chars; manual review required"
     },
     {
@@ -740,10 +744,10 @@
     "zero_drift": true
   },
   "evidence_manifest": {
-    "gitHead": "9125a575b8cb7c7db74694f84923e7da2d6ffee0",
+    "gitHead": "06bf227ac3fe634385efad073ece507390a21994",
     "packageLockHash": "fb2943e83c0f62f679a57058abefe6516e8a215f7ff33b3fcd73c9fc7120b098",
     "coverageSummaryHash": "c78fd241c4c33b4c64cfe598828c771e071227f627065248e846da9c66128026",
-    "jestResultsHash": "86ba87e92f897e1eff5b9a89f2d33d94e5dcf75227bd5a5a4d5a896344d18bf9",
-    "timestamp": "2026-11-15T18:16:00.313Z"
+    "jestResultsHash": "bd3d3498b74d82c00047404d146f6fc7d4b99fa03047bcec70517de3252ddbb4",
+    "timestamp": "2026-11-15T21:13:42.903Z"
   }
 }
