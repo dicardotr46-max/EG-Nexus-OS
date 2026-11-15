@@ -62,7 +62,7 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `d9ac7a21f69bc97f2cafb6b2750fd289bf307b8cdfcb8867ed959db61be50e13` | MATCH |
+| `index.html` | `www/index.html` | `9d53de806f95749a1d3a06f7a8588b07d4b7c7051c4a0eb87b1b13006adcd197` | MATCH |
 | `sw.js` | `www/sw.js` | `ae9857ca7381dacfea465aa2e92c9643fe2139d82a4cb10b16e0289fa0022284` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -130,8 +130,8 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 33,726 lines | PASS |
-| Extracted Global & Named Functions | 835 functions | PASS |
+| Total Source Lines (`index.html`) | 33,796 lines | PASS |
+| Extracted Global & Named Functions | 836 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
 | Stub / Placeholder Review Items | 0 unhandled fatal blocks | PASS |
@@ -537,7 +537,7 @@ Version **v6.3.0** introduces critical architectural advancements and resolves f
 | **Worker / Termux Syntax** | Termux bridge template | `node --check` OK | PASS |
 | **Supply Chain** | `npm audit` across 359 audited packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
 | **Capacitor Pinning** | Exact version pins in `package.json` | 7 packages locked (no `^`) | PASS |
-| **Static Handler Wiring** | `missing_handlers` in 835 functions | Exactly 0 missing handlers | PASS |
+| **Static Handler Wiring** | `missing_handlers` in 836 functions | Exactly 0 missing handlers | PASS |
 | **Automated Tests** | Jest test suite execution | 817 passed, 0 failed, 31 suites | PASS |
 | **Test Coverage** | Code coverage on `src/` modules | 88.46% funcs, 89.32% lines, 87.98% stmts | PASS |
 | **Crypto Persistence** | AES-GCM-256 reload across 2 contexts | 100% secrets restored, tampered quarantined | PASS |

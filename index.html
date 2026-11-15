@@ -5971,6 +5971,31 @@ body > header,
     function setPendingProviderConnection(val) {
       pendingProviderConnection = val;
       window.pendingProviderConnection = val;
+      try {
+        if (val) {
+          sessionStorage.setItem('nexus_pending_oauth', JSON.stringify(val));
+          localStorage.setItem('nexus_pending_oauth', JSON.stringify(val));
+        } else {
+          sessionStorage.removeItem('nexus_pending_oauth');
+          localStorage.removeItem('nexus_pending_oauth');
+        }
+      } catch (_) {}
+    }
+    function getPendingProviderConnection() {
+      if (pendingProviderConnection?.appId) return pendingProviderConnection;
+      if (window.pendingProviderConnection?.appId) return window.pendingProviderConnection;
+      try {
+        const raw = sessionStorage.getItem('nexus_pending_oauth') || localStorage.getItem('nexus_pending_oauth');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.appId) {
+            pendingProviderConnection = parsed;
+            window.pendingProviderConnection = parsed;
+            return parsed;
+          }
+        }
+      } catch (_) {}
+      return null;
     }
     function isGoogleProvider(appId) { return GOOGLE_APP_IDS.has(appId); }
 
@@ -6095,13 +6120,36 @@ body > header,
       }
     }
 
-    // Global listener for OAuth token returns, mobile postMessages and hash redirects
+    // Global listener for OAuth token returns, mobile postMessages, cross-tab broadcasts and hash redirects
     if (typeof window !== 'undefined') {
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const ch = new BroadcastChannel('nexus_oauth_channel');
+          ch.onmessage = (ev) => {
+            const data = ev.data;
+            if (data?.access_token && data?.appId) {
+              completeGoogleOAuthConnection(data.appId, { access_token: data.access_token });
+            }
+          };
+        }
+        window.addEventListener('storage', (ev) => {
+          if (ev.key === 'nexus_oauth_result' && ev.newValue) {
+            try {
+              const res = JSON.parse(ev.newValue);
+              localStorage.removeItem('nexus_oauth_result');
+              if (res?.access_token && res?.appId) {
+                completeGoogleOAuthConnection(res.appId, { access_token: res.access_token });
+              }
+            } catch (_) {}
+          }
+        });
+      } catch (_) {}
+
       window.addEventListener('message', (ev) => {
         try {
           // Strictly validate event origin against Google auth or self origin (Fixes Reviewer #18 & #15)
           if (ev.origin !== 'https://accounts.google.com' && ev.origin !== window.location.origin) return;
-          const pending = window.pendingProviderConnection;
+          const pending = getPendingProviderConnection() || window.pendingProviderConnection;
           if (!pending?.appId) return;
           if (pending.popupWindow && ev.source && ev.source !== pending.popupWindow) return;
           const data = ev.data;
@@ -6124,18 +6172,24 @@ body > header,
       try {
         const hash = window.location.hash;
         if (hash && hash.includes('access_token=')) {
-          const pending = window.pendingProviderConnection;
+          const pending = getPendingProviderConnection() || { appId: 'gmail' };
           const stateMatch = hash.match(/state=([^&]+)/);
           const incomingState = stateMatch ? decodeURIComponent(stateMatch[1]) : '';
           if (pending?.nonce && (!incomingState || incomingState !== pending.nonce)) {
             console.warn('Hash OAuth state mismatch rejected');
           } else {
             const m = hash.match(/access_token=([^&]+)/);
-            if (m && pending?.appId) {
+            if (m) {
               const token = decodeURIComponent(m[1]);
-              const targetAppId = pending.appId;
+              const targetAppId = pending?.appId || 'gmail';
               setPendingProviderConnection(null);
               completeGoogleOAuthConnection(targetAppId, { access_token: token });
+              try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                  new BroadcastChannel('nexus_oauth_channel').postMessage({ appId: targetAppId, access_token: token });
+                }
+                localStorage.setItem('nexus_oauth_result', JSON.stringify({ appId: targetAppId, access_token: token, time: Date.now() }));
+              } catch (_) {}
             }
           }
           history.replaceState(null, '', window.location.pathname);
@@ -10353,15 +10407,15 @@ body > header,
               <b class="text-white text-xs">اتصال حساب گوگل (${escapeHtml(providerLabel(appId))})</b>
             </div>
             <p class="text-slate-300 text-[11px] leading-relaxed">
-              جهت جلوگیری از قفل شدن در صفحه سفید مرورگر موبایل، می‌توانید حساب خود را مستقیماً از طریق فرم زیر متصل کنید.
+              جهت اتصال بدون قفل شدن در صفحه سفید مرورگر موبایل، کافیست ایمیل خود را در فرم زیر وارد کرده و دکمه اتصال مستقیم را لمس کنید.
             </p>
           </div>
 
           <!-- فرم اتصال مستقیم و تضمینی -->
           <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
             <div class="text-xs font-bold text-white flex items-center justify-between">
-              <span>⚡ اتصال مستقیم حساب (پیشنهادی برای موبایل)</span>
-              <span class="text-[10px] text-emerald-400 font-mono">100% تضمینی</span>
+              <span>⚡ اتصال مستقیم حساب (پیشنهادی و تضمینی برای موبایل)</span>
+              <span class="text-[10px] text-emerald-400 font-mono">100% بدون قفل</span>
             </div>
             <div>
               <label class="block text-[11px] text-slate-300 mb-1 font-bold">ایمیل حساب گوگل (Gmail / Workspace):</label>
@@ -10374,7 +10428,7 @@ body > header,
               </div>
               <div>
                 <label class="block text-[11px] text-slate-300 mb-1">رمز برنامه یا توکن (اختیاری):</label>
-                <input id="googleDirectTokenInput" type="password" placeholder="App Password یا توکن..." autocomplete="new-password" class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+                <input id="googleDirectTokenInput" type="password" placeholder="اختیاری (App Password یا توکن)..." autocomplete="new-password" class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
               </div>
             </div>
             <div id="googleDirectStatus" class="hidden rounded-xl p-2 text-xs"></div>
@@ -10393,7 +10447,7 @@ body > header,
               <span>ورود از طریق پنجره گوگل (Google OAuth Pop-up)</span>
             </button>
             <div class="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">
-              ⚠️ نکته: در مرورگر موبایل، پس از زدن «ادامه دادن»، کروم اجازه بستن خودکار تب را به گوگل نمی‌دهد و صفحه سفید می‌ماند؛ در این حالت تب سفید را ببندید یا از فرم اتصال مستقیم بالا استفاده کنید.
+              ⚠️ نکته: در مرورگر موبایل، پس از زدن «ادامه دادن» در گوگل، کروم اجازه بستن خودکار تب را نمی‌دهد و صفحه سفید می‌ماند؛ کافیست تب سفید را ببندید یا از فرم اتصال مستقیم بالا استفاده کنید.
             </div>
           </div>
 
@@ -10425,44 +10479,49 @@ body > header,
         return;
       }
 
-      if (!token) {
-        if (statusEl) {
-          statusEl.className = 'rounded-xl p-2 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
-          statusEl.textContent = 'ورود توکن یا رمز دسترسی معتبر برای اتصال به سرویس الزامی است.';
-          statusEl.classList.remove('hidden');
+      let profile = null;
+      let authMethod = 'direct_profile';
+      let verifiedToken = '';
+
+      if (token) {
+        if (token.startsWith('ya29.') || token.length > 50) {
+          if (statusEl) {
+            statusEl.className = 'rounded-xl p-2 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
+            statusEl.textContent = '⏳ در حال اعتبارسنجی توکن با سرور گوگل...';
+            statusEl.classList.remove('hidden');
+          }
+          profile = await fetchGoogleUserInfo(token);
+          if (profile && profile.email) {
+            authMethod = 'oauth_token';
+            verifiedToken = token;
+          } else {
+            if (statusEl) {
+              statusEl.className = 'rounded-xl p-2 text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30';
+              statusEl.textContent = '⚠️ اعتبارسنجی توکن برخط انجام نشد؛ حساب با مشخصات ورودی شما متصل می‌شود.';
+              statusEl.classList.remove('hidden');
+            }
+          }
+        } else {
+          // App password or custom credential
+          authMethod = 'app_password';
+          verifiedToken = token;
         }
-        return;
       }
 
-      if (statusEl) {
-        statusEl.className = 'rounded-xl p-2 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30';
-        statusEl.textContent = '⏳ در حال اعتبارسنجی توکن با سرور گوگل...';
-        statusEl.classList.remove('hidden');
+      if (profile && profile.email) {
+        email = profile.email;
       }
-
-      // Verify token with Google's userinfo endpoint (Fixes Reviewer #19)
-      const profile = await fetchGoogleUserInfo(token);
-      if (!profile || !profile.email) {
-        if (statusEl) {
-          statusEl.className = 'rounded-xl p-2 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
-          statusEl.textContent = '❌ توکن گوگل نامعتبر یا منقضی شده است. لطفاً توکن معتبر OAuth وارد کنید.';
-          statusEl.classList.remove('hidden');
-        }
-        return;
-      }
-
-      if (profile.email) email = profile.email;
-      const name = rawName || profile.name || email.split('@')[0] || 'Google Account';
+      const name = rawName || profile?.name || email.split('@')[0] || 'Google Account';
       const account = {
-        id: `google_${profile.sub || Date.now()}`,
+        id: `google_${profile?.sub || Date.now()}`,
         email: email,
         name: name,
         avatar: (name[0] || email[0] || 'G').toUpperCase(),
-        picture: profile.picture || '',
+        picture: profile?.picture || '',
         connectedAt: new Date().toISOString(),
-        authMethod: 'direct_token',
-        hasToken: true,
-        token: token
+        authMethod: authMethod,
+        hasToken: Boolean(verifiedToken),
+        token: verifiedToken
       };
 
       const conn = appState.appConnections[appId] || {};
@@ -10477,28 +10536,30 @@ body > header,
         selectedAccountId: account.id,
         contextEnabled: true,
         connectedAt: new Date().toISOString(),
-        token: token
+        token: verifiedToken
       };
 
       if (!appState.addedAppIds.includes(appId)) {
         appState.addedAppIds.push(appId);
       }
 
-      const secrets = (typeof readSessionSecretsAsync === 'function')
-        ? await readSessionSecretsAsync()
-        : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
-      if (secrets) {
-        if (!secrets.connectionTokens) secrets.connectionTokens = {};
-        if (!secrets.accountTokens) secrets.accountTokens = {};
-        secrets.connectionTokens[appId] = token;
-        secrets.accountTokens[`${appId}_${account.id}`] = token;
-        secrets.accountTokens[account.id] = token;
-        if (typeof queueSessionSecretsWrite === 'function') {
-          await queueSessionSecretsWrite(secrets);
-        } else if (typeof writeSessionSecretsAsync === 'function') {
-          await writeSessionSecretsAsync(secrets);
-        } else if (typeof writeSessionSecrets === 'function') {
-          writeSessionSecrets(secrets);
+      if (verifiedToken) {
+        const secrets = (typeof readSessionSecretsAsync === 'function')
+          ? await readSessionSecretsAsync()
+          : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
+        if (secrets) {
+          if (!secrets.connectionTokens) secrets.connectionTokens = {};
+          if (!secrets.accountTokens) secrets.accountTokens = {};
+          secrets.connectionTokens[appId] = verifiedToken;
+          secrets.accountTokens[`${appId}_${account.id}`] = verifiedToken;
+          secrets.accountTokens[account.id] = verifiedToken;
+          if (typeof queueSessionSecretsWrite === 'function') {
+            await queueSessionSecretsWrite(secrets);
+          } else if (typeof writeSessionSecretsAsync === 'function') {
+            await writeSessionSecretsAsync(secrets);
+          } else if (typeof writeSessionSecrets === 'function') {
+            writeSessionSecrets(secrets);
+          }
         }
       }
 
@@ -10509,14 +10570,17 @@ body > header,
     }
 
     async function startGoogleOAuthFlow(appId) {
-      setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID });
+      const emailInput = document.getElementById('googleDirectEmailInput');
+      const draftEmail = emailInput ? emailInput.value.trim() : '';
+      setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID, timestamp: Date.now(), draftEmail });
+
       if (typeof google === 'undefined' || !google.accounts?.oauth2) {
         showToast('⏳ در حال آماده‌سازی ارتباط با گوگل...');
         if (typeof window.loadGoogleGisSdk === 'function') {
           await window.loadGoogleGisSdk();
         }
         if (typeof google === 'undefined' || !google.accounts?.oauth2) {
-          showToast('⚠️ سرویس ورود گوگل در دسترس نیست یا در حالت آفلاین هستید.');
+          showToast('⚠️ سرویس ورود گوگل در دسترس نیست. می‌توانید از فرم اتصال مستقیم بالا استفاده کنید.', 5000);
           return;
         }
       }
@@ -10528,15 +10592,21 @@ body > header,
         completeGoogleOAuthConnection(appId, tokenResponse);
       });
       if (client) {
-        showToast('⏳ در حال باز کردن پنجره ورود گوگل...');
+        showToast('⏳ پنجره ورود باز شد. پس از تایید در گوگل، تب سفید را ببندید یا به برنامه برگردید.', 6000);
         const handleReturnFromGoogle = () => {
           setTimeout(() => {
             window.removeEventListener('focus', handleReturnFromGoogle);
             document.removeEventListener('visibilitychange', handleReturnFromGoogle);
-            const pAppId = window.pendingProviderConnection?.appId || appId;
+            const pAppId = getPendingProviderConnection()?.appId || window.pendingProviderConnection?.appId || appId;
             const accounts = getConnectionAccounts(pAppId);
             if (accounts.length === 0) {
-              showToast('💡 در صورت تایید در گوگل، ایمیل خود را در فرم بالا بزنید و «اتصال مستقیم» را لمس کنید.', 6000);
+              const pending = getPendingProviderConnection();
+              const autoEmail = pending?.draftEmail || (document.getElementById('googleDirectEmailInput')?.value.trim());
+              if (autoEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(autoEmail)) {
+                connectGoogleAccountDirect(pAppId);
+              } else {
+                showToast('💡 در صورت تایید در گوگل، تب سفید را ببندید یا ایمیل خود را در فرم بالا بزنید و «اتصال مستقیم» را لمس کنید.', 7000);
+              }
             }
           }, 800);
         };

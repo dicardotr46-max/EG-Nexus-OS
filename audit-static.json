@@ -1,9 +1,9 @@
 {
   "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 33726,
-  "script_bytes": 1600217,
-  "function_count": 835,
+  "lines": 33796,
+  "script_bytes": 1603442,
+  "function_count": 836,
   "interactive_element_count": 58,
   "target_hits": {
     "bottom_mode_bar": {
@@ -724,10 +724,10 @@
     "zero_drift": true
   },
   "evidence_manifest": {
-    "gitHead": "85a3ae8dc0b1233d95255c3ddaebb6d1c54e4c7c",
+    "gitHead": "85282b0457e1d9ab3c4e0a13cf0edd24ecd92f77",
     "packageLockHash": "fb2943e83c0f62f679a57058abefe6516e8a215f7ff33b3fcd73c9fc7120b098",
     "coverageSummaryHash": "c78fd241c4c33b4c64cfe598828c771e071227f627065248e846da9c66128026",
-    "jestResultsHash": "4de03ff893dd809d6e9e0c44cf2250d89d1633e17e4038e4a3d77f5259c0b2a0",
-    "timestamp": "2026-11-15T10:19:45.394Z"
+    "jestResultsHash": "a29558e1e53b353c94c21ec1e43d9906dbb072d72ddaae8aafe25313db1b6f0b",
+    "timestamp": "2026-11-15T16:32:12.033Z"
   }
 }
