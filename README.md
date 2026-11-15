@@ -1,9 +1,9 @@
-# 🚀 EG Nexus OS v6.3.1 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.3.2 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-751%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-789%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -58,11 +58,55 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-**EG Nexus OS v6.3.1** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های v6.3.0 با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به قابلیت‌های امنیتی و اینواریانت‌های v6.3.1 گردیده است: اثرانگشت ۶۴ کاراکتری SHA-256 برای فراخوانی ابزارها بدون نشت هرگونه سکرت یا کلید در تاریخچه و ژورنال اجرایی، دفترکل مشترک توکن والد و ساب‌ایجنت‌ها با جلوگیری اتمیک از اضافه‌برداشت همزمان و مسدودسازی با خطای صریح `TOKEN_BUDGET_OVERRUN`، حفظ پیوستگی و یکپارچگی ردپای ممیزی در ترانکیشن (بیش از ۵۰ رویداد) با هش انکر و امضای HMAC، کاتالوگ مدل‌های پیشتاز نوامبر ۲۰۲۶ (Gemini 3.8 Flash, GPT-6 Astra, Claude Opus 5.5, DeepSeek v4 Pro) همراه با تفکیک دقیق قیمت‌گذاری توکن‌های کَش‌شده و بدون کش، اعمال قطعی سیاست Default-Deny برای اسکیمای ابزارهای پروتکل MCP با خطای `MCP_SCHEMA_NOT_FOUND`، و سخت‌سازی چندزبانه حاکمیت حافظه (قرنطینه قطعی الگوهای متخاصم فارسی از جمله «دستورات قبلی را نادیده بگیر» و غیرقابل‌دورزدن بودن با `userVerified: true` همراه با جستجوی هیبریدی شباهت کسینوسی).
+**EG Nexus OS v6.3.2** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به ۷ اصلاح ساختاری و مهندسی نسخه v6.3.2 گردیده است.
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.3.1
+## 🛡️ قابلیت‌ها، اصلاحات و استحکام‌بخشی نسخه v6.3.2 (Engineering Hardening & Architectural Fixes)
+
+نسخه **v6.3.2** با اعمال ۷ اصلاح اساسی و ارتقای ساختاری، لایه‌های امنیتی، اعتبارسنجی ابزارها، و انعطاف‌پذیری سیستم را به بالاترین سطح استانداردهای مهندسی رسانده است:
+
+### ۱. حذف کامل developer-override و خصوصی‌سازی کلید نشست در MemoryGovernance
+- **حذف کامل دورزدن با developer-override:** حذف قطعی هرگونه دورزدن یا استثنا تحت عنوان `developer-override` یا `sourceType: 'system'` برای ورودی‌های مشکوک یا غیرمعتبر. هرگونه ورودی با الگوهای تزریق پرامپت یا مسمومیت حافظه بلافاصله قرنطینه و با خطای صریح `MEMORY_POISONING_BLOCKED` مسدود می‌شود.
+- **خصوصی‌سازی sessionKey و عدم افشا:** خصوصی‌سازی کامل `sessionKey` در کلوژر خصوصی ماژول؛ فیلد `sessionKey` و متد `generateApprovalSignature` از نمونه‌های `MemoryGovernance` و خروجی `exportState()` به طور کامل حذف گردیده‌اند تا امکان جعل امضا یا استخراج کلید به صفر برسد. ارتقای رکوردهای حافظه از طریق توکن‌های تایید استاندارد ماژول `approvals` صورت می‌پذیرد.
+
+### ۲. آستانه سخت‌گیرانه بازیابی حافظه (minTrustScore: 0.75) و حذف مطلق رکوردهای قرنطینه در hybridSearch
+- **آستانه پیش‌فرض ۰.۷۵:** تنظیم پیش‌فرض حداقل امتیاز اعتماد بر روی `minTrustScore: 0.75` در جستجوی هیبریدی (`hybridSearch`).
+- **حذف مطلق رکوردهای قرنطینه:** حذف قطعی و تضمین‌شده تمامی رکوردهای قرنطینه‌شده (`quarantined === true`, `isQuarantined`, `category === 'quarantine'`) از نتایج جستجو به منظور جلوگیری از نشت اطلاعات یا تزریق غیرمستقیم پرامپت در مرحله بازیابی زمینه (RAG).
+
+### ۳. رزرو پیش‌پرواز توکن‌های مدل (estimateModelRequestTokens) و چک‌پوینت‌های تعلیق/ادامه‌پذیری ژورنال
+- **فرمول دقیق تخمین توکن‌ها:** پیاده‌سازی فرمول دقیق `estimateModelRequestTokens`: محاسبه مجموع توکن‌های ورودی بر اساس `Math.ceil(promptChars / 3)` به علاوه سقف درخواستی توکن‌های خروجی (`maxOutputTokens`).
+- **پیش‌پرواز شکست‌بسته (Preflight):** اعمال متد پیش‌پرواز `preflightReserve` در `AgentExecutionGuard`: در صورت عدم کفایت باقی‌مانده سقف بودجه توکن پیش از برقراری ارتباط، بلافاصله خطای `429 TOKEN_BUDGET_PREFLIGHT_EXCEEDED` پرتاب می‌شود.
+- **تداوم وضعیت تعلیق و چک‌پوینت‌ها:** پشتیبانی کامل متدهای `exportTaskJournal` و `restoreTaskJournal` از وضعیت `executionStatus: 'paused_for_approval'` و بازسازی امن نقطه ادامه‌کار (`resumeCheckpoint`) شامل شمارنده گام‌ها، فراخوانی ابزار معلق، مکان‌نمای گفتگو و وضعیت ساب‌ایجنت‌ها.
+
+### ۴. به‌روزرسانی کاتالوگ قیمت‌گذاری و سقف توکن‌های خروجی مدل‌های پیشتاز نوامبر ۲۰۲۶
+- **تعرفه جدید OpenAI GPT-6 Astra (`gpt-6-astra`):** ورودی $10.0 به ازای هر میلیون توکن، خروجی $50.0، و ورودی کش‌شده $2.5.
+- **تعرفه جدید Anthropic Claude Opus 5.5 (`claude-opus-5.5`):** ورودی $4.0 به ازای هر میلیون توکن، خروجی $20.0، و ورودی کش‌شده $0.4.
+- **تعرفه جدید Google Gemini 3.8 Flash (`gemini-3.8-flash`):** ورودی $0.75 به ازای هر میلیون توکن، خروجی $3.75، و ورودی کش‌شده $0.075.
+- **سقف خروجی ۶۵,۵۳۶ توکن:** ارتقای متادیتای پنجره زمینه و سقف توکن‌های خروجی `gemini-3.8-flash` به سقف کامل `limits.maxOutputTokens === 65536`.
+
+### ۵. اعتبارسنجی JSON Schema 2020-12 برای پارامترهای MCP و الزام اتصال متصل (connected === true)
+- **موتور اعتبارسنجی ترکیبی:** پیاده‌سازی موتور اعتبارسنجی اسکیمای استاندارد JSON Schema 2020-12 برای پارامترهای ابزارهای Model Context Protocol (MCP) با پشتیبانی جامع از کلیدواژه‌های منطقی:
+  - `oneOf`: قبولی انحصاری در صورت تطابق با دقیقاً یک شاخه؛ رد در صورت عدم تطابق یا تطابق با چند شاخه.
+  - `anyOf`: قبولی در صورت تطابق با حداقل یک شاخه؛ رد در صورت عدم تطابق با تمام شاخه‌ها.
+  - `allOf`: قبولی فقط در صورت تطابق همزمان با تمامی شاخه‌ها.
+- **الزام صریح وضعیت اتصال:** در صورت تنظیم `connected: false` روی اتصال سرور MCP، درخواست بلافاصله با وضعیت ۴۰۳ و کد خطای صریح `MCP_NOT_CONNECTED` رد می‌شود.
+- **رد ابزارهای ثبت‌نشده:** مسدودسازی قطعی هرگونه ابزار ثبت‌نشده یا فاقد اسکیما با خطای `MCP_TOOL_UNREGISTERED`.
+
+### ۶. پایداری کلید امضای ممیزی HMAC در سراسر ری‌استارت و خصوصی‌سازی خروجی‌ها
+- **حذف از خروجی‌های عمومی:** حذف فیلد `_auditHmacKey` از خروجی‌های ماژول `approvals` (`expect(approvals._auditHmacKey).toBeUndefined()`).
+- **پایداری در حافظه و زنجیره ممیزی:** حفظ دائم و پایدار کلید امضای HMAC در سطح نشست و حافظه ممیزی، به طوری که بازنشانی یا بارگذاری مجدد ماژول در صورت اتصال به همان استوریج، پیوستگی و صحت زنجیره ممیزی را حفظ نموده و `verifyAuditTrailIntegrity` اعتبارسنجی `valid: true` را تضمین می‌کند.
+
+### ۷. سیاست شکست‌بسته (Fail-Closed) خزانه‌دار SecretVault در خطاهای راه‌اندازی
+- **حذف فال‌بک ناخواسته به WebCrypto:** حذف هرگونه فال‌بک خودکار یا بی‌صدا به WebCrypto در صورت عدم موفقیت در متد `init()`.
+- **خطای صریح VAULT_INIT_FAILED:** در صورت بروز خطا حین مقداردهی اولیه سخت‌افزار یا کی‌استور، فراخوانی `vault.encrypt()` بلافاصله خطای صریح `VAULT_INIT_FAILED` پرتاب کرده و از رمزنگاری با بکند ناامن یا پیش‌بینی‌نشده جلوگیری می‌کند.
+
+### ۸. حذف کدهای تکراری و ماسک‌نشده TaskJournal در رابط کاربری (index.html)
+- **حذف پیاده‌سازی‌های تکراری و موازی:** حذف نمونه‌های تکراری و پیاده‌سازی‌های ماسک‌نشده `TaskJournal` از `index.html` و هدایت تمامی عملیات به ماژول استاندارد و امن `AgentExecutionGuard` در هسته امنیتی (`src/core/state.js`).
+
+---
+
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.3.2
 
 ### ۱. سیستم مدیریت بودجه مرکزی و رزرو/تسویه توکن (CentralBudgetManager & Token Reservation/Settlement)
 - **رزرو پیش از شبکه (`reserveTokens`):** متد `executeProviderRequest` پیش از ارسال هرگونه درخواست به ارائه‌دهندگان هوش مصنوعی یا اجرای ابزار، توکن‌های تخمینی را رزرو می‌کند. در صورت فراتر رفتن مجموع توکن‌های رزروشده و مصرفی از `maxTokenBudget`، بلافاصله خطای `429 TOKEN_BUDGET_EXCEEDED` صادر و درخواست بدون مصرف شبکه متوقف می‌شود.
@@ -94,7 +138,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ### ۷. یکپارچه‌سازی شناسه اپلیکیشن و همگام‌ساز خودکار نسخه گریدل
 - یکسان‌سازی کامل شناسه اپلیکیشن روی `com.eg.nexus` در `capacitor.config.json`، `android/app/build.gradle` و `AndroidManifest.xml`.
-- پیاده‌سازی اسکریپت خودکار `syncGradleVersion()` در `scripts/sync-www.js` برای تولید `versionCode 60300` و `versionName "6.3.0"` متناسب با `package.json`.
+- پیاده‌سازی اسکریپت خودکار `syncGradleVersion()` در `scripts/sync-www.js` برای تولید `versionCode 60302` و `versionName "6.3.2"` متناسب با `package.json`.
 
 ### ۸. منشور معماری حاکمیتی محلی-محور و ماتریس انطباق استانداردهای ۲۰۲۶ (ADR-001 Section 5)
 - **سند رسمی ADR-001 و بخش ۵:** تدوین جدول ماتریس ردیابی کنترل‌ها و تطابق کامل با استانداردهای مدرن ۲۰۲۶ در `docs/ADR-001-sovereign-local-first.md`:
@@ -154,7 +198,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.3.1 (تمام اکشن‌ها با SHA پین شده)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.3.2 (تمام اکشن‌ها با SHA پین شده)
 ├── __tests__/                      # مجموعه تست‌های جامع Jest (شامل سوئیت v630_ai_architecture_and_p0_fixes)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
@@ -184,16 +228,16 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها، مدیریت حالت، AgentExecutionGuard و MemoryGovernance
 │   ├── providers/                 # رجیستری ارتباط با مدل‌ها (ACTION_POLICY_MANIFEST و MODEL_REGISTRY)
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی، تاییدات و ژورنال 2PC StrongBox
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.3.1 و v6.3.1
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.3.2 و v6.3.1
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.3.1)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.3.1)
-├── package.json                   # شناسه پکیج نسخه 6.3.1 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.3.1)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.3.2)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.3.2)
+├── package.json                   # شناسه پکیج نسخه 6.3.2 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.3.2)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.3.1
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.3.2
 ```
 
 ---
@@ -202,7 +246,7 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.3.1`) را انتخاب کنید.
+2. آخرین نسخه منتشرشده (`v6.3.2`) را انتخاب کنید.
 3. فایل **`EG-Nexus-OS-v6.3.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است (توصیفگر اصالت: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`).
 

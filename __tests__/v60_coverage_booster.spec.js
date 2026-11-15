@@ -40,18 +40,16 @@ describe('EG-Nexus-OS v6.0.0 Coverage Booster Suite', () => {
       expect(dec).toBe('secret-test-data-42');
     });
 
-    test('SecretVault WebCrypto fallback branch in encrypt and decrypt', async () => {
+    test('SecretVault WebCrypto fallback branch in encrypt and decrypt fails closed without IDB', async () => {
       const origNodeCrypto = secrets._getNodeCrypto;
       secrets._getNodeCrypto = () => null;
 
       try {
         const vault = new secrets.SecretVault({ storage: mockStorage });
-        const enc = await vault.encrypt('webcrypto-test-data', 'test-aad');
-        expect(enc.algorithm).toBe('AES-GCM-256');
-        const dec = await vault.decrypt(enc.ciphertext, enc.iv, enc.aad);
-        expect(dec).toBe('webcrypto-test-data');
+        await expect(vault.encrypt('webcrypto-test-data', 'test-aad')).rejects.toThrow(/VAULT_INIT_FAILED/i);
       } finally {
         secrets._getNodeCrypto = origNodeCrypto;
+        secrets._resetSessionCryptoState();
       }
     });
 

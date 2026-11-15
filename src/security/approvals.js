@@ -81,8 +81,43 @@
   const _internalTokenStore = new Map();
   const _lifecycleAuditTrail = new Map();
 
-  // 256-bit session HMAC key for audit trail anchoring (OWASP ACS 2026)
-  const _auditHmacKey = secureRandomHex(32);
+  function _resolveStorage() {
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+    if (typeof globalThis !== 'undefined' && globalThis.localStorage) return globalThis.localStorage;
+    return null;
+  }
+
+  // 256-bit persistent audit HMAC secret across reloads/restarts (OWASP ACS 2026)
+  const AUDIT_HMAC_SEED_KEY = 'eg_nexus_os_audit_hmac_seed';
+  let _auditHmacKey = null;
+
+  function _getAuditHmacKey(storage) {
+    try {
+      const store = storage || _resolveStorage();
+      if (store && typeof store.getItem === 'function') {
+        const storedKey = store.getItem(AUDIT_HMAC_SEED_KEY);
+        if (storedKey && typeof storedKey === 'string' && storedKey.length >= 32) {
+          _auditHmacKey = storedKey;
+          return _auditHmacKey;
+        }
+        if (!_auditHmacKey) {
+          _auditHmacKey = secureRandomHex(32);
+        }
+        try {
+          if (typeof store.setItem === 'function') {
+            store.setItem(AUDIT_HMAC_SEED_KEY, _auditHmacKey);
+          }
+        } catch (_) {}
+        return _auditHmacKey;
+      }
+    } catch (_) {}
+    if (!_auditHmacKey) {
+      _auditHmacKey = secureRandomHex(32);
+    }
+    return _auditHmacKey;
+  }
+
+  _auditHmacKey = _getAuditHmacKey();
 
   // Pure JS HMAC-SHA256 fallback matching Node crypto createHmac
   function _hmacSha256Pure(keyHex, msgStr) {
@@ -125,7 +160,7 @@
 
   function _hmacSha256Hex(keyHex, message) {
     const msgStr = (message === null || message === undefined) ? '' : String(message);
-    const k = (keyHex === null || keyHex === undefined) ? _auditHmacKey : String(keyHex);
+    const k = (keyHex === null || keyHex === undefined) ? _getAuditHmacKey() : String(keyHex);
     try {
       if (typeof require === 'function') {
         const nodeCrypto = require('crypto');
@@ -495,17 +530,21 @@
       const lastTruncated = record.events[truncatedCount - 1];
       if (lastTruncated && lastTruncated.entryHash) {
         record.truncatedAnchorHash = lastTruncated.entryHash;
-        record.truncatedAnchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + record.truncatedAnchorHash);
+        record.truncatedAnchorSignature = _hmacSha256Hex(_getAuditHmacKey(), (record.requestId || '') + '|' + record.truncatedAnchorHash);
       }
       record.events = record.events.slice(-50);
       record.history = record.events;
     }
     const lastItem = record.events.length > 0 ? record.events[record.events.length - 1] : null;
     const lastHash = lastItem ? lastItem.entryHash : (record.truncatedAnchorHash || 'GENESIS');
-    const anchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + lastHash + '|' + record.events.length);
+    const anchorSignature = _hmacSha256Hex(_getAuditHmacKey(), (record.requestId || '') + '|' + lastHash + '|' + record.events.length);
     record.anchorSignature = anchorSignature;
 
-    persistAuditTrail();
+    const saved = persistAuditTrail();
+    if (saved === false) {
+      record.persistenceFailed = true;
+      console.warn('Audit trail persistence failed');
+    }
     return Object.freeze(typeof structuredClone === 'function' ? structuredClone(record) : JSON.parse(JSON.stringify(record)));
   }
 
@@ -920,6 +959,10 @@
   const AUDIT_STORAGE_KEY = 'eg_nexus_os_lifecycle_audit_trail';
 
   function persistAuditTrail(storage) {
+    const store = storage ||
+      (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
+      (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
+
     for (const [reqId, record] of _lifecycleAuditTrail.entries()) {
       if (record) {
         if (!record.events && Array.isArray(record.history)) {
@@ -931,7 +974,7 @@
             const lastTruncated = record.events[truncatedCount - 1];
             if (lastTruncated && lastTruncated.entryHash) {
               record.truncatedAnchorHash = lastTruncated.entryHash;
-              record.truncatedAnchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + record.truncatedAnchorHash);
+              record.truncatedAnchorSignature = _hmacSha256Hex(_getAuditHmacKey(store), (record.requestId || '') + '|' + record.truncatedAnchorHash);
             }
             record.events = record.events.slice(-50);
           }
@@ -942,14 +985,11 @@
           : ((record.events && record.events.length > 0) ? record.events[record.events.length - 1] : null);
         const lastHash = lastItem ? (lastItem.entryHash || lastItem.hash || 'GENESIS') : (record.truncatedAnchorHash || 'GENESIS');
         const eventsLen = record.events ? record.events.length : (record.history ? record.history.length : 0);
-        const anchorSignature = _hmacSha256Hex(_auditHmacKey, (record.requestId || '') + '|' + lastHash + '|' + eventsLen);
+        const anchorSignature = _hmacSha256Hex(_getAuditHmacKey(store), (record.requestId || '') + '|' + lastHash + '|' + eventsLen);
         record.anchorSignature = anchorSignature;
       }
     }
 
-    const store = storage ||
-      (typeof window !== 'undefined' && window.localStorage ? window.localStorage : null) ||
-      (typeof globalThis !== 'undefined' && globalThis.localStorage ? globalThis.localStorage : null);
     const serialized = JSON.stringify(Array.from(_lifecycleAuditTrail.entries()));
     if (store) {
       try {
@@ -970,7 +1010,10 @@
   function verifyAuditTrailIntegrity(storageOrRequestId, options = {}) {
     let raw = null;
     let entries = null;
-    const auditHmacKey = (options && options.hmacKey) || _auditHmacKey;
+    const store = (typeof storageOrRequestId === 'object' && storageOrRequestId !== null && typeof storageOrRequestId.getItem === 'function')
+      ? storageOrRequestId
+      : _resolveStorage();
+    const auditHmacKey = (options && options.hmacKey) || _getAuditHmacKey(store);
 
     // Direct lookup by requestId from internal memory audit trail
     if (typeof storageOrRequestId === 'string' && _lifecycleAuditTrail.has(storageOrRequestId)) {
@@ -1122,6 +1165,7 @@
     getUiState,
     triggerApprovalGate,
     resolveApprovalGate,
+    issueApprovalToken,
     consumeApprovalToken,
     verifyApprovalToken,
     clearApprovalTokens,
@@ -1134,7 +1178,6 @@
     _sha256Hex,
     _hmacSha256Hex,
     _hmacSha256Pure,
-    _auditHmacKey,
     deepFreeze,
     secureRandomHex,
     secureRandomId,

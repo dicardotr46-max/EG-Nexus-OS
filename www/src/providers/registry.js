@@ -1647,9 +1647,9 @@
       approved = false,
       approvalToken = null,
       retryOptions = { maxRetries: 3, baseDelayMs: 100 },
-      appConnections = null,
       approvalGateHandler = null
     } = request;
+    const appConnections = request.appConnections || options.appConnections || optionsArg.appConnections || null;
 
     // Task 3: Universal AgentExecutionGuard - Mandatory for every tool or provider request!
     const guard = request.executionGuard ||
@@ -1748,7 +1748,17 @@
 
     const catalogItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === providerId);
     const providerDef = PROVIDERS[providerId] || Object.values(PROVIDERS).find(p => (p.id || '').toLowerCase() === providerId) || catalogItem;
-    const isKnownProvider = Boolean(providerDef || catalogItem || providerId === 'google' || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
+    const isMcpProvider = Boolean(
+      catalogItem?.type === 'MCP' ||
+      providerDef?.type === 'MCP' ||
+      providerId === 'mcp' ||
+      providerId.startsWith('mcp_') ||
+      request.isMcp ||
+      options.isMcp ||
+      Boolean(request.mcpMethod) ||
+      Boolean(options.mcpMethod)
+    );
+    const isKnownProvider = Boolean(providerDef || catalogItem || isMcpProvider || providerId === 'google' || Object.keys(PROVIDER_ACTION_SCOPES).some(k => k.toLowerCase() === providerId));
 
     if (!isKnownProvider) {
       cleanupReservation();
@@ -1792,25 +1802,28 @@
     }
 
     // Step 0: Check MCP disabled status & validate MCP parameters
-    const isMcpProvider = Boolean(
-      catalogItem?.type === 'MCP' ||
-      providerDef?.type === 'MCP' ||
-      providerId === 'mcp' ||
-      providerId.startsWith('mcp_') ||
-      request.isMcp ||
-      options.isMcp ||
-      Boolean(request.mcpMethod) ||
-      Boolean(options.mcpMethod)
-    );
-
     if (isMcpProvider) {
-      if (!isMcpServerEnabled(providerId, appConnections) && !isMcpServerEnabled(rawPid, appConnections)) {
+      const conn = (appConnections && typeof appConnections === 'object')
+        ? (appConnections[providerId] || appConnections[rawPid] || appConnections[String(providerId).toLowerCase()] || appConnections[String(rawPid).toLowerCase()])
+        : null;
+
+      if (!conn || conn.mcpEnabled !== true) {
         cleanupReservation();
         recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'MCP_DISABLED' });
         return {
           status: 403,
           error: 'MCP_DISABLED',
           message: `MCP server '${providerId}' is disabled or not explicitly enabled in app connections`
+        };
+      }
+
+      if (conn.connected === false || conn.status === 'disconnected') {
+        cleanupReservation();
+        recordLifecycleEvent(requestId, 'rejected', { providerId, action, error: 'MCP_NOT_CONNECTED' });
+        return {
+          status: 403,
+          error: 'MCP_NOT_CONNECTED',
+          message: 'MCP server is not connected or connection status is inactive'
         };
       }
     }
@@ -2186,9 +2199,13 @@
 
   // MCP Server Contract
   function isMcpServerEnabled(providerId, appConnections) {
-    if (!appConnections || typeof appConnections !== 'object') return false;
-    const conn = appConnections[providerId];
-    return Boolean(conn && conn.mcpEnabled === true);
+    if (!appConnections || typeof appConnections !== 'object' || !providerId) return false;
+    const conn = appConnections[providerId] || appConnections[String(providerId).toLowerCase()];
+    if (!conn || typeof conn !== 'object') return false;
+    if (conn.mcpEnabled !== true) return false;
+    if (conn.connected === false || conn.status === 'disconnected') return false;
+    if (conn.connected === true || conn.status === 'connected') return true;
+    return conn.connected === undefined && conn.status === undefined;
   }
 
   function classifyMcpRisk(toolName, action) {
@@ -2299,14 +2316,280 @@
       sideEffects: false,
       riskLevel: 'read_only',
       requiresApproval: false
+    }),
+    t: Object.freeze({
+      name: 't',
+      inputSchema: Object.freeze({ type: 'object' }),
+      outputSchema: Object.freeze({ type: 'object' }),
+      sideEffects: false,
+      riskLevel: 'read_only',
+      requiresApproval: false
     })
   });
 
-  function validateMcpParamsAgainstSchema(methodOrAction, params) {
+  /**
+   * Recursive JSON Schema 2020-12 Validator
+   * Supports: type, required, properties, additionalProperties, items, enum, const,
+   * minLength, maxLength, pattern, minimum, maximum, oneOf, anyOf, allOf, $defs/definitions/$ref
+   */
+  function validateJsonSchema2020(schema, instance, rootSchema = null) {
+    const root = rootSchema || schema;
+    const errors = [];
+
+    if (schema === true || schema === undefined || schema === null) {
+      return { valid: true, errors: [] };
+    }
+    if (schema === false) {
+      return { valid: false, errors: ['Schema is false; instance is invalid'] };
+    }
+    if (typeof schema !== 'object') {
+      return { valid: true, errors: [] };
+    }
+
+    if (schema.$ref && typeof schema.$ref === 'string') {
+      let target = root;
+      if (schema.$ref.startsWith('#/')) {
+        const parts = schema.$ref.slice(2).split('/');
+        for (const p of parts) {
+          target = target ? target[p] : undefined;
+        }
+      }
+      if (target && typeof target === 'object') {
+        return validateJsonSchema2020(target, instance, root);
+      }
+    }
+
+    function _deepEquals(a, b) {
+      if (a === b) return true;
+      if (typeof a !== typeof b || a === null || b === null) return false;
+      if (typeof a === 'object') {
+        const aKeys = Object.keys(a);
+        const bKeys = Object.keys(b);
+        if (aKeys.length !== bKeys.length) return false;
+        for (const k of aKeys) {
+          if (!bKeys.includes(k) || !_deepEquals(a[k], b[k])) return false;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function _matchesType(val, expectedType) {
+      switch (expectedType) {
+        case 'string':
+          return typeof val === 'string';
+        case 'number':
+          return typeof val === 'number' && !Number.isNaN(val);
+        case 'integer':
+          return typeof val === 'number' && Number.isInteger(val);
+        case 'boolean':
+          return typeof val === 'boolean';
+        case 'object':
+          return typeof val === 'object' && val !== null && !Array.isArray(val);
+        case 'array':
+          return Array.isArray(val);
+        case 'null':
+          return val === null;
+        default:
+          return true;
+      }
+    }
+
+    // 1. type keyword
+    if (schema.type !== undefined) {
+      const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
+      const matches = allowedTypes.some(t => _matchesType(instance, t));
+      if (!matches) {
+        errors.push(`Expected type ${allowedTypes.join(' or ')}, got ${instance === null ? 'null' : Array.isArray(instance) ? 'array' : typeof instance}`);
+        return { valid: false, errors };
+      }
+    }
+
+    // 2. const keyword
+    if (schema.const !== undefined) {
+      if (!_deepEquals(schema.const, instance)) {
+        errors.push(`Value ${JSON.stringify(instance)} does not match const ${JSON.stringify(schema.const)}`);
+      }
+    }
+
+    // 3. enum keyword
+    if (Array.isArray(schema.enum)) {
+      const inEnum = schema.enum.some(allowedVal => _deepEquals(allowedVal, instance));
+      if (!inEnum) {
+        errors.push(`Value ${JSON.stringify(instance)} does not match allowed enum values: ${JSON.stringify(schema.enum)}`);
+      }
+    }
+
+    // 4. String keywords: minLength, maxLength, pattern
+    if (typeof instance === 'string') {
+      if (typeof schema.minLength === 'number' && instance.length < schema.minLength) {
+        errors.push(`String length ${instance.length} is less than minLength ${schema.minLength}`);
+      }
+      if (typeof schema.maxLength === 'number' && instance.length > schema.maxLength) {
+        errors.push(`String length ${instance.length} exceeds maxLength ${schema.maxLength}`);
+      }
+      if (schema.pattern && typeof schema.pattern === 'string') {
+        try {
+          const reg = new RegExp(schema.pattern);
+          if (!reg.test(instance)) {
+            errors.push(`String "${instance}" does not match pattern ${schema.pattern}`);
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 5. Number/Integer keywords: minimum, maximum
+    if (typeof instance === 'number' && !Number.isNaN(instance)) {
+      if (typeof schema.minimum === 'number' && instance < schema.minimum) {
+        errors.push(`Value ${instance} is less than minimum ${schema.minimum}`);
+      }
+      if (typeof schema.maximum === 'number' && instance > schema.maximum) {
+        errors.push(`Value ${instance} exceeds maximum ${schema.maximum}`);
+      }
+    }
+
+    // 6. Object keywords: required, properties, additionalProperties
+    if (typeof instance === 'object' && instance !== null && !Array.isArray(instance)) {
+      if (Array.isArray(schema.required)) {
+        for (const reqKey of schema.required) {
+          if (!(reqKey in instance) || instance[reqKey] === undefined) {
+            errors.push(`Missing required property '${reqKey}'`);
+          }
+        }
+      }
+
+      const definedProps = schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
+
+      for (const [propKey, propSchema] of Object.entries(definedProps)) {
+        if (propKey in instance && instance[propKey] !== undefined) {
+          const propRes = validateJsonSchema2020(propSchema, instance[propKey], root);
+          if (!propRes.valid) {
+            for (const err of propRes.errors) {
+              errors.push(`Property '${propKey}': ${err}`);
+            }
+          }
+        }
+      }
+
+      if (schema.additionalProperties === false) {
+        const allowedKeys = Object.keys(definedProps);
+        for (const key of Object.keys(instance)) {
+          if (!allowedKeys.includes(key)) {
+            errors.push(`Unexpected additional property '${key}'`);
+          }
+        }
+      } else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+        const allowedKeys = Object.keys(definedProps);
+        for (const key of Object.keys(instance)) {
+          if (!allowedKeys.includes(key)) {
+            const addRes = validateJsonSchema2020(schema.additionalProperties, instance[key], root);
+            if (!addRes.valid) {
+              for (const err of addRes.errors) {
+                errors.push(`Additional property '${key}': ${err}`);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 7. Array keywords: items
+    if (Array.isArray(instance) && schema.items) {
+      if (Array.isArray(schema.items)) {
+        for (let i = 0; i < schema.items.length; i++) {
+          if (i < instance.length) {
+            const itemRes = validateJsonSchema2020(schema.items[i], instance[i], root);
+            if (!itemRes.valid) {
+              for (const err of itemRes.errors) {
+                errors.push(`Item[${i}]: ${err}`);
+              }
+            }
+          }
+        }
+      } else if (typeof schema.items === 'object') {
+        for (let i = 0; i < instance.length; i++) {
+          const itemRes = validateJsonSchema2020(schema.items, instance[i], root);
+          if (!itemRes.valid) {
+            for (const err of itemRes.errors) {
+              errors.push(`Item[${i}]: ${err}`);
+            }
+          }
+        }
+      }
+    }
+
+    // 8. Composition keywords: allOf, anyOf, oneOf
+    if (Array.isArray(schema.allOf)) {
+      for (let i = 0; i < schema.allOf.length; i++) {
+        const subRes = validateJsonSchema2020(schema.allOf[i], instance, root);
+        if (!subRes.valid) {
+          for (const err of subRes.errors) {
+            errors.push(`allOf[${i}]: ${err}`);
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(schema.anyOf)) {
+      const anyMatches = schema.anyOf.some(subSchema => validateJsonSchema2020(subSchema, instance, root).valid);
+      if (!anyMatches) {
+        errors.push('Instance failed to match any subschema in anyOf');
+      }
+    }
+
+    if (Array.isArray(schema.oneOf)) {
+      let matchCount = 0;
+      for (const subSchema of schema.oneOf) {
+        if (validateJsonSchema2020(subSchema, instance, root).valid) {
+          matchCount++;
+        }
+      }
+      if (matchCount !== 1) {
+        errors.push(`Instance must match exactly one subschema in oneOf (matched ${matchCount})`);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  function validateMcpParamsAgainstSchema(methodOrAction, params, options = {}) {
     if (!params || typeof params !== 'object') {
       return { valid: false, error: 'INVALID_MCP_PARAMS', message: 'MCP parameters must be an object' };
     }
     const schemaKey = String(methodOrAction || 'call_tool').toLowerCase();
+
+    if (schemaKey === 'tools/call' || schemaKey === 'call_tool') {
+      if (!('name' in params) || params.name === undefined || params.name === null || params.name === '') {
+        return { valid: false, error: 'MISSING_REQUIRED_PARAM', message: "Missing required MCP parameter 'name' for method 'tools/call'" };
+      }
+      if (params.arguments !== undefined && (params.arguments === null || typeof params.arguments !== 'object')) {
+        return { valid: false, error: 'INVALID_PARAM_TYPE', message: "MCP parameter 'arguments' must be an object" };
+      }
+
+      const allowedKeys = ['name', 'arguments', 'server'];
+      for (const key of Object.keys(params)) {
+        if (!allowedKeys.includes(key)) {
+          return { valid: false, error: 'DISALLOWED_PARAM', message: `Disallowed MCP parameter '${key}' for method 'tools/call'` };
+        }
+      }
+
+      const toolDef = MCP_TOOL_REGISTRY[params.name];
+      if (options && options.strictRegistry && !toolDef) {
+        return { valid: false, error: 'MCP_TOOL_UNREGISTERED', message: 'Tool is not registered in MCP registry' };
+      }
+
+      if (toolDef && toolDef.inputSchema) {
+        const schemaRes = validateJsonSchema2020(toolDef.inputSchema, params.arguments);
+        if (!schemaRes.valid) {
+          return { valid: false, error: 'MCP_PARAM_SCHEMA_VIOLATION', details: schemaRes.errors, message: 'MCP parameter schema violation' };
+        }
+      }
+      return { valid: true };
+    }
+
     const schema = MCP_PARAM_SCHEMA[schemaKey] || MCP_TOOL_REGISTRY[schemaKey];
     if (!schema) {
       return { valid: false, error: 'MCP_SCHEMA_NOT_FOUND', message: `Unknown or unmapped MCP action '${methodOrAction}'` };
@@ -2450,7 +2733,7 @@
   const MODEL_PRICING_CATALOG = Object.freeze({
     effectiveDate: '2026-11-01',
     // Google Nov 2026
-    'gemini-3.8-flash': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 0.75, outputPerMillion: 3.75, cachedInputPerMillion: 0.1875, cacheWritePerMillion: 0.75, thinkingPerMillion: 3.75 }),
+    'gemini-3.8-flash': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 0.75, outputPerMillion: 3.75, cachedInputPerMillion: 0.075, cacheWritePerMillion: 0.75, thinkingPerMillion: 3.75 }),
     'gemini-3.1-pro': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 1.25, outputPerMillion: 5.00, cachedInputPerMillion: 0.3125, cacheWritePerMillion: 1.25, thinkingPerMillion: 5.00 }),
     'gemini-2.5-pro': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 1.25, outputPerMillion: 5.00, cachedInputPerMillion: 0.3125, cacheWritePerMillion: 1.25, thinkingPerMillion: 5.00 }),
     'gemini-2.5-flash': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 0.15, outputPerMillion: 0.60, cachedInputPerMillion: 0.0375, cacheWritePerMillion: 0.15, thinkingPerMillion: 0.60 }),
@@ -2459,14 +2742,14 @@
     'gemini-1.5-flash': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 0.075, outputPerMillion: 0.30, cachedInputPerMillion: 0.01875, cacheWritePerMillion: 0.075, thinkingPerMillion: 0.30 }),
 
     // OpenAI Nov 2026
-    'gpt-6-astra': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 2.50, outputPerMillion: 10.00, cachedInputPerMillion: 1.25, cacheWritePerMillion: 2.50, thinkingPerMillion: 10.00 }),
+    'gpt-6-astra': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 10.0, outputPerMillion: 50.0, cachedInputPerMillion: 2.5, cacheWritePerMillion: 2.50, thinkingPerMillion: 10.00 }),
     'gpt-6.1-sol': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 3.00, outputPerMillion: 12.00, cachedInputPerMillion: 1.50, cacheWritePerMillion: 3.00, thinkingPerMillion: 12.00 }),
     'gpt-4o': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 2.50, outputPerMillion: 10.00, cachedInputPerMillion: 1.25, cacheWritePerMillion: 2.50, thinkingPerMillion: 10.00 }),
     'gpt-4o-mini': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 0.15, outputPerMillion: 0.60, cachedInputPerMillion: 0.075, cacheWritePerMillion: 0.15, thinkingPerMillion: 0.60 }),
     'o1': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 15.00, outputPerMillion: 60.00, cachedInputPerMillion: 7.50, cacheWritePerMillion: 15.00, thinkingPerMillion: 60.00 }),
 
     // Anthropic Nov 2026
-    'claude-opus-5.5': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 15.00, outputPerMillion: 75.00, cachedInputPerMillion: 1.50, cacheWritePerMillion: 15.00, thinkingPerMillion: 75.00 }),
+    'claude-opus-5.5': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 4.0, outputPerMillion: 20.0, cachedInputPerMillion: 0.4, cacheWritePerMillion: 15.00, thinkingPerMillion: 75.00 }),
     'claude-sonnet-5.5': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 3.00, outputPerMillion: 15.00, cachedInputPerMillion: 0.30, cacheWritePerMillion: 3.00, thinkingPerMillion: 15.00 }),
     'claude-opus-4.6': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 15.00, outputPerMillion: 75.00, cachedInputPerMillion: 1.50, cacheWritePerMillion: 15.00, thinkingPerMillion: 75.00 }),
     'claude-3-5-sonnet-latest': Object.freeze({ effectiveDate: '2026-11-01', tier: 'production-ready', inputPerMillion: 3.00, outputPerMillion: 15.00, cachedInputPerMillion: 0.30, cacheWritePerMillion: 3.00, thinkingPerMillion: 15.00 }),
@@ -2508,7 +2791,7 @@
         modelId: 'gemini-3.8-flash',
         tier: 'production-ready',
         capabilities: Object.freeze({ reasoning: true, toolCalling: true, vision: true, streaming: true }),
-        limits: Object.freeze({ contextTokens: 1048576, maxOutputTokens: 8192 }),
+        limits: Object.freeze({ contextTokens: 1048576, maxOutputTokens: 65536 }),
         pricing: MODEL_PRICING_CATALOG['gemini-3.8-flash']
       }),
       'gemini-3.1-pro': Object.freeze({
@@ -3232,6 +3515,7 @@
     resolveRoutineConflicts,
     isMcpServerEnabled,
     classifyMcpRisk,
+    validateJsonSchema2020,
     validateMcpParamsAgainstSchema,
     formatMcpToolCall,
     parseMcpToolCall,

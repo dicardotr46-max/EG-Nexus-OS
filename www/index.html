@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.3.1 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.3.2 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -815,87 +815,33 @@ body > header,
     window.NexusProviders = window.NexusProviders || window._nexusCoreProviders;
 
     // ========================================================================
-    // TaskJournal, CentralBudgetManager, and MemoryGovernance UI/Core Wiring
+    // Secure AgentExecutionGuard and TaskJournal UI/Core Wiring
     // ========================================================================
-    class TaskJournal {
-      constructor(initialData = {}) {
-        this.currentSteps = typeof initialData?.currentSteps === 'number' ? initialData.currentSteps : 0;
-        this.currentToolCalls = typeof initialData?.currentToolCalls === 'number' ? initialData.currentToolCalls : 0;
-        this.usedTokens = typeof initialData?.usedTokens === 'number' ? initialData.usedTokens : 0;
-        this.startTime = typeof initialData?.startTime === 'number' ? initialData.startTime : Date.now();
-        this.callHistory = Array.isArray(initialData?.callHistory) ? JSON.parse(JSON.stringify(initialData.callHistory)) : [];
-        this.cancelled = Boolean(initialData?.cancelled);
-        this.cancelReason = initialData?.cancelReason || null;
-        this.maxSteps = typeof initialData?.maxSteps === 'number' ? initialData.maxSteps : 50;
-        this.maxToolCalls = typeof initialData?.maxToolCalls === 'number' ? initialData.maxToolCalls : 100;
-        this.maxTokenBudget = typeof initialData?.maxTokenBudget === 'number' ? initialData.maxTokenBudget : 100000;
-        this.maxDurationMs = typeof initialData?.maxDurationMs === 'number' ? initialData.maxDurationMs : 300000;
-      }
-      recordStep() {
-        this.currentSteps++;
-        return this.currentSteps;
-      }
-      recordToolCall(toolName, params) {
-        this.currentToolCalls++;
-        this.callHistory.push({ toolName, params, timestamp: Date.now() });
-        return this.currentToolCalls;
-      }
-      recordTokenUsage(tokens) {
-        this.usedTokens += Number(tokens) || 0;
-        return this.usedTokens;
-      }
-      exportJournal() {
-        return {
-          currentSteps: this.currentSteps,
-          currentToolCalls: this.currentToolCalls,
-          usedTokens: this.usedTokens,
-          startTime: this.startTime,
-          callHistory: JSON.parse(JSON.stringify(this.callHistory)),
-          cancelled: this.cancelled,
-          cancelReason: this.cancelReason,
-          maxSteps: this.maxSteps,
-          maxToolCalls: this.maxToolCalls,
-          maxTokenBudget: this.maxTokenBudget,
-          maxDurationMs: this.maxDurationMs
-        };
-      }
-      exportTaskJournal() { return this.exportJournal(); }
-      restoreJournal(journal) {
-        if (!journal || typeof journal !== 'object') return this;
-        if (typeof journal.currentSteps === 'number') this.currentSteps = journal.currentSteps;
-        if (typeof journal.currentToolCalls === 'number') this.currentToolCalls = journal.currentToolCalls;
-        if (typeof journal.usedTokens === 'number') this.usedTokens = journal.usedTokens;
-        if (typeof journal.startTime === 'number') this.startTime = journal.startTime;
-        if (Array.isArray(journal.callHistory)) this.callHistory = JSON.parse(JSON.stringify(journal.callHistory));
-        if (journal.cancelled !== undefined) this.cancelled = Boolean(journal.cancelled);
-        if (journal.cancelReason !== undefined) this.cancelReason = journal.cancelReason;
-        return this;
-      }
-      restoreTaskJournal(journal) { return this.restoreJournal(journal); }
-    }
+    const CoreAgentExecutionGuard = (typeof window !== 'undefined' && window.NexusCore?.state?.AgentExecutionGuard) ||
+                                    (typeof _nexusCoreState !== 'undefined' && _nexusCoreState?.AgentExecutionGuard) ||
+                                    (typeof AgentExecutionGuard !== 'undefined' ? AgentExecutionGuard : null);
 
-    const TASK_JOURNAL_STORAGE_KEY = 'eg_nexus_task_journal_v631';
-
-    function saveTaskJournalToStorage(journalData) {
+    function saveTaskJournalToStorage(guard, customStorage) {
       try {
-        const raw = typeof journalData?.exportTaskJournal === 'function'
-          ? journalData.exportTaskJournal()
-          : (typeof journalData?.exportJournal === 'function' ? journalData.exportJournal() : journalData);
-        if (typeof localStorage !== 'undefined' && raw) {
-          localStorage.setItem(TASK_JOURNAL_STORAGE_KEY, JSON.stringify(raw));
+        const pSave = (typeof window !== 'undefined' && window.NexusCore?.persistence?.saveTaskJournalToStorage) ||
+                      (typeof window !== 'undefined' && window.NexusCore?.state?.saveTaskJournalToStorage) ||
+                      (typeof _nexusCorePersistence !== 'undefined' && _nexusCorePersistence?.saveTaskJournalToStorage);
+        if (typeof pSave === 'function') {
+          return pSave(guard, customStorage);
         }
-        return true;
       } catch (e) {
         console.warn('[TaskJournal] Failed to save task journal to storage:', e);
-        return false;
       }
+      return false;
     }
 
-    function loadTaskJournalFromStorage() {
+    function loadTaskJournalFromStorage(arg1, arg2) {
       try {
-        if (typeof localStorage !== 'undefined') {
-          const raw = localStorage.getItem(TASK_JOURNAL_STORAGE_KEY);
-          if (raw) return JSON.parse(raw);
+        const pLoad = (typeof window !== 'undefined' && window.NexusCore?.persistence?.loadTaskJournalFromStorage) ||
+                      (typeof window !== 'undefined' && window.NexusCore?.state?.loadTaskJournalFromStorage) ||
+                      (typeof _nexusCorePersistence !== 'undefined' && _nexusCorePersistence?.loadTaskJournalFromStorage);
+        if (typeof pLoad === 'function') {
+          return pLoad(arg1, arg2);
         }
       } catch (e) {
         console.warn('[TaskJournal] Failed to load task journal from storage:', e);
@@ -903,16 +849,79 @@ body > header,
       return null;
     }
 
-    // Attach TaskJournal and storage helpers to window and NexusCore.state
+    function resumeFromCheckpoint(checkpoint, existingGuard = null) {
+      let resolvedCheckpoint = checkpoint;
+      if (!resolvedCheckpoint || typeof resolvedCheckpoint !== 'object') {
+        const loadFn = (typeof window !== 'undefined' && window.NexusCore?.persistence?.loadTaskJournalFromStorage) ||
+                       (typeof loadTaskJournalFromStorage === 'function' ? loadTaskJournalFromStorage : null);
+        resolvedCheckpoint = loadFn ? (loadFn('default') || loadFn()) : null;
+      }
+      if (!resolvedCheckpoint) return null;
+
+      const stepIndex = typeof resolvedCheckpoint.stepIndex === 'number'
+        ? resolvedCheckpoint.stepIndex
+        : (typeof resolvedCheckpoint.currentSteps === 'number' ? resolvedCheckpoint.currentSteps : 0);
+      const pendingToolCall = resolvedCheckpoint.pendingToolCall || null;
+      const conversationCursor = resolvedCheckpoint.conversationCursor || null;
+
+      const GuardClass = (typeof window !== 'undefined' && window.NexusCore?.state?.AgentExecutionGuard) ||
+                         (typeof AgentExecutionGuard !== 'undefined' ? AgentExecutionGuard : null);
+      let guard = existingGuard;
+      if (!guard && GuardClass) {
+        guard = new GuardClass({ taskId: resolvedCheckpoint.taskId || 'default' });
+        if (typeof guard.restoreTaskJournal === 'function') {
+          guard.restoreTaskJournal(resolvedCheckpoint);
+        }
+      }
+
+      if (guard) {
+        guard.currentSteps = stepIndex;
+        guard.executionStatus = 'running';
+        guard.checkpoint = { stepIndex, pendingToolCall, conversationCursor };
+        guard.resumeCheckpoint = guard.checkpoint;
+
+        const storage = (typeof localStorage !== 'undefined') ? localStorage : null;
+        const journalToSave = typeof guard.exportTaskJournal === 'function'
+          ? guard.exportTaskJournal()
+          : { ...guard };
+        journalToSave.executionStatus = 'running';
+        journalToSave.resumeCheckpoint = guard.resumeCheckpoint;
+
+        const saveFn = (typeof window !== 'undefined' && window.NexusCore?.persistence?.saveTaskJournalToStorage) ||
+                       (typeof saveTaskJournalToStorage === 'function' ? saveTaskJournalToStorage : null);
+        if (saveFn) {
+          saveFn(journalToSave, storage);
+        }
+      }
+
+      return {
+        success: true,
+        stepIndex,
+        pendingToolCall,
+        conversationCursor,
+        guard
+      };
+    }
+
+    // Attach secure AgentExecutionGuard as TaskJournal and core persistence helpers to window and NexusCore
     if (typeof window !== 'undefined') {
-      window.TaskJournal = window.TaskJournal || TaskJournal;
+      window.AgentExecutionGuard = CoreAgentExecutionGuard || window.AgentExecutionGuard;
+      window.TaskJournal = CoreAgentExecutionGuard || window.TaskJournal;
       window.saveTaskJournalToStorage = saveTaskJournalToStorage;
       window.loadTaskJournalFromStorage = loadTaskJournalFromStorage;
+      window.resumeFromCheckpoint = resumeFromCheckpoint;
       if (window.NexusCore) {
+        window.NexusCore.resumeFromCheckpoint = resumeFromCheckpoint;
         window.NexusCore.state = window.NexusCore.state || {};
-        window.NexusCore.state.TaskJournal = window.NexusCore.state.TaskJournal || TaskJournal;
+        window.NexusCore.state.AgentExecutionGuard = CoreAgentExecutionGuard || window.NexusCore.state.AgentExecutionGuard;
+        window.NexusCore.state.TaskJournal = window.NexusCore.state.AgentExecutionGuard;
         window.NexusCore.state.saveTaskJournalToStorage = saveTaskJournalToStorage;
         window.NexusCore.state.loadTaskJournalFromStorage = loadTaskJournalFromStorage;
+        window.NexusCore.state.resumeFromCheckpoint = resumeFromCheckpoint;
+        if (window.NexusCore.persistence) {
+          window.NexusCore.persistence.saveTaskJournalToStorage = saveTaskJournalToStorage;
+          window.NexusCore.persistence.loadTaskJournalFromStorage = loadTaskJournalFromStorage;
+        }
       }
     }
 
@@ -951,16 +960,27 @@ body > header,
       if (!MGClass.prototype.hybridSearch) {
         MGClass.prototype.hybridSearch = function(userQuery, options = {}) {
           const topK = (options && typeof options.topK === 'number') ? options.topK : 5;
+          const minTrustScore = (options && typeof options.minTrustScore === 'number') ? options.minTrustScore : 0.0;
+          const excludeQuarantined = Boolean(options && (options.excludeQuarantined !== false));
           const qStr = String(userQuery || '').toLowerCase().trim();
           const tokens = Array.from(new Set(
             qStr.split(/[\s،,.;:!?()\[\]{}"'«»\-_\/\\]+/).filter(t => t.length >= 2)
           ));
-          const allEntries = [
+          let allEntries = [
             ...(this.longTerm || []),
             ...(this.episodic || []),
             ...(this.shortTerm || []),
             ...Array.from(this.semanticIndex ? this.semanticIndex.values() : [])
           ];
+          if (excludeQuarantined || minTrustScore > 0) {
+            allEntries = allEntries.filter(entry => {
+              if (!entry || typeof entry !== 'object') return false;
+              if (excludeQuarantined && (entry.quarantined === true || entry.isQuarantined === true || entry.category === 'quarantine' || entry.sourceType === 'untrusted')) return false;
+              const trust = typeof entry.trustScore === 'number' ? entry.trustScore : 0.0;
+              if (minTrustScore > 0 && trust < minTrustScore) return false;
+              return true;
+            });
+          }
           const scored = allEntries.map(entry => {
             const text = (typeof entry?.content === 'string' ? entry.content : JSON.stringify(entry?.content || '')).toLowerCase();
             let score = 0;
@@ -3740,6 +3760,33 @@ body > header,
         });
       }
       ui.pendingApprovalQueue.push(item);
+
+      // When execution halts for human approval ('waiting_approval' / 'paused_for_approval')
+      const activeGuard = (typeof window !== 'undefined' && (window._activeTaskExecutionGuard || window.NexusCore?.state?._activeTaskExecutionGuard)) || null;
+      if (activeGuard) {
+        const stepIndex = typeof activeGuard.currentSteps === 'number' ? activeGuard.currentSteps : 0;
+        const pendingToolCall = { toolName: item.action || item.target || 'action', params: item.params || {} };
+        const conversationCursor = (typeof activeThinkingChatId !== 'undefined' ? activeThinkingChatId : null);
+        const resumeCheckpoint = { stepIndex, pendingToolCall, conversationCursor };
+
+        activeGuard.executionStatus = 'paused_for_approval';
+        activeGuard.resumeCheckpoint = resumeCheckpoint;
+        activeGuard.checkpoint = resumeCheckpoint;
+
+        const storage = (typeof localStorage !== 'undefined') ? localStorage : null;
+        const journalToSave = typeof activeGuard.exportTaskJournal === 'function'
+          ? activeGuard.exportTaskJournal()
+          : { ...activeGuard };
+        journalToSave.executionStatus = 'paused_for_approval';
+        journalToSave.resumeCheckpoint = resumeCheckpoint;
+
+        const saveFn = (typeof window !== 'undefined' && window.NexusCore?.persistence?.saveTaskJournalToStorage) ||
+                       (typeof saveTaskJournalToStorage === 'function' ? saveTaskJournalToStorage : null);
+        if (saveFn) {
+          saveFn(journalToSave, storage);
+        }
+      }
+
       const current = ui.pendingApprovalQueue[0];
       if (typeof document !== 'undefined') {
         const txtEl = document.getElementById('approvalGateText');
@@ -3810,6 +3857,10 @@ body > header,
             ui.pendingApprovalQueue.unshift(item);
             return;
           }
+          const activeGuard = (typeof window !== 'undefined' && (window._activeTaskExecutionGuard || window.NexusCore?.state?._activeTaskExecutionGuard)) || null;
+          if (activeGuard && activeGuard.resumeCheckpoint) {
+            resumeFromCheckpoint(activeGuard.resumeCheckpoint, activeGuard);
+          }
           const res = item.onApprove();
           if (res && typeof res.then === 'function') executionPromise = res;
         } else if (!approved) {
@@ -3869,11 +3920,16 @@ body > header,
       uiState.activeThinkingAgent = null;
       document.getElementById('stopOrchestratorBtn')?.classList.add('hidden');
       if (typeof loadTaskJournalFromStorage === 'function' && typeof saveTaskJournalToStorage === 'function') {
-        const savedJournal = loadTaskJournalFromStorage();
+        const savedJournal = loadTaskJournalFromStorage('default') || loadTaskJournalFromStorage();
         if (savedJournal) {
-          savedJournal.cancelled = true;
-          savedJournal.cancelReason = 'Task stopped by user';
-          saveTaskJournalToStorage(savedJournal);
+          if (typeof savedJournal.cancelTask === 'function') {
+            savedJournal.cancelTask('Task stopped by user');
+            saveTaskJournalToStorage(savedJournal);
+          } else {
+            savedJournal.cancelled = true;
+            savedJournal.cancelReason = 'Task stopped by user';
+            saveTaskJournalToStorage(savedJournal);
+          }
         }
       }
       renderChatMessages();
@@ -3908,15 +3964,19 @@ body > header,
       const stopBtn = document.getElementById('stopOrchestratorBtn');
       if (stopBtn) stopBtn.classList.remove('hidden');
 
-      // Task Lifecycle: CentralBudgetManager and TaskJournal from window.NexusCore.state
+      // Task Lifecycle: CentralBudgetManager and AgentExecutionGuard from window.NexusCore.state
       const BudgetMgrClass = (typeof window !== 'undefined' && window.NexusCore?.state?.CentralBudgetManager) ||
                              (typeof CentralBudgetManager !== 'undefined' ? CentralBudgetManager : null);
-      const TaskJournalClass = (typeof window !== 'undefined' && window.NexusCore?.state?.TaskJournal) ||
-                               (typeof TaskJournal !== 'undefined' ? TaskJournal : null);
+      const GuardClass = (typeof window !== 'undefined' && window.NexusCore?.state?.AgentExecutionGuard) ||
+                         (typeof window !== 'undefined' && window.NexusCore?.state?.TaskJournal) ||
+                         (typeof AgentExecutionGuard !== 'undefined' ? AgentExecutionGuard : null);
       const activeBudgetManager = BudgetMgrClass ? new BudgetMgrClass() : null;
-      const savedJournalState = (typeof loadTaskJournalFromStorage === 'function') ? loadTaskJournalFromStorage() : null;
-      const activeTaskJournal = TaskJournalClass ? new TaskJournalClass(savedJournalState || {}) : null;
+      const savedJournalState = (typeof loadTaskJournalFromStorage === 'function') ? (loadTaskJournalFromStorage('default') || loadTaskJournalFromStorage()) : null;
+      const activeTaskJournal = GuardClass ? new GuardClass({ taskId: 'default' }) : null;
       if (activeTaskJournal) {
+        if (savedJournalState && typeof activeTaskJournal.restoreTaskJournal === 'function') {
+          activeTaskJournal.restoreTaskJournal(savedJournalState);
+        }
         activeTaskJournal.startTime = Date.now();
         activeTaskJournal.cancelled = false;
         activeTaskJournal.cancelReason = null;
@@ -3947,7 +4007,7 @@ body > header,
           };
           uiState.activeThinkingAgent = agent;
           renderChatMessages();
-          const rawReply = await callAgentAPI(agent, chat, userPrompt, t, turns);
+          const rawReply = await callAgentAPI(agent, chat, userPrompt, t, turns, '', null, activeTaskJournal);
           if (uiState.stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
           const reviewedReply = performAutomaticSelfReview(rawReply);
           const isSimReply = reviewedReply.startsWith('🧪 **[حالت شبیه‌ساز آفلاین');
@@ -3993,8 +4053,12 @@ body > header,
         }
       } catch (err) {
         if (activeTaskJournal) {
-          activeTaskJournal.cancelled = true;
-          activeTaskJournal.cancelReason = err?.message || 'Chat execution error';
+          if (typeof activeTaskJournal.cancelTask === 'function') {
+            activeTaskJournal.cancelTask(err?.message || 'Chat execution error');
+          } else {
+            activeTaskJournal.cancelled = true;
+            activeTaskJournal.cancelReason = err?.message || 'Chat execution error';
+          }
           if (typeof saveTaskJournalToStorage === 'function') {
             saveTaskJournalToStorage(activeTaskJournal);
           }
@@ -5227,7 +5291,7 @@ body > header,
           '\nاگر برای پاسخ به کاربر نیاز به داده‌های زنده رمزارز، وب، تست یا پایگاه‌داده داری، از فرمت زیر در پاسخ خود استفاده کن:\n[TOOL_CALL: نام_ابزار {"پارامتر": "مقدار"}]';
       },
 
-      executeTool: async function(toolName, args = {}) {
+      executeTool: async function(toolName, args = {}, executionGuard = null) {
         if (!args || typeof args !== 'object' || Array.isArray(args)) {
           throw new Error(`پارامترهای ابزار MCP «${toolName}» نامعتبر است (باید یک شیء باشد)`);
         }
@@ -5241,13 +5305,13 @@ body > header,
             }
             const secTokens = (typeof secrets !== 'undefined' && secrets && typeof secrets.connectionTokens === 'object') ? secrets.connectionTokens : null;
             const token = String(secTokens?.[appId] || conn?.token || '').trim();
-            return await match.execute(args, token);
+            return await match.execute(args, token, executionGuard);
           }
         }
         throw new Error(`ابزار MCP «${toolName}» یافت نشد یا سرور آن فعال نیست`);
       },
 
-      resolveToolCallsInText: async function(text) {
+      resolveToolCallsInText: async function(text, executionGuard = null) {
         if (!text || typeof text !== 'string') return text;
         const match = text.match(/\[TOOL_CALL:\s*([a-zA-Z0-9_-]+)\s*(\{.*?\})\]/s);
         if (!match) return text;
@@ -5263,8 +5327,46 @@ body > header,
           return text.replace(match[0], errReplacement);
         }
 
+        const effectiveGuard = executionGuard ||
+          (typeof window !== 'undefined' && window._activeTaskExecutionGuard) ||
+          (typeof _activeTaskExecutionGuard !== 'undefined' ? _activeTaskExecutionGuard : null);
+
+        if (effectiveGuard) {
+          try {
+            if (typeof effectiveGuard.checkExecutionLimits === 'function') {
+              effectiveGuard.checkExecutionLimits(toolName, args);
+            }
+          } catch (limErr) {
+            return text.replace(match[0], `\n\n⚠️ **[محدودیت گارد اجرایی (${toolName})]:** ${limErr.message}\n`);
+          }
+        }
+
         // گارد تأیید مستقل برای تمام فراخوانی‌های ابزارهای خارجی از سوی مدل
         if (typeof requestPhase5ConfirmModal === 'function') {
+          if (effectiveGuard) {
+            const stepIndex = typeof effectiveGuard.currentSteps === 'number' ? effectiveGuard.currentSteps : 0;
+            const pendingToolCall = { toolName, params: args };
+            const conversationCursor = (typeof activeThinkingChatId !== 'undefined' ? activeThinkingChatId : null);
+            const resumeCheckpoint = { stepIndex, pendingToolCall, conversationCursor };
+
+            effectiveGuard.executionStatus = 'paused_for_approval';
+            effectiveGuard.resumeCheckpoint = resumeCheckpoint;
+            effectiveGuard.checkpoint = resumeCheckpoint;
+
+            const storage = (typeof localStorage !== 'undefined') ? localStorage : null;
+            const journalToSave = typeof effectiveGuard.exportTaskJournal === 'function'
+              ? effectiveGuard.exportTaskJournal()
+              : { ...effectiveGuard };
+            journalToSave.executionStatus = 'paused_for_approval';
+            journalToSave.resumeCheckpoint = resumeCheckpoint;
+
+            const saveFn = (typeof window !== 'undefined' && window.NexusCore?.persistence?.saveTaskJournalToStorage) ||
+                           (typeof saveTaskJournalToStorage === 'function' ? saveTaskJournalToStorage : null);
+            if (saveFn) {
+              saveFn(journalToSave, storage);
+            }
+          }
+
           const userApproved = await requestPhase5ConfirmModal({
             title: `🛡️ تأیید اجرای ابزار MCP (${escapeHtml(toolName)})`,
             message: `مدل هوش مصنوعی درخواست اجرای ابزار زیر را دارد:\n\nابزار: ${toolName}\nورودی‌ها:\n${JSON.stringify(args, null, 2)}\n\nآیا این عملیات را تأیید می‌کنید؟`,
@@ -5272,14 +5374,32 @@ body > header,
             isDanger: false
           });
           if (!userApproved) {
+            if (effectiveGuard) {
+              effectiveGuard.executionStatus = 'cancelled';
+              const journalToSave = typeof effectiveGuard.exportTaskJournal === 'function'
+                ? effectiveGuard.exportTaskJournal()
+                : { ...effectiveGuard };
+              journalToSave.executionStatus = 'cancelled';
+              const saveFn = (typeof window !== 'undefined' && window.NexusCore?.persistence?.saveTaskJournalToStorage) ||
+                             (typeof saveTaskJournalToStorage === 'function' ? saveTaskJournalToStorage : null);
+              if (saveFn) saveFn(journalToSave);
+            }
             const rejectedMsg = `\n\n🛡️ **[لغو اجرای ابزار MCP (${toolName})]:** اجرای این ابزار توسط کاربر رد شد.\n`;
             return text.replace(match[0], rejectedMsg);
+          }
+
+          // Upon user approval, restore execution using resumeFromCheckpoint(checkpoint) from the exact step
+          if (effectiveGuard && effectiveGuard.resumeCheckpoint) {
+            resumeFromCheckpoint(effectiveGuard.resumeCheckpoint, effectiveGuard);
           }
         }
 
         try {
           showToast(`⚡ فراخوانی ابزار MCP: ${toolName}...`);
-          const result = await NexusMCP.executeTool(toolName, args);
+          if (effectiveGuard && typeof effectiveGuard.recordToolCall === 'function') {
+            effectiveGuard.recordToolCall(toolName, args);
+          }
+          const result = await NexusMCP.executeTool(toolName, args, effectiveGuard);
           const replacement = `\n\n⚡ **[پاسخ زنده ابزار MCP (${toolName})]:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`;
           return text.replace(match[0], replacement);
         } catch (err) {
@@ -5291,7 +5411,16 @@ body > header,
     };
     window.NexusMCP = NexusMCP;
 
-    async function callAgentAPI(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1, extraContext = '', externalController = null) {
+    async function callAgentAPI(agent, chat, userPrompt, turnIndex = 0, totalTurns = 1, extraContext = '', externalController = null, executionGuard = null) {
+      if (executionGuard) {
+        const isCancelled = typeof executionGuard.isCancelled === 'function' ? executionGuard.isCancelled() : Boolean(executionGuard.cancelled);
+        if (isCancelled) {
+          return '⏹ اجرا توسط کاربر متوقف شد.';
+        }
+        if (typeof executionGuard.recordStep === 'function') {
+          executionGuard.recordStep();
+        }
+      }
       const connectedAppIds = (appState.addedAppIds || []).filter(id => isAppGenuinelyConnected(id));
       const connectedAppsNames = connectedAppIds
         .filter(id => appState.appConnections?.[id]?.contextEnabled !== false)
@@ -5419,7 +5548,11 @@ body > header,
           const out = data?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (res.ok && out) {
             recordModelTokenAndCostUsage(apiModel, sysPrompt + combinedUserText, out, data?.usageMetadata);
-            return await NexusMCP.resolveToolCallsInText(out);
+            if (executionGuard && typeof executionGuard.addTokenUsage === 'function') {
+              const toks = data?.usageMetadata?.totalTokenCount || 0;
+              if (toks > 0) executionGuard.addTokenUsage(toks);
+            }
+            return await NexusMCP.resolveToolCallsInText(out, executionGuard);
           }
           lastProviderError = data?.error?.message || `Gemini HTTP ${res.status}`;
           } catch (routeError) {
@@ -5514,7 +5647,11 @@ body > header,
           const out = data?.choices?.[0]?.message?.content;
           if (res.ok && out) {
             recordModelTokenAndCostUsage(resolvedModel, sysPrompt + combinedUserText, out, data?.usage);
-            return await NexusMCP.resolveToolCallsInText(out);
+            if (executionGuard && typeof executionGuard.addTokenUsage === 'function') {
+              const toks = data?.usage?.total_tokens || 0;
+              if (toks > 0) executionGuard.addTokenUsage(toks);
+            }
+            return await NexusMCP.resolveToolCallsInText(out, executionGuard);
           }
           lastProviderError = data?.error?.message || `HTTP ${res.status} (${resolvedModel})`;
           } catch (routeError) {
@@ -5547,7 +5684,11 @@ body > header,
           const fbOut = fbData?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (fbRes.ok && fbOut) {
             recordModelTokenAndCostUsage('gemini-3.8-flash', sysPrompt + combinedUserText, fbOut, fbData?.usageMetadata);
-            return await NexusMCP.resolveToolCallsInText(fbOut);
+            if (executionGuard && typeof executionGuard.addTokenUsage === 'function') {
+              const toks = fbData?.usageMetadata?.totalTokenCount || 0;
+              if (toks > 0) executionGuard.addTokenUsage(toks);
+            }
+            return await NexusMCP.resolveToolCallsInText(fbOut, executionGuard);
           }
           lastProviderError = fbData?.error?.message || `Gemini HTTP ${fbRes.status}`;
           } catch (routeError) {
@@ -14793,17 +14934,32 @@ body > header,
       const maxBrainItems = options?.maxBrainItems || 6;
       const maxSkillItems = options?.maxSkillItems || 5;
 
-      // Hybrid search via MemoryGovernance (Top 5)
+      // Hybrid search via MemoryGovernance (Top 5) with Trust Filter (Requirement 2)
       let governanceMatches = [];
       try {
         const memGov = (typeof window !== 'undefined' && window.NexusCore?.state?.defaultMemoryGovernance) ||
                        (typeof getMemoryGovernance === 'function' ? getMemoryGovernance() : null);
         if (memGov && typeof memGov.hybridSearch === 'function') {
-          governanceMatches = memGov.hybridSearch(userPrompt, { topK: 5 }) || [];
+          governanceMatches = memGov.hybridSearch(userPrompt, { topK: 5, minTrustScore: 0.75, excludeQuarantined: true }) || [];
         }
       } catch (err) {
         console.warn('[buildPhase2RAGContext] MemoryGovernance hybridSearch failed:', err);
       }
+
+      // Explicit Trust and Quarantine Filter (Requirement 2):
+      // Ensure that any record with quarantined === true, isQuarantined === true,
+      // category === 'quarantine', sourceType === 'untrusted', or trustScore < 0.75
+      // is filtered out and never injected into the model prompt.
+      if (Array.isArray(governanceMatches)) {
+        governanceMatches = governanceMatches.filter(entry => {
+          if (!entry || typeof entry !== 'object') return false;
+          if (entry.quarantined === true || entry.isQuarantined === true) return false;
+          if (entry.category === 'quarantine' || entry.sourceType === 'untrusted') return false;
+          const score = typeof entry.trustScore === 'number' ? entry.trustScore : 1.0;
+          return score >= 0.75;
+        });
+      }
+
       const govMemoryStr = (Array.isArray(governanceMatches) && governanceMatches.length > 0)
         ? governanceMatches
             .map((entry, idx) => `${idx + 1}. [Governance Memory] ${typeof entry?.content === 'string' ? entry.content : JSON.stringify(entry?.content || '')}`)
@@ -14819,7 +14975,13 @@ body > header,
       )).slice(0, 24);
 
 
-      const validBrainNodes = (appState.brainNodes || []).filter(b => b && typeof b === 'object' && b.text);
+      const validBrainNodes = (appState.brainNodes || []).filter(b => {
+        if (!b || typeof b !== 'object' || !b.text) return false;
+        if (b.quarantined === true || b.isQuarantined === true) return false;
+        if (b.category === 'quarantine' || b.sourceType === 'untrusted') return false;
+        if (typeof b.trustScore === 'number' && b.trustScore < 0.75) return false;
+        return true;
+      });
       const scoredBrain = validBrainNodes
         .map((b, idx) => ({ item: b, score: scoreRagRelevance(queryTokens, rawQ, b.category, b.text, idx) }))
         .sort((a, b) => (b.score - a.score) || ((b.item.createdAtTs || 0) - (a.item.createdAtTs || 0)));
@@ -14837,7 +14999,13 @@ body > header,
         .join('\n');
 
 
-      const validSkills = (appState.skills || []).filter(s => s && typeof s === 'object' && (s.title || s.name));
+      const validSkills = (appState.skills || []).filter(s => {
+        if (!s || typeof s !== 'object' || !(s.title || s.name)) return false;
+        if (s.quarantined === true || s.isQuarantined === true) return false;
+        if (s.category === 'quarantine' || s.sourceType === 'untrusted') return false;
+        if (typeof s.trustScore === 'number' && s.trustScore < 0.75) return false;
+        return true;
+      });
       const scoredSkills = validSkills
         .map((s, idx) => ({ item: s, score: scoreRagRelevance(queryTokens, rawQ, s.title || s.name, s.desc || s.description, idx) }))
         .sort((a, b) => b.score - a.score);
@@ -15696,9 +15864,15 @@ body > header,
 
 
     // Per-Call Closure-Scoped Timeout Wrapper for callAgentAPI (Fixes Audit #3, P2-C7, P2-C8)
-    async function callAgentAPIWithDeadline(agent, chat, userPrompt, turnIndex, totalTurns, extraContext, callTimeoutMs = 30000, workflowDeadlineTs = 0) {
+    async function callAgentAPIWithDeadline(agent, chat, userPrompt, turnIndex, totalTurns, extraContext, callTimeoutMs = 30000, workflowDeadlineTs = 0, executionGuard = null) {
       if (typeof uiState.stopOrchestrationFlag !== 'undefined' && uiState.stopOrchestrationFlag) {
         return '⏹ اجرا توسط کاربر متوقف شد.';
+      }
+      if (executionGuard) {
+        const isCancelled = typeof executionGuard.isCancelled === 'function' ? executionGuard.isCancelled() : Boolean(executionGuard.cancelled);
+        if (isCancelled) {
+          return '⏹ اجرا توسط کاربر متوقف شد.';
+        }
       }
       const now = Date.now();
       const remainingWorkflowMs = workflowDeadlineTs > 0 ? (workflowDeadlineTs - now) : callTimeoutMs;
@@ -15720,7 +15894,7 @@ body > header,
 
 
       try {
-        const apiPromise = Promise.resolve(callAgentAPI(agent, chat, userPrompt, turnIndex, totalTurns, extraContext, localCtrl));
+        const apiPromise = Promise.resolve(callAgentAPI(agent, chat, userPrompt, turnIndex, totalTurns, extraContext, localCtrl, executionGuard));
         const result = await Promise.race([apiPromise, timeoutPromise]);
         markProviderUnhealthyIfAuthOrQuotaError(agent?.model, result);
         return result;
@@ -15755,13 +15929,20 @@ body > header,
       const targetChatId = chat?.id;
       const cleanSummaryIntent = stripAttachedFilePayload(userPrompt);
 
-      // Multi-agent Swarm Lifecycle: CentralBudgetManager and TaskJournal from window.NexusCore.state
-      const BudgetMgrClass = (typeof window !== 'undefined' && window.NexusCore?.state?.CentralBudgetManager) ||
-                             (typeof CentralBudgetManager !== 'undefined' ? CentralBudgetManager : null);
-      const TaskJournalClass = (typeof window !== 'undefined' && window.NexusCore?.state?.TaskJournal) ||
-                               (typeof TaskJournal !== 'undefined' ? TaskJournal : null);
-      const swarmBudgetManager = BudgetMgrClass ? new BudgetMgrClass() : null;
-      const swarmJournal = TaskJournalClass ? new TaskJournalClass((typeof loadTaskJournalFromStorage === 'function') ? (loadTaskJournalFromStorage() || {}) : {}) : null;
+      // Multi-agent Swarm Lifecycle: AgentExecutionGuard and CentralBudgetManager from window.NexusCore.state
+      const GuardClass = (typeof window !== 'undefined' && window.NexusCore?.state?.AgentExecutionGuard) ||
+                         (typeof AgentExecutionGuard !== 'undefined' ? AgentExecutionGuard : null);
+      const parentTaskId = 'swarm_' + (targetChatId || 'default') + '_' + swarmStartTs;
+      const parentGuard = GuardClass ? new GuardClass({
+        taskId: parentTaskId,
+        agentId: rawBaseAgent.id,
+        modelId: activeSwarmModel,
+        maxSteps: 30,
+        maxToolCalls: 40,
+        maxTokenBudget: 200000,
+        maxDurationMs: SWARM_TOTAL_DEADLINE_MS || 45000
+      }) : null;
+      const swarmJournal = parentGuard;
       if (swarmJournal) {
         swarmJournal.startTime = swarmStartTs;
         swarmJournal.cancelled = false;
@@ -15773,21 +15954,25 @@ body > header,
       }
       const subAgentRoles = [
         {
+          role: 'planner',
           name: 'Sub-Agent 1: معمار سیستم و ساختار',
           badge: '🏗️ Architecture',
           task: 'بررسی معماری فنی، ساختار ماژولار و نیازمندی‌های اصلی درخواست کاربر'
         },
         {
+          role: 'researcher',
           name: 'Sub-Agent 2: متخصص عملکرد 60FPS و داده',
           badge: '⚡ 60FPS & Data',
           task: 'تحلیل بهینه‌سازی سرعت، رندر بدون لگ در موبایل و بررسی داده‌های عددی/آماری'
         },
         {
+          role: 'coder',
           name: 'Sub-Agent 3: بازرس امنیت و تست QA',
           badge: '🛡️ Security & QA',
           task: 'پیدا کردن باگ‌های احتمالی، موارد مرزی (Edge Cases) و تضمین کیفیت خروجی'
         },
         {
+          role: 'verifier',
           name: 'Sub-Agent 4: کارگردان تجربه کاربری و وایرال',
           badge: '🎨 UX & Viral',
           task: 'بهینه‌سازی رابط کاربری مینیمال یا جذابیت بصری/هوک محتوا برای مخاطب'
@@ -15826,10 +16011,23 @@ body > header,
 
 
       const subResults = await Promise.all(
-        subAgentRoles.map(async (role, idx) => {
+        subAgentRoles.map(async (roleDef, idx) => {
           await new Promise(r => setTimeout(r, idx * 80));
           if (!isCurrentSwarmRun()) {
-            return { name: role.name, badge: role.badge, status: 'aborted', output: '⏹ اجرا توسط کاربر متوقف شد.' };
+            return { name: roleDef.name, badge: roleDef.badge, status: 'aborted', output: '⏹ اجرا توسط کاربر متوقف شد.' };
+          }
+          const role = roleDef.role || ['planner', 'researcher', 'coder', 'verifier'][idx] || 'researcher';
+          let childGuard = null;
+          if (parentGuard) {
+            const BudgetMgr = (typeof window !== 'undefined' && window.NexusCore?.state?.CentralBudgetManager) ||
+                              (typeof CentralBudgetManager !== 'undefined' ? CentralBudgetManager : null);
+            if (BudgetMgr && typeof BudgetMgr.allocateSubagentBudget === 'function') {
+              childGuard = BudgetMgr.allocateSubagentBudget(parentGuard, role);
+            } else if (typeof window !== 'undefined' && window.NexusCore?.state?.createSubagentGuard === 'function') {
+              childGuard = window.NexusCore.state.createSubagentGuard(parentGuard, { role });
+            } else if (typeof createSubagentGuard === 'function') {
+              childGuard = createSubagentGuard(parentGuard, { role });
+            }
           }
           const memberAgent = chat.memberIds?.[idx]
             ? validCatalog.find(a => a.id === chat.memberIds[idx])
@@ -15838,20 +16036,20 @@ body > header,
           const subAgentObj = {
             ...baseAgent,
             model: subModel,
-            name: role.name,
-            systemPrompt: `تو «${role.name}» در یک تیم Swarm هستی. وظیفه تخصصی تو: ${role.task}. بدون نوشتن کل کد کامل و بدون تولید تگ‌های [AUTO_BRAIN] یا [AUTO_SKILL]، فقط ۳ نکته کلیدی و مهندسی حوزه خودت را برای فرمانده بنویس.`
+            name: roleDef.name,
+            systemPrompt: `تو «${roleDef.name}» در یک تیم Swarm هستی. وظیفه تخصصی تو: ${roleDef.task}. بدون نوشتن کل کد کامل و بدون تولید تگ‌های [AUTO_BRAIN] یا [AUTO_SKILL]، فقط ۳ نکته کلیدی و مهندسی حوزه خودت را برای فرمانده بنویس.`
           };
 
 
           if (!liveKeyAvailable) {
             // Honest offline simulator output (Fixes Audit #2 & P2-C9: Never claims fake "60FPS verified" or real API execution)
             return {
-              name: role.name,
-              badge: role.badge,
+              name: roleDef.name,
+              badge: roleDef.badge,
               status: 'simulated',
-              output: `🧪 **[شبیه‌ساز آفلاین (DEMO / NO API KEY) — ${role.name}]:**\n` +
+              output: `🧪 **[شبیه‌ساز آفلاین (DEMO / NO API KEY) — ${roleDef.name}]:**\n` +
                 `- هیچ کلید API فعالی در \`Settings -> Wallet & API Keys\` ثبت نشده است.\n` +
-                `- در صورت ثبت کلید، این زیرعامل موضوع «${cleanSummaryIntent.slice(0, 48)}» را از زاویه **${role.badge}** تحلیل خواهد کرد.`
+                `- در صورت ثبت کلید، این زیرعامل موضوع «${cleanSummaryIntent.slice(0, 48)}» را از زاویه **${roleDef.badge}** تحلیل خواهد کرد.`
             };
           }
 
@@ -15864,17 +16062,18 @@ body > header,
             4,
             subAgentRagContext + webContext,
             SWARM_SUBAGENT_TIMEOUT_MS,
-            swarmDeadlineTs
+            swarmDeadlineTs,
+            childGuard
           );
           if (!isCurrentSwarmRun()) {
-            return { name: role.name, badge: role.badge, status: 'aborted', output: '⏹ اجرا توسط کاربر متوقف شد.' };
+            return { name: roleDef.name, badge: roleDef.badge, status: 'aborted', output: '⏹ اجرا توسط کاربر متوقف شد.' };
           }
           // Strip any stray autonomous tags from sub-agent output without mutating state (Fixes Audit #20)
           const cleanedSubOut = parseAutonomousTagsAndOptions(rawSubOut, { allowMemoryProposals: false }).text;
           const classification = classifyModelReplyStatus(cleanedSubOut);
           return {
-            name: role.name,
-            badge: role.badge,
+            name: roleDef.name,
+            badge: roleDef.badge,
             status: classification.status,
             output: cleanedSubOut
           };
@@ -15940,7 +16139,8 @@ body > header,
           1,
           commanderRagContext + webContext,
           SWARM_SYNTHESIS_TIMEOUT_MS,
-          synthDeadline
+          synthDeadline,
+          parentGuard
         );
       }
 

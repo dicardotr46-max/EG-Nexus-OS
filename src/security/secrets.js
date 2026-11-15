@@ -3055,6 +3055,7 @@
       this._activeBackend = options.activeBackend || null;
       this.autoRotate = Boolean(options.autoRotate);
       this._legacySyncAllowed = Boolean(options.storage && options.strictInit !== true);
+      this._degradedPersistence = Boolean(options.degradedPersistence || _degradedPersistence);
     }
 
     async _resolveActiveBackend() {
@@ -3161,6 +3162,7 @@
         }
         if (!idbOk) {
           _degradedPersistence = true;
+          this._degradedPersistence = true;
           throw new Error('IndexedDB keystore verification failed: non-extractable WebCrypto key cannot be verified in IndexedDB (fail-closed)');
         }
       }
@@ -3252,23 +3254,25 @@
       };
     }
 
-    async encrypt(plaintext, aad) {
+    async encrypt(plaintext, aad, storage) {
+      if (storage && typeof storage.getItem === 'function') {
+        this.storage = storage;
+      } else if (aad && typeof aad.getItem === 'function') {
+        this.storage = aad;
+        aad = '';
+      }
+      if (this._degradedPersistence || _degradedPersistence) {
+        throw new Error('VAULT_INIT_FAILED: Cannot perform operation, vault initialization failed: degraded persistence active (fail-closed)');
+      }
       if (!this._initialized) {
         try {
-          await this.init();
-        } catch (initErr) {
-          const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-          if (!cryptoObj && !this._nodeCrypto) {
-            throw new Error('Encryption failed: crypto engine unavailable');
-          }
-          if (cryptoObj && cryptoObj.subtle) {
-            this._initialized = true;
-            this.initialized = true;
-            this._activeBackend = 'webcrypto';
-          } else {
-            throw initErr;
-          }
+          await this.init(this.storage);
+        } catch (err) {
+          throw new Error('VAULT_INIT_FAILED: Cannot perform operation, vault initialization failed: ' + (err?.message || 'unknown error'));
         }
+      }
+      if (this._degradedPersistence || _degradedPersistence) {
+        throw new Error('VAULT_INIT_FAILED: Cannot perform operation, vault initialization failed: degraded persistence active (fail-closed)');
       }
 
       if (this._encryptionCount >= this._maxEncryptionsPerKey) {
@@ -3359,23 +3363,25 @@
       throw new Error('Encryption failed: crypto engine unavailable');
     }
 
-    async decrypt(ciphertext, ivHex, aad) {
+    async decrypt(ciphertext, ivHex, aad, storage) {
+      if (storage && typeof storage.getItem === 'function') {
+        this.storage = storage;
+      } else if (aad && typeof aad.getItem === 'function') {
+        this.storage = aad;
+        aad = '';
+      }
+      if (this._degradedPersistence || _degradedPersistence) {
+        throw new Error('VAULT_INIT_FAILED: Cannot perform operation, vault initialization failed: degraded persistence active (fail-closed)');
+      }
       if (!this._initialized) {
         try {
-          await this.init();
-        } catch (initErr) {
-          const cryptoObj = (typeof crypto !== 'undefined') ? crypto : (typeof window !== 'undefined' ? window.crypto : null);
-          if (!cryptoObj && !this._nodeCrypto) {
-            throw new Error('Decryption failed: crypto engine unavailable');
-          }
-          if (cryptoObj && cryptoObj.subtle) {
-            this._initialized = true;
-            this.initialized = true;
-            this._activeBackend = 'webcrypto';
-          } else {
-            throw initErr;
-          }
+          await this.init(this.storage);
+        } catch (err) {
+          throw new Error('VAULT_INIT_FAILED: Cannot perform operation, vault initialization failed: ' + (err?.message || 'unknown error'));
         }
+      }
+      if (this._degradedPersistence || _degradedPersistence) {
+        throw new Error('VAULT_INIT_FAILED: Cannot perform operation, vault initialization failed: degraded persistence active (fail-closed)');
       }
 
       const store = _getStorage(this.storage);

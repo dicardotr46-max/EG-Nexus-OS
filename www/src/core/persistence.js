@@ -1439,9 +1439,28 @@
     const snapshot = (typeof guard.exportTaskJournal === 'function')
       ? guard.exportTaskJournal()
       : guard;
-    const serialized = JSON.stringify(snapshot);
+
+    let payload = null;
+    try {
+      payload = JSON.parse(JSON.stringify(snapshot));
+    } catch (_) {
+      payload = Object.assign({}, snapshot);
+    }
+    if (payload && typeof payload === 'object') {
+      if (payload.executionStatus === undefined) {
+        payload.executionStatus = guard.executionStatus || 'running';
+      }
+      if (payload.pendingApprovalRequest === undefined) {
+        payload.pendingApprovalRequest = guard.pendingApprovalRequest || null;
+      }
+      if (payload.resumeCheckpoint === undefined) {
+        payload.resumeCheckpoint = guard.resumeCheckpoint || null;
+      }
+    }
+
+    const serialized = JSON.stringify(payload);
     const ok = nexusStorageSet(key, serialized, storage);
-    return { success: ok, key, taskId, snapshot };
+    return { success: ok, key, taskId, snapshot: payload };
   }
 
   function loadTaskJournalFromStorage(arg1, arg2) {
@@ -1467,6 +1486,11 @@
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.executionStatus === undefined) parsed.executionStatus = 'running';
+        if (parsed.pendingApprovalRequest === undefined) parsed.pendingApprovalRequest = null;
+        if (parsed.resumeCheckpoint === undefined) parsed.resumeCheckpoint = null;
+      }
       if (targetGuard && typeof targetGuard.restoreTaskJournal === 'function') {
         targetGuard.restoreTaskJournal(parsed);
         return targetGuard;
@@ -1486,9 +1510,22 @@
     const snapshot = (typeof memGov.exportState === 'function')
       ? memGov.exportState()
       : memGov;
-    const serialized = JSON.stringify(snapshot);
+
+    let cleanSnapshot = null;
+    try {
+      cleanSnapshot = JSON.parse(JSON.stringify(snapshot));
+    } catch (_) {
+      cleanSnapshot = Object.assign({}, snapshot);
+    }
+    if (cleanSnapshot && typeof cleanSnapshot === 'object') {
+      delete cleanSnapshot.sessionKey;
+      delete cleanSnapshot.secretKey;
+      delete cleanSnapshot._secretKey;
+    }
+
+    const serialized = JSON.stringify(cleanSnapshot);
     const ok = nexusStorageSet(key, serialized, storage);
-    return { success: ok, key, snapshot };
+    return { success: ok, key, snapshot: cleanSnapshot };
   }
 
   function loadMemoryGovernanceFromStorage(arg1, arg2, arg3) {
@@ -1514,6 +1551,11 @@
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        delete parsed.sessionKey;
+        delete parsed.secretKey;
+        delete parsed._secretKey;
+      }
       if (targetMemGov && typeof targetMemGov.restoreState === 'function') {
         targetMemGov.restoreState(parsed);
         return targetMemGov;

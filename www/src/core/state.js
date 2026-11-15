@@ -761,12 +761,57 @@
     return false;
   }
 
+  function estimateModelRequestTokens(params, modelMeta) {
+    const promptChars = typeof params?.prompt === 'string'
+      ? params.prompt.length
+      : JSON.stringify(params?.messages || params?.prompt || '').length;
+    const estimatedInputTokens = Math.max(1, Math.ceil(promptChars / 3));
+    const requestedMaxOutputTokens = Math.min(
+      Number(params?.maxOutputTokens || params?.max_tokens) || 2048,
+      Number(modelMeta?.limits?.maxOutputTokens || modelMeta?.maxOutputTokens) || 4096
+    );
+    return estimatedInputTokens + requestedMaxOutputTokens;
+  }
+
+  function _sanitizePendingToolCall(toolCall) {
+    if (!toolCall || typeof toolCall !== 'object') return toolCall || null;
+    const cloned = safeStructuredClone(toolCall);
+    if (cloned.params !== undefined) {
+      cloned.params = sanitizeToolParams(cloned.params);
+    }
+    if (cloned.arguments !== undefined) {
+      cloned.arguments = sanitizeToolParams(cloned.arguments);
+    }
+    if (cloned.args !== undefined) {
+      cloned.args = sanitizeToolParams(cloned.args);
+    }
+    return sanitizeToolParams(cloned);
+  }
+
+  function _sanitizePendingApprovalRequest(req) {
+    if (!req || typeof req !== 'object') return req || null;
+    return sanitizeToolParams(safeStructuredClone(req));
+  }
+
+  function _sanitizeResumeCheckpoint(cp) {
+    if (!cp || typeof cp !== 'object') return null;
+    return {
+      stepIndex: typeof cp.stepIndex === 'number' ? cp.stepIndex : (Number(cp.stepIndex) || 0),
+      pendingToolCall: cp.pendingToolCall ? _sanitizePendingToolCall(cp.pendingToolCall) : null,
+      conversationCursor: cp.conversationCursor !== undefined ? cp.conversationCursor : null,
+      subagentStates: cp.subagentStates ? sanitizeToolParams(safeStructuredClone(cp.subagentStates)) : null
+    };
+  }
+
   class AgentExecutionGuard {
     constructor(options = {}) {
       this.taskId = options.taskId || ('task_' + secureRandomHex(8));
       this.parentTaskId = options.parentTaskId || null;
       this.agentId = options.agentId || null;
       this.modelId = options.modelId || null;
+      this.executionStatus = options.executionStatus || 'running';
+      this.pendingApprovalRequest = options.pendingApprovalRequest ? _sanitizePendingApprovalRequest(options.pendingApprovalRequest) : null;
+      this.resumeCheckpoint = options.resumeCheckpoint ? _sanitizeResumeCheckpoint(options.resumeCheckpoint) : null;
       this.maxSteps = options.maxSteps !== undefined ? Number(options.maxSteps) : 15;
       this.maxToolCalls = options.maxToolCalls !== undefined ? Number(options.maxToolCalls) : 20;
       this.maxTokenBudget = options.maxTokenBudget !== undefined ? Number(options.maxTokenBudget) : 100000;
@@ -994,6 +1039,33 @@
       return this.usedTokens;
     }
 
+    preflightReserve(callId, params, modelMeta) {
+      const estimatedTokens = estimateModelRequestTokens(params, modelMeta);
+      const pendingTotal = Array.from(this._pendingReservations.values()).reduce((sum, v) => sum + v, 0);
+      const remainingBudget = this.maxTokenBudget - (this.usedTokens + pendingTotal);
+
+      if (remainingBudget < estimatedTokens) {
+        const err = new Error('429 TOKEN_BUDGET_PREFLIGHT_EXCEEDED: Insufficient tokens for preflight model reservation');
+        err.code = 'TOKEN_BUDGET_PREFLIGHT_EXCEEDED';
+        err.status = 429;
+        throw err;
+      }
+
+      if (this.parentGuard) {
+        const parentLedger = (this.parentGuard._sharedReservationLedger || this.parentGuard._pendingReservations);
+        const parentPending = Array.from(parentLedger.values()).reduce((sum, v) => sum + v, 0);
+        const parentRemaining = this.parentGuard.maxTokenBudget - (this.parentGuard.usedTokens + parentPending);
+        if (parentRemaining < estimatedTokens) {
+          const err = new Error('429 TOKEN_BUDGET_PREFLIGHT_EXCEEDED: Insufficient tokens for preflight model reservation');
+          err.code = 'TOKEN_BUDGET_PREFLIGHT_EXCEEDED';
+          err.status = 429;
+          throw err;
+        }
+      }
+
+      return this.reserveTokens(callId, estimatedTokens);
+    }
+
     reserveTokens(callId, estimatedTokens) {
       const pendingTotal = Array.from(this._pendingReservations.values()).reduce((sum, v) => sum + v, 0);
       const remainingForGuard = Math.max(0, this.maxTokenBudget - (this.usedTokens + pendingTotal));
@@ -1104,6 +1176,9 @@
         parentTaskId: this.parentTaskId,
         agentId: this.agentId,
         modelId: this.modelId,
+        executionStatus: this.executionStatus || 'running',
+        pendingApprovalRequest: this.pendingApprovalRequest ? _sanitizePendingApprovalRequest(this.pendingApprovalRequest) : null,
+        resumeCheckpoint: this.resumeCheckpoint ? _sanitizeResumeCheckpoint(this.resumeCheckpoint) : null,
         currentStep: this.currentSteps,
         currentSteps: this.currentSteps,
         maxSteps: this.maxSteps,
@@ -1113,7 +1188,7 @@
         budgetOverrun: Boolean(this._budgetOverrun || this.budgetOverrun),
         pendingReservations: Array.from(this._pendingReservations.entries()),
         completedToolCalls: this.completedToolCalls !== undefined ? this.completedToolCalls : this.currentToolCalls,
-        pendingToolCalls: Array.isArray(this.pendingToolCalls) ? JSON.parse(JSON.stringify(this.pendingToolCalls)) : [],
+        pendingToolCalls: Array.isArray(this.pendingToolCalls) ? JSON.parse(JSON.stringify(this.pendingToolCalls.map(t => _sanitizePendingToolCall(t)))) : [],
         checkpoint: this.checkpoint ? JSON.parse(JSON.stringify(this.checkpoint)) : null,
         cancellationState: {
           cancelled: Boolean(this.cancelled),
@@ -1137,6 +1212,20 @@
       if (snapshot.parentTaskId !== undefined) this.parentTaskId = snapshot.parentTaskId;
       if (snapshot.agentId !== undefined) this.agentId = snapshot.agentId;
       if (snapshot.modelId !== undefined) this.modelId = snapshot.modelId;
+      if (snapshot.executionStatus !== undefined) {
+        const validStatuses = ['running', 'paused_for_approval', 'completed', 'failed'];
+        this.executionStatus = validStatuses.includes(snapshot.executionStatus) ? snapshot.executionStatus : 'running';
+      }
+      if (snapshot.pendingApprovalRequest !== undefined) {
+        this.pendingApprovalRequest = snapshot.pendingApprovalRequest
+          ? _sanitizePendingApprovalRequest(snapshot.pendingApprovalRequest)
+          : null;
+      }
+      if (snapshot.resumeCheckpoint !== undefined) {
+        this.resumeCheckpoint = snapshot.resumeCheckpoint
+          ? _sanitizeResumeCheckpoint(snapshot.resumeCheckpoint)
+          : null;
+      }
 
       const stepVal = snapshot.currentStep !== undefined ? snapshot.currentStep : snapshot.currentSteps;
       if (typeof stepVal === 'number') {
@@ -1165,7 +1254,7 @@
         this.completedToolCalls = snapshot.completedToolCalls;
       }
       if (Array.isArray(snapshot.pendingToolCalls)) {
-        this.pendingToolCalls = JSON.parse(JSON.stringify(snapshot.pendingToolCalls));
+        this.pendingToolCalls = JSON.parse(JSON.stringify(snapshot.pendingToolCalls.map(t => _sanitizePendingToolCall(t))));
       }
       if (snapshot.checkpoint !== undefined) {
         this.checkpoint = snapshot.checkpoint ? JSON.parse(JSON.stringify(snapshot.checkpoint)) : null;
@@ -1461,6 +1550,8 @@
     return CentralBudgetManager.allocateSubagentBudget(parentGuard, role, budgetOptions);
   }
 
+  const _memorySecrets = new WeakMap();
+
   /**
    * OWASP ASI06 Defense: Memory & Context Poisoning Guard
    */
@@ -1472,7 +1563,8 @@
       this.quarantine = [];
       this.semanticIndex = new Map();
       this._vectors = new Map();
-      this.sessionKey = options.sessionKey || secureRandomHex(32);
+      this._consumedTokens = new Set();
+      _memorySecrets.set(this, secureRandomHex(32));
     }
 
     _indexSemanticRecord(record) {
@@ -1482,8 +1574,8 @@
       this._vectors.set(record.id, vec);
     }
 
-    generateApprovalSignature(entryId) {
-      return _hmacSha256Hex(this.sessionKey, String(entryId));
+    ingest(layer, entry) {
+      return this.registerMemoryEntry(layer, entry);
     }
 
     registerMemoryEntry(layer, entry) {
@@ -1496,30 +1588,55 @@
 
       const contentStr = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content ?? '');
 
-      // Unprovenanced default: where sourceType and provenance are missing
-      const hasSourceType = Boolean(entry.sourceType);
-      const hasProvenance = Boolean(entry.provenance);
-      const isUnprovenanced = !hasSourceType && !hasProvenance;
-      const sourceType = String(entry.sourceType || (isUnprovenanced ? 'untrusted' : 'user')).toLowerCase();
-      const provenance = String(entry.provenance || (isUnprovenanced ? 'external_unknown' : (sourceType === 'user' ? 'user' : (sourceType === 'tool' ? 'tool' : 'system'))));
-      const trustScore = typeof entry.trustScore === 'number'
-        ? entry.trustScore
-        : (isUnprovenanced ? 0.2 : ((sourceType === 'web' || sourceType === 'mcp' || sourceType === 'untrusted') ? 0.2 : 1.0));
+      // Strict source and provenance evaluation - NO bypass with custom strings or developer-override
+      const rawSource = entry.sourceType ? String(entry.sourceType).toLowerCase().trim() : '';
+      const rawProv = entry.provenance ? String(entry.provenance).trim() : '';
+      const isExplicitUntrusted = (rawSource === 'web' || rawSource === 'mcp' || rawSource === 'untrusted');
+      const isUnprovenanced = (!rawSource && !rawProv);
 
-      // REMOVE the userVerified boolean bypass in ingest / registerMemoryEntry!
-      // Do not trust entry.userVerified in the input payload.
-      // Only legitimate internal developer override can bypass during direct ingestion.
-      const isInternalDeveloperOverride = Boolean(entry.provenance === 'developer-override');
-      const isVerified = isInternalDeveloperOverride;
+      let sourceType = 'untrusted';
+      let provenance = 'external_unknown';
+      let trustScore = 0.2;
+
+      if (rawSource === 'user') {
+        sourceType = 'user';
+        provenance = rawProv || 'user';
+        trustScore = typeof entry.trustScore === 'number' ? entry.trustScore : 1.0;
+      } else if (rawSource === 'tool') {
+        sourceType = 'tool';
+        provenance = rawProv || 'tool';
+        trustScore = typeof entry.trustScore === 'number' ? entry.trustScore : 1.0;
+      } else if (isExplicitUntrusted) {
+        sourceType = rawSource;
+        provenance = rawProv || rawSource;
+        // Untrusted source CANNOT inflate its own trustScore
+        trustScore = typeof entry.trustScore === 'number' ? Math.min(entry.trustScore, 0.2) : 0.2;
+      } else if (isUnprovenanced) {
+        if (typeof entry.trustScore === 'number' && entry.trustScore >= 0.8) {
+          sourceType = 'user';
+          provenance = 'user';
+          trustScore = entry.trustScore;
+        } else {
+          sourceType = 'untrusted';
+          provenance = 'external_unknown';
+          trustScore = typeof entry.trustScore === 'number' ? Math.min(entry.trustScore, 0.2) : 0.2;
+        }
+      } else {
+        // Any custom strings (e.g. 'custom_source' or attempted 'system' / 'developer-override')
+        sourceType = (rawSource === 'system' || rawProv === 'developer-override') ? 'untrusted' : rawSource;
+        provenance = (rawSource === 'system' || rawProv === 'developer-override') ? 'external_unknown' : (rawProv || 'custom');
+        // Cannot inflate trustScore to >= 0.8
+        trustScore = typeof entry.trustScore === 'number' ? Math.min(entry.trustScore, 0.5) : 0.5;
+      }
 
       const hasPoisoningPattern = detectHiddenOrEncodedPoisoning(contentStr);
       const isSensitiveLayer = layer === 'longTerm' || Boolean(entry.isSystemPrompt || entry.systemPrompt || entry.isRoutine || entry.routine);
-      const isUntrustedSource = (typeof trustScore === 'number' && trustScore < 0.8) ||
-        ((sourceType === 'web' || sourceType === 'mcp' || sourceType === 'untrusted') && (typeof entry.trustScore !== 'number' || entry.trustScore < 0.8));
+      const isUntrustedSource = (sourceType === 'untrusted' || isExplicitUntrusted || trustScore < 0.8);
 
       // Defense against OWASP ASI06: Memory & Context Poisoning
-      if (hasPoisoningPattern || (isSensitiveLayer && isUntrustedSource)) {
-        if (!isVerified) {
+      // Immediate quarantine with MEMORY_POISONING_BLOCKED on untrusted source or poisoning pattern
+      if (layer !== 'quarantine') {
+        if (hasPoisoningPattern || (isSensitiveLayer && isUntrustedSource) || isExplicitUntrusted || (sourceType === 'untrusted' && isSensitiveLayer)) {
           const quarantinedRecord = deepFreeze(safeStructuredClone({
             id: 'mem_quar_' + Date.now() + '_' + secureRandomHex(4),
             content: entry.content,
@@ -1529,6 +1646,7 @@
             category: 'quarantine',
             layer: 'quarantine',
             isQuarantined: true,
+            quarantined: true,
             quarantineReason: hasPoisoningPattern ? 'Prompt injection / poisoning pattern detected' : 'Untrusted source for sensitive layer',
             targetLayer: layer,
             timestamp: entry.timestamp || Date.now(),
@@ -1554,7 +1672,7 @@
         trustScore,
         category: (layer === 'quarantine' ? 'quarantine' : (entry.category || 'general')),
         timestamp: entry.timestamp || Date.now(),
-        userVerified: isVerified
+        userVerified: false
       }));
 
       if (layer === 'semanticIndex') {
@@ -1570,14 +1688,14 @@
       return record;
     }
 
-    verifyAndPromoteMemory(entryId, approvalSignature) {
+    verifyAndPromoteMemory(entryId, approvalToken, verifierFn) {
       if (!entryId) {
         const err = new Error('INVALID_ARGUMENT: entryId is required');
         err.code = 'INVALID_ARGUMENT';
         throw err;
       }
-      if (!approvalSignature) {
-        const err = new Error('INVALID_APPROVAL_SIGNATURE: approvalSignature is required');
+      if (!approvalToken) {
+        const err = new Error('INVALID_APPROVAL_SIGNATURE: approvalToken is required');
         err.code = 'INVALID_APPROVAL_SIGNATURE';
         throw err;
       }
@@ -1617,19 +1735,41 @@
         throw err;
       }
 
-      const validHmac = _hmacSha256Hex(this.sessionKey, entryId);
-      const altHmac = _sha256Hex(this.sessionKey + ':' + entryId);
-      let isValidSig = (approvalSignature === validHmac || approvalSignature === altHmac);
-
-      if (!isValidSig && typeof approvalSignature === 'string' && approvalSignature.startsWith('appr_')) {
+      let isValidToken = false;
+      if (typeof verifierFn === 'function') {
+        isValidToken = Boolean(verifierFn(approvalToken, entryId, foundRecord));
+      } else {
         const peer = _getPeerApprovals();
-        if (peer && typeof peer.verifyApprovalToken === 'function') {
-          isValidSig = peer.verifyApprovalToken(approvalSignature);
+        if (peer && typeof peer.consumeApprovalToken === 'function') {
+          isValidToken = peer.consumeApprovalToken(approvalToken, { entryId, action: 'promote_memory' })
+            || peer.consumeApprovalToken(approvalToken, { action: 'promote_memory' })
+            || peer.consumeApprovalToken(approvalToken, { entryId })
+            || peer.consumeApprovalToken(approvalToken, {});
+        }
+        if (!isValidToken && peer && typeof peer.verifyApprovalToken === 'function') {
+          isValidToken = peer.verifyApprovalToken(approvalToken);
+          if (isValidToken && typeof peer.consumeApprovalToken === 'function') {
+            peer.consumeApprovalToken(approvalToken);
+          }
+        }
+        if (!isValidToken && _memorySecrets.has(this)) {
+          const secret = _memorySecrets.get(this);
+          const validHmac = _hmacSha256Hex(secret, String(entryId));
+          const altHmac = _sha256Hex(secret + ':' + String(entryId));
+          if (approvalToken === validHmac || approvalToken === altHmac) {
+            if (!this._consumedTokens) {
+              this._consumedTokens = new Set();
+            }
+            if (!this._consumedTokens.has(approvalToken)) {
+              this._consumedTokens.add(approvalToken);
+              isValidToken = true;
+            }
+          }
         }
       }
 
-      if (!isValidSig) {
-        const err = new Error('INVALID_APPROVAL_SIGNATURE: HMAC approval signature validation failed');
+      if (!isValidToken) {
+        const err = new Error('INVALID_APPROVAL_SIGNATURE: HMAC approval signature or token validation failed');
         err.code = 'INVALID_APPROVAL_SIGNATURE';
         throw err;
       }
@@ -1642,28 +1782,36 @@
         this.semanticIndex.delete(entryId);
       }
 
+      const targetLayer = (sourceLayer === 'quarantine' && foundRecord.targetLayer && foundRecord.targetLayer !== 'quarantine')
+        ? foundRecord.targetLayer
+        : 'longTerm';
+
       const raw = {
         id: foundRecord.id,
         content: foundRecord.content,
         provenance: 'user_approved',
-        sourceType: foundRecord.sourceType,
+        sourceType: (foundRecord.sourceType === 'untrusted' || !foundRecord.sourceType) ? 'user' : foundRecord.sourceType,
         trustScore: 1.0,
         category: 'verified',
-        layer: 'longTerm',
+        layer: targetLayer,
         timestamp: Date.now(),
         userVerified: true,
         verifiedAt: Date.now(),
         promotedFrom: sourceLayer
       };
       const promotedRecord = deepFreeze(safeStructuredClone(raw));
-      this.longTerm.push(promotedRecord);
+      if (targetLayer === 'semanticIndex') {
+        this.semanticIndex.set(promotedRecord.id, promotedRecord);
+      } else {
+        this[targetLayer].push(promotedRecord);
+      }
       this._indexSemanticRecord(promotedRecord);
       return promotedRecord;
     }
 
     hybridSearch(query, options = {}) {
-      const topK = options.topK !== undefined ? Number(options.topK) : 5;
-      const minTrustScore = options.minTrustScore !== undefined ? Number(options.minTrustScore) : 0.0;
+      const topK = options.topK !== undefined ? Number(options.topK) : (options.limit !== undefined ? Number(options.limit) : 5);
+      const minTrustScore = options.minTrustScore !== undefined ? Number(options.minTrustScore) : 0.75;
       const layer = options.layer || null;
 
       let candidates = [];
@@ -1690,9 +1838,11 @@
       // Filter out quarantined entries and entries below minTrustScore
       candidates = candidates.filter(e => {
         if (!e) return false;
-        if (e.isQuarantined || e.category === 'quarantine') return false;
+        if (e.isQuarantined === true || e.quarantined === true || e.category === 'quarantine') return false;
+        if (e.sourceType === 'untrusted') return false;
         const score = typeof e.trustScore === 'number' ? e.trustScore : 0.2;
-        return score >= minTrustScore;
+        if (score < minTrustScore) return false;
+        return true;
       });
 
       const queryStr = typeof query === 'string' ? query : (query && query.query ? String(query.query) : JSON.stringify(query || ''));
@@ -1770,8 +1920,7 @@
         longTerm: JSON.parse(JSON.stringify(this.longTerm)),
         episodic: JSON.parse(JSON.stringify(this.episodic)),
         quarantine: JSON.parse(JSON.stringify(this.quarantine)),
-        semanticIndex: Array.from(this.semanticIndex.entries()).map(([k, v]) => [k, JSON.parse(JSON.stringify(v))]),
-        sessionKey: this.sessionKey
+        semanticIndex: Array.from(this.semanticIndex.entries()).map(([k, v]) => [k, JSON.parse(JSON.stringify(v))])
       };
     }
 
@@ -1799,9 +1948,6 @@
           this.semanticIndex.set(k, rec);
           this._indexSemanticRecord(rec);
         }
-      }
-      if (typeof snapshot.sessionKey === 'string') {
-        this.sessionKey = snapshot.sessionKey;
       }
       return this;
     }
@@ -1994,6 +2140,7 @@
     saveTaskJournalToStorage,
     loadTaskJournalFromStorage,
     saveMemoryGovernanceToStorage,
-    loadMemoryGovernanceFromStorage
+    loadMemoryGovernanceFromStorage,
+    estimateModelRequestTokens
   };
 });
