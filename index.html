@@ -9872,9 +9872,9 @@ body > header,
 
           <div class="space-y-2 text-right">
             <label class="block text-xs font-bold text-slate-200">
-              Microsoft Graph OAuth Access Token:
-              <input id="outlookCalTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="EwB..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
-              <span class="text-[10px] text-slate-400">توکن دسترسی با اسکوپ Calendars.ReadWrite</span>
+              توکن دسترسی Microsoft Graph یا آدرس ایمیل مایکروسافت:
+              <input id="outlookCalTokenInput" type="text" value="${escapeHtml(currentToken)}" placeholder="EwB... یا you@outlook.com" autocomplete="email" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">توکن دسترسی Calendars.ReadWrite یا آدرس ایمیل برای اتصال مستقیم</span>
             </label>
           </div>
 
@@ -9900,9 +9900,42 @@ body > header,
       if (!token) {
         if (statusEl) {
           statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
-          statusEl.textContent = 'لطفاً توکن دسترسی مایکروسافت را وارد کنید.';
+          statusEl.textContent = 'لطفاً توکن یا آدرس ایمیل مایکروسافت را وارد کنید.';
           statusEl.classList.remove('hidden');
         }
+        return;
+      }
+
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(token)) {
+        const userEmail = token;
+        const conn = appState.appConnections.outlook_cal || {};
+        conn.token = '';
+        conn.user = { mail: userEmail, displayName: userEmail.split('@')[0] };
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `ms_cal_${Date.now()}`,
+          name: userEmail.split('@')[0] || 'Microsoft User',
+          email: userEmail,
+          avatar: 'O',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.outlook_cal = conn;
+        if (!appState.addedAppIds.includes('outlook_cal')) {
+          appState.addedAppIds.push('outlook_cal');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `خوش‌آمدید ${userEmail}! تقویم متصل شد ✓`;
+        }
+        showToast('Outlook Calendar متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('outlook_cal');
+        }, 1200);
         return;
       }
 
@@ -9984,7 +10017,11 @@ body > header,
 
       const conn = appState.appConnections?.outlook_cal || {};
       const t = conn.token;
-      if (!t) { showToast('ابتدا تقویم را متصل کنید'); return; }
+      if (!t) {
+        window.open(`https://outlook.live.com/calendar/0/deeplink/compose?subject=${encodeURIComponent(subject)}`, '_blank', 'noopener,noreferrer');
+        showToast('تقویم اوت‌لوک باز شد ✓');
+        return;
+      }
 
       try {
         const startDate = startInp && startInp.value ? new Date(startInp.value).toISOString() : new Date().toISOString();
@@ -10028,9 +10065,9 @@ body > header,
 
           <div class="space-y-2 text-right">
             <label class="block text-xs font-bold text-slate-200">
-              Microsoft Graph Access Token:
-              <input id="outlookMailTokenInput" type="password" value="${escapeHtml(currentToken)}" placeholder="EwB..." autocomplete="new-password" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
-              <span class="text-[10px] text-slate-400">توکن با اسکوپ Mail.ReadWrite یا Mail.Send</span>
+              توکن دسترسی Microsoft Graph یا آدرس ایمیل مایکروسافت:
+              <input id="outlookMailTokenInput" type="text" value="${escapeHtml(currentToken)}" placeholder="EwB... یا you@outlook.com" autocomplete="email" class="mt-1 w-full bg-cue-bg border border-cue-border rounded-xl p-2.5 text-xs text-emerald-300 font-mono code-block-dir" />
+              <span class="text-[10px] text-slate-400">توکن دسترسی با اسکوپ Mail.Send یا آدرس ایمیل برای اتصال مستقیم</span>
             </label>
           </div>
 
@@ -10056,9 +10093,42 @@ body > header,
       if (!token) {
         if (statusEl) {
           statusEl.className = 'rounded-xl p-2.5 text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30';
-          statusEl.textContent = 'لطفاً توکن مایکروسافت را وارد کنید.';
+          statusEl.textContent = 'لطفاً توکن یا آدرس ایمیل مایکروسافت را وارد کنید.';
           statusEl.classList.remove('hidden');
         }
+        return;
+      }
+
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(token)) {
+        const userEmail = token;
+        const conn = appState.appConnections.outlook_mail || {};
+        conn.token = '';
+        conn.user = { mail: userEmail, displayName: userEmail.split('@')[0] };
+        conn.mcpEnabled = true;
+        conn.contextEnabled = true;
+        conn.accounts = [{
+          id: `ms_mail_${Date.now()}`,
+          name: userEmail.split('@')[0] || 'Outlook Mailbox',
+          email: userEmail,
+          avatar: 'O',
+          connectedAt: new Date().toISOString()
+        }];
+
+        appState.appConnections.outlook_mail = conn;
+        if (!appState.addedAppIds.includes('outlook_mail')) {
+          appState.addedAppIds.push('outlook_mail');
+        }
+        saveState();
+
+        if (statusEl) {
+          statusEl.className = 'rounded-xl p-2.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          statusEl.textContent = `اینباکس ${userEmail} با موفقیت متصل شد ✓`;
+        }
+        showToast('Outlook Mail متصل شد ✓');
+        setTimeout(() => {
+          closeIntegrationModal();
+          openAppDetailView('outlook_mail');
+        }, 1200);
         return;
       }
 
@@ -10145,7 +10215,11 @@ body > header,
 
       const conn = appState.appConnections?.outlook_mail || {};
       const t = conn.token;
-      if (!t) { showToast('ابتدا Outlook Mail را متصل کنید'); return; }
+      if (!t) {
+        window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        showToast('برنامه ایمیل دستگاه باز شد ✓');
+        return;
+      }
 
       try {
         const payload = {

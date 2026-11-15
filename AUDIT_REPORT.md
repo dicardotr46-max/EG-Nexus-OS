@@ -62,7 +62,7 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `9d53de806f95749a1d3a06f7a8588b07d4b7c7051c4a0eb87b1b13006adcd197` | MATCH |
+| `index.html` | `www/index.html` | `07deeee4e125606e5d4d339f70904339710e15f6f006c0d3b17f4b997b38482b` | MATCH |
 | `sw.js` | `www/sw.js` | `ae9857ca7381dacfea465aa2e92c9643fe2139d82a4cb10b16e0289fa0022284` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -130,7 +130,7 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 33,796 lines | PASS |
+| Total Source Lines (`index.html`) | 33,870 lines | PASS |
 | Extracted Global & Named Functions | 836 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
