@@ -4,15 +4,20 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSObject;
 
+import android.accounts.AccountManager;
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
+import androidx.activity.result.ActivityResult;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
@@ -930,6 +935,51 @@ public class NexusKeystorePlugin extends Plugin {
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Hardware decryption failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Native Android Google Account Picker.
+     * Launches the native system AccountPicker dialog directly without opening external browser tabs,
+     * completely eliminating white screen deadlocks on mobile devices.
+     */
+    @PluginMethod
+    public void pickGoogleAccount(PluginCall call) {
+        try {
+            Intent intent = AccountManager.newChooseAccountIntent(
+                null,
+                null,
+                new String[]{"com.google"},
+                false,
+                null,
+                null,
+                null,
+                null
+            );
+            startActivityForResult(call, intent, "accountPickerResult");
+        } catch (Exception e) {
+            call.reject("Failed to launch native account picker: " + e.getMessage(), e);
+        }
+    }
+
+    @ActivityCallback
+    public void accountPickerResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        try {
+            if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                String email = result.getData().getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
+                if (email != null && !email.trim().isEmpty()) {
+                    JSObject ret = new JSObject();
+                    ret.put("email", email.trim());
+                    String name = email.split("@")[0];
+                    ret.put("name", name);
+                    call.resolve(ret);
+                    return;
+                }
+            }
+            call.reject("User cancelled account picker");
+        } catch (Exception e) {
+            call.reject("Error in account picker result: " + e.getMessage(), e);
         }
     }
 }
