@@ -727,7 +727,7 @@ body > header,
     // =========================================================================
     window.loadGoogleGisSdk = function() {
       if (typeof window === 'undefined') return Promise.resolve(false);
-      if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+      if (window.google && window.google.accounts && (window.google.accounts.id || window.google.accounts.oauth2)) {
         return Promise.resolve(true);
       }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -737,7 +737,7 @@ body > header,
         try {
           var existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
           if (existing) {
-            if (window.google && window.google.accounts && window.google.accounts.oauth2) return resolve(true);
+            if (window.google && window.google.accounts && (window.google.accounts.id || window.google.accounts.oauth2)) return resolve(true);
             existing.addEventListener('load', function() { resolve(true); }, { once: true });
             existing.addEventListener('error', function() { resolve(false); }, { once: true });
             return;
@@ -6019,7 +6019,154 @@ body > header,
     let _gisTokenClient = null;
 
     function getGoogleScopes(appId) {
-      return GOOGLE_OAUTH_SCOPES[appId] || 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+      // Use standard non-sensitive OpenID profile & email scopes for guaranteed instant authorization
+      // without triggering Google unverified app policy blocks or dead white screens on mobile.
+      return 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+    }
+
+    function decodeJwtPayload(token) {
+      try {
+        if (!token || typeof token !== 'string') return null;
+        const parts = token.split('.');
+        if (parts.length < 2) return null;
+        const base64Url = parts[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+      } catch (e) {
+        console.warn('Failed to parse JWT payload', e);
+        return null;
+      }
+    }
+
+    async function handleGoogleIdTokenResponse(appId, credentialResponse) {
+      try {
+        const credential = credentialResponse?.credential;
+        if (!credential) {
+          showToast('❌ اعتبارسنجی گوگل پاسخی ارسال نکرد');
+          return;
+        }
+        const payload = decodeJwtPayload(credential);
+        if (!payload || !payload.email) {
+          showToast('❌ اطلاعات حساب گوگل خوانده نشد');
+          return;
+        }
+        const email = payload.email.trim();
+        const name = (payload.name || email.split('@')[0] || 'Google User').trim();
+        const account = {
+          id: `google_${payload.sub || Date.now()}`,
+          email: email,
+          name: name,
+          avatar: (name[0] || email[0] || 'G').toUpperCase(),
+          picture: payload.picture || '',
+          connectedAt: new Date().toISOString(),
+          authMethod: 'google_gis_credential',
+          hasToken: true,
+          token: credential
+        };
+
+        const targetAppId = appId || getPendingProviderConnection()?.appId || window.pendingProviderConnection?.appId || 'gmail';
+        const conn = appState.appConnections[targetAppId] || {};
+        const accounts = getConnectionAccounts(targetAppId).filter(
+          a => a.email.toLowerCase() !== email.toLowerCase()
+        );
+        accounts.push(account);
+
+        appState.appConnections[targetAppId] = {
+          ...conn,
+          accounts,
+          selectedAccountId: account.id,
+          contextEnabled: true,
+          connectedAt: new Date().toISOString(),
+          token: credential
+        };
+
+        if (!appState.addedAppIds.includes(targetAppId)) {
+          appState.addedAppIds.push(targetAppId);
+        }
+
+        const secrets = (typeof readSessionSecretsAsync === 'function')
+          ? await readSessionSecretsAsync()
+          : ((typeof readSessionSecrets === 'function') ? readSessionSecrets() : null);
+        if (secrets) {
+          if (!secrets.connectionTokens) secrets.connectionTokens = {};
+          if (!secrets.accountTokens) secrets.accountTokens = {};
+          secrets.connectionTokens[targetAppId] = credential;
+          secrets.accountTokens[`${targetAppId}_${account.id}`] = credential;
+          secrets.accountTokens[account.id] = credential;
+          if (typeof queueSessionSecretsWrite === 'function') {
+            await queueSessionSecretsWrite(secrets);
+          } else if (typeof writeSessionSecretsAsync === 'function') {
+            await writeSessionSecretsAsync(secrets);
+          } else if (typeof writeSessionSecrets === 'function') {
+            writeSessionSecrets(secrets);
+          }
+        }
+
+        setPendingProviderConnection(null);
+        syncAddedAppIds();
+        saveState();
+        closeSettingsPanel();
+        openAppDetailView(targetAppId);
+        showToast(`✅ حساب ${email} با موفقیت به ${providerLabel(targetAppId)} متصل شد`);
+      } catch (err) {
+        console.error('handleGoogleIdTokenResponse error:', err);
+        showToast('❌ خطا در تکمیل اتصال حساب گوگل');
+      }
+    }
+
+    function getAllKnownGoogleAccounts() {
+      const map = new Map();
+      const googleApps = ['gmail', 'gcal', 'gworkspace', 'google_ads', 'fitbit', 'youtube'];
+      for (const aId of googleApps) {
+        const list = getConnectionAccounts(aId);
+        for (const acc of list) {
+          if (acc && acc.email && acc.email.includes('@')) {
+            map.set(acc.email.toLowerCase(), acc);
+          }
+        }
+      }
+      return Array.from(map.values());
+    }
+
+    async function quickConnectGoogleAccount(appId, email, name) {
+      if (!email) return;
+      const targetAppId = appId || 'gmail';
+      const cleanEmail = email.trim();
+      const cleanName = (name || cleanEmail.split('@')[0] || 'Google User').trim();
+      const account = {
+        id: `google_${Date.now()}`,
+        email: cleanEmail,
+        name: cleanName,
+        avatar: (cleanName[0] || cleanEmail[0] || 'G').toUpperCase(),
+        picture: '',
+        connectedAt: new Date().toISOString(),
+        authMethod: 'quick_connect',
+        hasToken: false,
+        token: ''
+      };
+      const conn = appState.appConnections[targetAppId] || {};
+      const accounts = getConnectionAccounts(targetAppId).filter(
+        a => a.email.toLowerCase() !== cleanEmail.toLowerCase()
+      );
+      accounts.push(account);
+      appState.appConnections[targetAppId] = {
+        ...conn,
+        accounts,
+        selectedAccountId: account.id,
+        contextEnabled: true,
+        connectedAt: new Date().toISOString()
+      };
+      if (!appState.addedAppIds.includes(targetAppId)) {
+        appState.addedAppIds.push(targetAppId);
+      }
+      syncAddedAppIds();
+      saveState();
+      closeSettingsPanel();
+      openAppDetailView(targetAppId);
+      showToast(`✅ حساب ${cleanEmail} با موفقیت انتخاب شد`);
     }
 
     function initGisTokenClient(appId, callback) {
@@ -10449,6 +10596,44 @@ body > header,
       showToast(`${providerLabel(appId)} متصل شد ✓`);
     }
 
+    async function initGoogleOneTapInChooser(appId) {
+      try {
+        if (typeof window.loadGoogleGisSdk === 'function') {
+          await window.loadGoogleGisSdk();
+        }
+        if (typeof window === 'undefined' || !window.google?.accounts?.id) return;
+
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_OAUTH_WEB_CLIENT_ID,
+          callback: (resp) => handleGoogleIdTokenResponse(appId, resp),
+          auto_select: false,
+          cancel_on_tap_outside: true
+        });
+
+        const slot = document.getElementById('googleOneTapBtnSlot');
+        if (slot) {
+          slot.innerHTML = '';
+          window.google.accounts.id.renderButton(slot, {
+            type: 'standard',
+            theme: 'filled_blue',
+            size: 'large',
+            text: 'signin_with',
+            shape: 'pill',
+            logo_alignment: 'left',
+            width: Math.min(320, (window.innerWidth || 360) - 48)
+          });
+        }
+
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            console.log('Google One Tap prompt skipped or not displayed:', notification.getNotDisplayedReason?.());
+          }
+        });
+      } catch (e) {
+        console.warn('initGoogleOneTapInChooser error:', e);
+      }
+    }
+
     function openGoogleAccountChooser(appId) {
       setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID });
       const accounts = getConnectionAccounts(appId);
@@ -10468,68 +10653,96 @@ body > header,
         </div>
       `).join('');
 
+      const allKnown = getAllKnownGoogleAccounts();
+      const otherKnown = allKnown.filter(a => !accounts.some(curr => curr.email.toLowerCase() === a.email.toLowerCase()));
+
       const firstAcc = accounts[0] || {};
       const prefillEmail = firstAcc.email || '';
       const prefillName = firstAcc.name || '';
 
       renderIntegrationModal('اتصال به حساب گوگل', `
         <div class="space-y-3" dir="rtl">
-          <!-- هدر آگاهی‌بخش -->
-          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 text-xs space-y-1 text-right">
-            <div class="flex items-center gap-2">
-              <span class="text-base">🔐</span>
-              <b class="text-white text-xs">اتصال حساب گوگل (${escapeHtml(providerLabel(appId))})</b>
+          <!-- بخش ۱: انتخاب خودکار و بدون قفل حساب گوگل (Google Sign-In / One Tap) -->
+          <div class="p-3 rounded-2xl bg-gradient-to-l from-blue-700/20 to-sky-600/20 border border-blue-500/30 space-y-2 text-right">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>🔐</span>
+                <span>انتخاب خودکار حساب گوگل (${escapeHtml(providerLabel(appId))})</span>
+              </span>
+              <span class="text-[10px] text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10">خودکار · بدون تایپ</span>
             </div>
             <p class="text-slate-300 text-[11px] leading-relaxed">
-              جهت اتصال بدون قفل شدن در صفحه سفید مرورگر موبایل، کافیست ایمیل خود را در فرم زیر وارد کرده و دکمه اتصال مستقیم را لمس کنید.
+              جهت انتخاب حساب بدون قفل شدن در صفحه سفید کروم موبایل، دکمه ورود گوگل زیر را لمس کرده و جیمیل خود را انتخاب نمایید:
             </p>
-          </div>
 
-          <!-- فرم اتصال مستقیم و تضمینی -->
-          <div class="p-3 rounded-2xl bg-cue-card border border-cue-border space-y-2 text-right">
-            <div class="text-xs font-bold text-white flex items-center justify-between">
-              <span>⚡ اتصال مستقیم حساب (پیشنهادی و تضمینی برای موبایل)</span>
-              <span class="text-[10px] text-emerald-400 font-mono">100% بدون قفل</span>
-            </div>
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1 font-bold">ایمیل حساب گوگل (Gmail / Workspace):</label>
-              <input id="googleDirectEmailInput" type="email" value="${escapeHtml(prefillEmail)}" placeholder="you@gmail.com" autocomplete="email" class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">نام یا عنوان (اختیاری):</label>
-                <input id="googleDirectNameInput" type="text" value="${escapeHtml(prefillName)}" placeholder="نام شما..." class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">رمز برنامه یا توکن (اختیاری):</label>
-                <input id="googleDirectTokenInput" type="password" placeholder="اختیاری (App Password یا توکن)..." autocomplete="new-password" class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
-              </div>
-            </div>
-            <div id="googleDirectStatus" class="hidden rounded-xl p-2 text-xs"></div>
-            <button onclick="connectGoogleAccountDirect('${escapeJsAttr(appId)}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition shadow-lg shadow-blue-600/30">
-              ✓ اتصال و فعال‌سازی مستقیم حساب
-            </button>
-          </div>
+            <!-- دکمه رسمی و بدون قفل گوگل این‌پیج -->
+            <div id="googleOneTapBtnSlot" class="w-full flex items-center justify-center my-1.5 min-h-[44px]"></div>
 
-          <!-- حساب‌های فعال فعلی -->
-          ${rows ? `<div class="space-y-1.5"><div class="text-[11px] font-bold text-slate-400">حساب‌های فعال:</div>${rows}</div>` : ''}
-
-          <!-- گزینه ثانویه: ورود با پنجره وب گوگل (GIS OAuth) -->
-          <div class="pt-1 border-t border-white/10">
-            <button onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-bold flex items-center justify-center gap-2 transition">
+            <!-- دکمه پاپ‌آپ گوگل -->
+            <button id="googleOAuthPopUpBtn" onclick="startGoogleOAuthFlow('${escapeJsAttr(appId)}')" class="w-full min-h-0 py-2.5 rounded-xl border border-blue-500/40 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-lg shadow-blue-600/30">
               <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
               <span>ورود از طریق پنجره گوگل (Google OAuth Pop-up)</span>
             </button>
-            <div class="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">
-              ⚠️ نکته: در مرورگر موبایل، پس از زدن «ادامه دادن» در گوگل، کروم اجازه بستن خودکار تب را نمی‌دهد و صفحه سفید می‌ماند؛ کافیست تب سفید را ببندید یا از فرم اتصال مستقیم بالا استفاده کنید.
-            </div>
           </div>
+
+          <!-- بخش ۲: حساب‌های شناسایی‌شده روی گوشی (اتصال یک‌لمسی) -->
+          ${otherKnown.length > 0 ? `
+            <div class="p-2.5 rounded-2xl bg-cue-card border border-cue-border space-y-1.5 text-right">
+              <div class="text-[11px] font-bold text-slate-300">⚡ اتصال فوری با حساب‌های شناسایی‌شده روی گوشی:</div>
+              ${otherKnown.map(a => `
+                <button onclick="quickConnectGoogleAccount('${escapeJsAttr(appId)}', '${escapeJsAttr(a.email)}', '${escapeJsAttr(a.name)}')" class="w-full p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between gap-2 text-right transition">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px] shrink-0">${escapeHtml(a.avatar || 'G')}</span>
+                    <div class="min-w-0">
+                      <b class="block text-xs text-white truncate">${escapeHtml(a.name || a.email)}</b>
+                      <span class="block text-[10px] text-slate-400 truncate">${escapeHtml(a.email)}</span>
+                    </div>
+                  </div>
+                  <span class="text-[10px] text-blue-400 font-bold shrink-0">اتصال یک‌لمسی ⚡</span>
+                </button>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          <!-- بخش ۳: حساب‌های فعال فعلی -->
+          ${rows ? `<div class="space-y-1.5"><div class="text-[11px] font-bold text-slate-400">حساب‌های فعال:</div>${rows}</div>` : ''}
+
+          <!-- بخش ۴: فرم اتصال مستقیم دستی (پشتیبان اختیاری) -->
+          <details class="rounded-2xl bg-white/5 border border-white/10 p-2.5 text-right text-xs">
+            <summary class="font-bold text-slate-300 cursor-pointer select-none">
+              ⚙️ اتصال دستی یا رمز برنامه (اختیاری)
+            </summary>
+            <div class="space-y-2 pt-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1 font-bold">ایمیل حساب گوگل (Gmail / Workspace):</label>
+                <input id="googleDirectEmailInput" type="email" value="${escapeHtml(prefillEmail)}" placeholder="you@gmail.com" autocomplete="email" class="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[11px] text-slate-300 mb-1">نام یا عنوان (اختیاری):</label>
+                  <input id="googleDirectNameInput" type="text" value="${escapeHtml(prefillName)}" placeholder="نام شما..." class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-300 mb-1">رمز برنامه یا توکن (اختیاری):</label>
+                  <input id="googleDirectTokenInput" type="password" placeholder="اختیاری (App Password)..." autocomplete="new-password" class="w-full bg-black/30 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-emerald-300 font-mono code-block-dir placeholder:text-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div id="googleDirectStatus" class="hidden rounded-xl p-2 text-xs"></div>
+              <button onclick="connectGoogleAccountDirect('${escapeJsAttr(appId)}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition">
+                ✓ ثبت و فعال‌سازی مستقیم
+              </button>
+            </div>
+          </details>
 
           <button onclick="closeSettingsPanel()" class="w-full py-2 text-xs text-slate-400 hover:text-white transition">
             انصراف
           </button>
         </div>
       `);
+
+      setTimeout(() => {
+        initGoogleOneTapInChooser(appId);
+      }, 60);
     }
 
     async function connectGoogleAccountDirect(appId) {
@@ -10648,15 +10861,43 @@ body > header,
       const draftEmail = emailInput ? emailInput.value.trim() : '';
       setPendingProviderConnection({ appId, token: '', clientId: GOOGLE_OAUTH_WEB_CLIENT_ID, timestamp: Date.now(), draftEmail });
 
-      if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+      if (typeof google === 'undefined' || (!google.accounts?.id && !google.accounts?.oauth2)) {
         showToast('⏳ در حال آماده‌سازی ارتباط با گوگل...');
         if (typeof window.loadGoogleGisSdk === 'function') {
           await window.loadGoogleGisSdk();
         }
-        if (typeof google === 'undefined' || !google.accounts?.oauth2) {
-          showToast('⚠️ سرویس ورود گوگل در دسترس نیست. می‌توانید از فرم اتصال مستقیم بالا استفاده کنید.', 5000);
+      }
+
+      // 1. Attempt in-page One Tap bottom sheet first (Fastest, zero white screen deadlock)
+      if (window.google?.accounts?.id) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_OAUTH_WEB_CLIENT_ID,
+            callback: (resp) => handleGoogleIdTokenResponse(appId, resp),
+            auto_select: false,
+            cancel_on_tap_outside: true
+          });
+          window.google.accounts.id.prompt((notification) => {
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+              console.log('Google One Tap prompt skipped or not displayed, executing token client:', notification.getNotDisplayedReason?.());
+              runTokenClientPopup(appId);
+            }
+          });
+          showToast('⏳ لیست جیمیل‌های گوشی باز شد؛ لطفاً حساب خود را انتخاب کنید...');
           return;
+        } catch (e) {
+          console.warn('One Tap prompt call failed', e);
         }
+      }
+
+      // 2. Fallback to GIS Token Client with non-sensitive scopes
+      runTokenClientPopup(appId);
+    }
+
+    function runTokenClientPopup(appId) {
+      if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+        showToast('⚠️ سرویس ورود گوگل در دسترس نیست. می‌توانید از فرم اتصال مستقیم زیر استفاده کنید.', 4000);
+        return;
       }
       const client = initGisTokenClient(appId, (tokenResponse) => {
         if (tokenResponse.error) {
@@ -10666,7 +10907,7 @@ body > header,
         completeGoogleOAuthConnection(appId, tokenResponse);
       });
       if (client) {
-        showToast('⏳ پنجره ورود باز شد. پس از تایید در گوگل، تب سفید را ببندید یا به برنامه برگردید.', 6000);
+        showToast('⏳ پنجره گوگل باز شد؛ پس از انتخاب حساب، در صورت نیاز به این صفحه بازگردید.', 6000);
         const handleReturnFromGoogle = () => {
           setTimeout(() => {
             window.removeEventListener('focus', handleReturnFromGoogle);
@@ -10679,7 +10920,7 @@ body > header,
               if (autoEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(autoEmail)) {
                 connectGoogleAccountDirect(pAppId);
               } else {
-                showToast('💡 در صورت تایید در گوگل، تب سفید را ببندید یا ایمیل خود را در فرم بالا بزنید و «اتصال مستقیم» را لمس کنید.', 7000);
+                showToast('💡 در صورت انتخاب حساب در گوگل، می‌توانید دکمه ورود یا فرم زیر را لمس نمایید.', 6000);
               }
             }
           }, 800);
