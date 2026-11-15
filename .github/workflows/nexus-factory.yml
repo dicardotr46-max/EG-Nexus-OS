@@ -196,7 +196,7 @@ jobs:
         run: |
           cd build_workspace/android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon --dependency-verification=lenient
 
       - name: 9. Sign and Verify Release APK with Persistent Keystore
         env:

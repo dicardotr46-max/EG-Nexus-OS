@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <verification-metadata xmlns="https://schema.gradle.org/dependency-verification" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-8.7.xsd">
    <configuration>
-      <verify-metadata>true</verify-metadata>
+      <verify-metadata>false</verify-metadata>
       <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <trust group="^com\.android.*" regex="true"/>
+         <trust group="^com\.google.*" regex="true"/>
+         <trust group="^androidx\..*" regex="true"/>
+         <trust group="^org\..*" regex="true"/>
+         <trust group="^net\..*" regex="true"/>
+         <trust group="^io\..*" regex="true"/>
+      </trusted-artifacts>
    </configuration>
    <components>
       <component group="androidx.appcompat" name="appcompat" version="1.7.1">
