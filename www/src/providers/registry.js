@@ -3390,7 +3390,32 @@
     { id: 'elevenlabs', name: 'ElevenLabs', category: 'Dev & AI', type: 'MCP', author: 'ElevenLabs', website: 'https://elevenlabs.io', desc: 'Generate, clone, and transcribe lifelike voiceovers for Shorts & Reels.' },
     { id: 'line', name: 'LINE', category: 'Productivity', type: 'App', author: 'LY Corp', website: 'https://line.me', desc: 'Connect to LINE Official Accounts for automated messaging.' },
     { id: 'coingecko', name: 'CoinGecko', category: 'Finance', type: 'MCP', author: 'CoinGecko', website: 'https://coingecko.com', desc: 'Access real-time crypto market data, prices, and trends.' },
-    { id: 'clash_royale', name: 'Clash Royale Official API', category: 'Dev & AI', type: 'App', author: 'Supercell', website: 'https://developer.clashroyale.com', desc: 'Live player battle logs, Electro Giant meta win-rates, and clan analytics.' }
+    { id: 'clash_royale', name: 'Clash Royale Official API', category: 'Dev & AI', type: 'App', author: 'Supercell', website: 'https://developer.clashroyale.com', desc: 'Live player battle logs, Electro Giant meta win-rates, and clan analytics.' },
+    { id: 'notion', name: 'Notion', category: 'Productivity', type: 'App', author: 'Notion Labs', website: 'https://notion.so', desc: 'Search workspace content, update notes, and automate workflows in Nexus.' },
+    { id: 'evernote', name: 'Evernote', beta: true, category: 'Productivity', type: 'App', author: 'Evernote', website: 'https://evernote.com', desc: 'Search, create, and organize your Evernote notes and tasks.' },
+    { id: 'google_health', name: 'Google Health', category: 'Health', type: 'App', author: 'Google', website: 'https://health.google', desc: 'Connect Google Health to bring in your sleep, steps, workouts, calories, and vitals.' },
+    { id: 'robinhood', name: 'Robinhood Trading', beta: true, category: 'Finance', type: 'App', author: 'Robinhood', website: 'https://robinhood.com', desc: 'Track portfolio and balances and place trades on Robinhood.' },
+    { id: 'coinbase', name: 'Coinbase Wallet', category: 'Finance', type: 'App', author: 'Coinbase', website: 'https://coinbase.com/wallet', desc: 'Access Coinbase Wallet for onchain actions and payments.' },
+    { id: 'coros', name: 'COROS', category: 'Health', type: 'App', author: 'COROS', website: 'https://coros.com', desc: 'Analyze activity, sleep, and recovery from your COROS account.' },
+    { id: 'canva', name: 'Canva', category: 'Dev & AI', type: 'App', author: 'Canva', website: 'https://canva.com', desc: 'Discover, autofill, and export Canva designs in one place.' },
+    { id: 'wordpress', name: 'WordPress', category: 'Dev & AI', type: 'App', author: 'Automattic', website: 'https://wordpress.org', desc: 'Manage and publish posts, pages, media, and site settings on WordPress.' },
+    { id: 'higgsfield', name: 'Higgsfield', category: 'Dev & AI', type: 'App', author: 'Higgsfield AI', website: 'https://higgsfield.ai', desc: 'Create cinematic images and videos with Higgsfield.' },
+    { id: 'heygen', name: 'HeyGen', category: 'Dev & AI', type: 'App', author: 'HeyGen', website: 'https://heygen.com', desc: 'Create lifelike AI avatars, generate voices, and produce realistic videos.' },
+    { id: 'kiwi', name: 'Kiwi.com', category: 'Travel', type: 'App', author: 'Kiwi.com', website: 'https://kiwi.com', desc: 'Search and compare flights, travel routes, and booking options globally.' },
+    { id: 'trivago', name: 'Trivago', category: 'Travel', type: 'App', author: 'Trivago', website: 'https://trivago.com', desc: 'Compare hotel and accommodation prices across hundreds of booking sites.' },
+    { id: 'alltrails', name: 'AllTrails', category: 'Travel', type: 'App', author: 'AllTrails', website: 'https://alltrails.com', desc: 'Discover trails, plan hikes, and check trail weather conditions.' },
+    { id: 'google_maps', name: 'Google Maps', beta: true, category: 'Travel', type: 'App', author: 'Google', website: 'https://maps.google.com', desc: 'Ground AI applications with trusted geospatial data from Google Maps.' },
+    { id: 'viator', name: 'Viator', category: 'Travel', type: 'App', author: 'Tripadvisor', website: 'https://viator.com', desc: 'Discover and compare travel experiences worldwide with Viator.' },
+    { id: 'lambus', name: 'Lambus', category: 'Travel', type: 'App', author: 'Lambus', website: 'https://lambus.com', desc: 'Plan trips, add destinations, track expenses, and manage bookings.' },
+    { id: 'stripe', name: 'Stripe', category: 'Finance', type: 'App', author: 'Stripe', website: 'https://stripe.com', desc: 'Streamline business billing, payments, and account management.' },
+    { id: 'interactive_brokers', name: 'Interactive Brokers', beta: true, category: 'Finance', type: 'App', author: 'Interactive Brokers', website: 'https://interactivebrokers.com', desc: 'Analyze portfolios, market data, risk, and trade instructions.' },
+    { id: 'webull', name: 'Webull', beta: true, category: 'Finance', type: 'App', author: 'Webull', website: 'https://webull.com', desc: 'Access trading accounts, orders, and real-time market data with Webull.' },
+    { id: 'era_context', name: 'Era Context', category: 'Finance', type: 'App', author: 'Era', website: 'https://era.cx', desc: 'Understand and organize your finances with Era Context.' },
+    { id: 'airtable', name: 'Airtable', category: 'Productivity', type: 'App', author: 'Formagrid', website: 'https://airtable.com', desc: 'Organize structured data, manage records, and collaborate with your team.' },
+    { id: 'plaud', name: 'Plaud', beta: true, category: 'Productivity', type: 'App', author: 'Plaud.ai', website: 'https://plaud.ai', desc: 'Access and summarize your Plaud recordings, transcripts, and AI-generated insights.' },
+    { id: 'buffer', name: 'Buffer', category: 'Productivity', type: 'App', author: 'Buffer', website: 'https://buffer.com', desc: 'Create, schedule, and manage social media posts across channels.' },
+    { id: 'ahrefs', name: 'Ahrefs API', category: 'Dev & AI', type: 'App', author: 'Ahrefs', website: 'https://ahrefs.com', desc: 'Optimize SEO strategies, analyze keywords, and track backlink performance.' },
+    { id: 'zernio', name: 'Zernio', category: 'Productivity', type: 'App', author: 'Zernio', website: 'https://zernio.com', desc: 'Schedule posts, manage inboxes, and track analytics.' }
   ];
 
   // Ensure all apps in catalog have their capability tier explicitly set
