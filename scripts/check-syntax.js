@@ -1,12 +1,18 @@
 #!/usr/bin/env node
+/**
+ * EG Nexus OS — Full AST Syntax & Script Verification Engine
+ * Verifies index.html inline script blocks and all tracked JavaScript files
+ * (scripts, tests, www, benchmark_v4.js, benchmark_v5.js,
+ * mobile_visual_crawler.js, jest.stryker.config.js, src, etc.)
+ */
+
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { execSync } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..');
 const htmlPath = path.join(rootDir, 'index.html');
-const swPath = path.join(rootDir, 'sw.js');
-const srcDir = path.join(rootDir, 'src');
 
 console.log('🔍 Running AST Syntax Check on EG Nexus OS codebase...');
 
@@ -40,43 +46,84 @@ try {
 }
 console.log(`✅ Passed: ${inlineBlocks.length} inline <script> blocks in index.html are syntactically valid.`);
 
-// 2. Verify sw.js
-if (fs.existsSync(swPath)) {
-  const swCode = fs.readFileSync(swPath, 'utf8');
-  try {
-    new vm.Script(swCode, { filename: 'sw.js' });
-    console.log('✅ Passed: sw.js is syntactically valid.');
-  } catch (err) {
-    console.error('❌ Syntax error in sw.js:', err);
-    process.exit(1);
-  }
-}
+// 2. Discover all JavaScript files tracked in repository
+function getTrackedJsFiles(baseDir) {
+  const fileSet = new Set();
 
-// 3. Verify all src/**/*.js
-function getJsFiles(dir) {
-  let files = [];
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files = files.concat(getJsFiles(fullPath));
-    } else if (entry.isFile() && entry.name.endsWith('.js')) {
-      files.push(fullPath);
+  try {
+    const gitOutput = execSync('git ls-files "*.js" "**/*.js"', {
+      cwd: baseDir,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    gitOutput.trim().split('\n').forEach(line => {
+      const rel = line.trim();
+      if (rel && rel.endsWith('.js')) {
+        const abs = path.join(baseDir, rel);
+        if (fs.existsSync(abs)) {
+          fileSet.add(abs);
+        }
+      }
+    });
+  } catch (_) {
+    // Fallback if git is unavailable
+  }
+
+  // Fallback / complement scan ensuring specific known targets are included
+  function scanDir(dir) {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (['node_modules', '.git', 'coverage', 'dist', 'build_workspace'].includes(entry.name)) {
+        continue;
+      }
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanDir(full);
+      } else if (entry.isFile() && entry.name.endsWith('.js')) {
+        fileSet.add(full);
+      }
     }
   }
-  return files;
+
+  scanDir(baseDir);
+
+  // Explicit check for required individual files
+  const explicitFiles = [
+    'benchmark_v4.js',
+    'benchmark_v5.js',
+    'mobile_visual_crawler.js',
+    'jest.stryker.config.js',
+    'sw.js'
+  ];
+  explicitFiles.forEach(f => {
+    const full = path.join(baseDir, f);
+    if (fs.existsSync(full)) {
+      fileSet.add(full);
+    }
+  });
+
+  return Array.from(fileSet).sort();
 }
 
-const srcFiles = getJsFiles(srcDir);
-srcFiles.forEach(file => {
+const jsFiles = getTrackedJsFiles(rootDir);
+let errorCount = 0;
+
+jsFiles.forEach(file => {
   const code = fs.readFileSync(file, 'utf8');
   const relPath = path.relative(rootDir, file);
   try {
     new vm.Script(code, { filename: relPath });
   } catch (err) {
-    console.error(`❌ Syntax error in ${relPath}:`, err);
-    process.exit(1);
+    console.error(`❌ Syntax error in ${relPath}:`, err.message);
+    errorCount++;
   }
 });
-console.log(`✅ Passed: ${srcFiles.length} JavaScript files in src/ are syntactically valid.`);
+
+if (errorCount > 0) {
+  console.error(`❌ AST Syntax verification failed with ${errorCount} error(s).`);
+  process.exit(1);
+}
+
+console.log(`✅ Passed: ${jsFiles.length} JavaScript files across codebase are syntactically valid.`);
 console.log('🎉 Full AST Syntax verification succeeded with 0 errors.');

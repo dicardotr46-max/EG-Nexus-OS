@@ -1,4 +1,4 @@
-name: EG Nexus OS v6.3.2 - Auto Audit & Signed APK Factory
+name: EG Nexus OS - Auto Audit & Signed APK Factory
 
 on:
   push:
@@ -46,6 +46,17 @@ jobs:
           npm run build
           git diff --exit-code android/app/build.gradle
 
+      - name: Assert Version Parity Between Package and Gradle
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          GRADLE_VERSION_NAME=$(grep -oP 'versionName\s+["\x27]\K[^"\x27]+' android/app/build.gradle)
+          echo "Checking version parity: package.json=$PKG_VERSION, build.gradle=$GRADLE_VERSION_NAME"
+          if [ "$PKG_VERSION" != "$GRADLE_VERSION_NAME" ]; then
+            echo "❌ Version mismatch: package.json ($PKG_VERSION) != android/app/build.gradle ($GRADLE_VERSION_NAME)"
+            exit 1
+          fi
+          echo "✅ Version parity confirmed: $PKG_VERSION"
+
       - name: 4. Verify Cryptographic Mirror Parity (Root vs www)
         run: |
           echo "🔍 Checking Root and www/ mirror byte parity..."
@@ -57,9 +68,9 @@ jobs:
 
       - name: 5. Automated Code & Syntax Integrity Audit
         run: |
-          echo "🔍 شروع ممیزی خودکار یکپارچگی سینتکس EG Nexus OS v6.3.2..."
+          echo "🔍 Running automated syntax integrity audit..."
           if [ ! -f "index.html" ]; then
-            echo "❌ خطا: فایل index.html یافت نشد!"
+            echo "❌ Error: index.html not found!"
             exit 1
           fi
           npm ci
@@ -98,6 +109,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
+    outputs:
+      pkg_version: ${{ steps.version.outputs.pkg_version }}
 
     steps:
       - name: 1. Checkout Repository
@@ -111,6 +124,21 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      - name: Extract Package Version & Verify Parity
+        id: version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "PKG_VERSION=${PKG_VERSION}" >> $GITHUB_ENV
+          echo "pkg_version=${PKG_VERSION}" >> $GITHUB_OUTPUT
+          GRADLE_VERSION_NAME=$(grep -oP 'versionName\s+["\x27]\K[^"\x27]+' android/app/build.gradle)
+          echo "Extracted package version: $PKG_VERSION"
+          echo "Extracted Gradle versionName: $GRADLE_VERSION_NAME"
+          if [ "$PKG_VERSION" != "$GRADLE_VERSION_NAME" ]; then
+            echo "❌ Version mismatch: package.json ($PKG_VERSION) != android/app/build.gradle ($GRADLE_VERSION_NAME)"
+            exit 1
+          fi
+          echo "✅ Package version and Gradle versionName match: $PKG_VERSION"
+
       - name: Enforce Gradle Version Parity & Build Sync
         run: |
           npm run build
@@ -122,10 +150,12 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: 4. Accept Android SDK Licenses Automatically
+      - name: 4. Install Android SDK Platforms and Build-Tools
         run: |
+          BUILD_TOOLS_VERSION="35.0.0"
+          echo "BUILD_TOOLS_VERSION=${BUILD_TOOLS_VERSION}" >> $GITHUB_ENV
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;${BUILD_TOOLS_VERSION}"
 
       - name: 5. Prepare Clean Capacitor Environment & Web Assets
         run: |
@@ -158,7 +188,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('build_workspace/android/**/*.gradle*', 'build_workspace/android/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('build_workspace/android/**/*.gradle*', 'build_workspace/android/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
 
@@ -179,7 +209,14 @@ jobs:
           ALIGNED_APK="dist/temp-aligned.apk"
           trap 'shred -u "$KEYSTORE_FILE" 2>/dev/null || rm -f "$KEYSTORE_FILE"; rm -f "$ALIGNED_APK"' EXIT
 
-          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "PKG_VERSION=${PKG_VERSION}" >> $GITHUB_ENV
+
+          BUILD_TOOLS_VERSION="35.0.0"
+          BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          if [ ! -d "$BUILD_TOOLS_DIR" ]; then
+            BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          fi
           echo "Using Android Build Tools at: $BUILD_TOOLS_DIR"
 
           RELEASE_DIR="build_workspace/android/app/build/outputs/apk/release"
@@ -199,7 +236,23 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
 
           mkdir -p dist
-          SIGNED_APK="dist/EG-Nexus-OS-v6.2-release-signed.apk"
+          SIGNED_APK="dist/EG-Nexus-OS-v${PKG_VERSION}-release-signed.apk"
+
+          # CI Assertion: Verify equality between APK filename version, package.json version, and versionName in android/app/build.gradle
+          APK_BASENAME=$(basename "$SIGNED_APK")
+          APK_VERSION_EXTRACTED=$(echo "$APK_BASENAME" | sed -n 's/EG-Nexus-OS-v\([0-9.]*\)-release-signed\.apk/\1/p')
+          GRADLE_VERSION_NAME=$(grep -oP 'versionName\s+["\x27]\K[^"\x27]+' android/app/build.gradle)
+
+          echo "🔍 CI Version Parity Assertion Check:"
+          echo "  - package.json version: $PKG_VERSION"
+          echo "  - android/app/build.gradle versionName: $GRADLE_VERSION_NAME"
+          echo "  - APK filename extracted version: $APK_VERSION_EXTRACTED"
+
+          if [ "$PKG_VERSION" != "$GRADLE_VERSION_NAME" ] || [ "$PKG_VERSION" != "$APK_VERSION_EXTRACTED" ]; then
+            echo "❌ CRITICAL CI FAILURE: Version mismatch detected between APK ($APK_VERSION_EXTRACTED), package.json ($PKG_VERSION), and android/app/build.gradle ($GRADLE_VERSION_NAME)!"
+            exit 1
+          fi
+          echo "✅ CI Version Parity Assertion Passed: package.json ($PKG_VERSION) == build.gradle ($GRADLE_VERSION_NAME) == APK ($APK_VERSION_EXTRACTED)"
 
           if $BUILD_TOOLS_DIR/zipalign -c -v 4 "$UNSIGNED_APK" >/dev/null 2>&1; then
             echo "APK is already 4-byte zipaligned."
@@ -225,8 +278,8 @@ jobs:
       - name: 10. Upload Ready-to-Install Signed Android APK
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
-          name: EG-Nexus-OS-v6.2-Signed-APK
-          path: dist/EG-Nexus-OS-v6.2-release-signed.apk
+          name: EG-Nexus-OS-v${{ env.PKG_VERSION }}-Signed-APK
+          path: dist/EG-Nexus-OS-v${{ env.PKG_VERSION }}-release-signed.apk
           retention-days: 30
 
   publish-release:
@@ -246,17 +299,19 @@ jobs:
       - name: 2. Download Built Signed APK Artifact
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
-          name: EG-Nexus-OS-v6.2-Signed-APK
+          name: EG-Nexus-OS-v${{ needs.build-and-sign-apk.outputs.pkg_version }}-Signed-APK
 
       - name: 3. Prepare APK, Checksum and SBOM Provenance
         run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "PKG_VERSION=${PKG_VERSION}" >> $GITHUB_ENV
           mkdir -p dist
-          cp EG-Nexus-OS-v6.2-release-signed.apk EG-Nexus-OS-v6.2.apk
-          sha256sum EG-Nexus-OS-v6.2.apk > EG-Nexus-OS-v6.2.apk.sha256
-          APK_SHA256=$(awk '{print $1}' EG-Nexus-OS-v6.2.apk.sha256)
+          cp "EG-Nexus-OS-v${PKG_VERSION}-release-signed.apk" "EG-Nexus-OS-v${PKG_VERSION}.apk"
+          sha256sum "EG-Nexus-OS-v${PKG_VERSION}.apk" > "EG-Nexus-OS-v${PKG_VERSION}.apk.sha256"
+          APK_SHA256=$(awk '{print $1}' "EG-Nexus-OS-v${PKG_VERSION}.apk.sha256")
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RELEASE_TAG="v6.3.2-${GITHUB_SHA}"
+          RELEASE_TAG="v${PKG_VERSION}-${GITHUB_SHA}"
           echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
           echo "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}" >> $GITHUB_ENV
@@ -270,7 +325,7 @@ jobs:
             "timestamp": "${BUILD_TIMESTAMP}",
             "artifacts": {
               "apk": {
-                "name": "EG-Nexus-OS-v6.2.apk",
+                "name": "EG-Nexus-OS-v${PKG_VERSION}.apk",
                 "sha256": "${APK_SHA256}"
               }
             },
@@ -278,7 +333,11 @@ jobs:
               "os": "ubuntu-latest",
               "node": "24",
               "java": "21",
-              "capacitor": "8.6.0"
+              "capacitor": "8.6.0",
+              "gradle": "8.7",
+              "agp": "8.13.0",
+              "androidSdk": "36",
+              "buildTools": "35.0.0"
             }
           }
           EOF
@@ -293,12 +352,12 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: "EG Nexus OS v6.3.2 (${{ env.SHORT_SHA }})"
+          name: "EG Nexus OS v${{ env.PKG_VERSION }} (${{ env.SHORT_SHA }})"
           make_latest: true
           body: |
             Automated production build from commit ${{ github.sha }} on ${{ github.ref_name }}.
 
-            - **Release Version:** `v6.3.2`
+            - **Release Version:** `v${{ env.PKG_VERSION }}`
             - **Commit SHA:** `${{ github.sha }}` (`${{ env.SHORT_SHA }}`)
             - **Build Timestamp:** `${{ env.BUILD_TIMESTAMP }}`
             - **SHA-256 Checksum:**
@@ -310,7 +369,7 @@ jobs:
             - **Immutable Version Tag (`${{ env.RELEASE_TAG }}`):**
               Serves as a tamper-evident, permanent audit anchor frozen to commit `${{ github.sha }}`. Guarantees immutable provenance, rollback reproducibility, and verifiable Software Bill of Materials (SBOM) lineage.
           files: |
-            EG-Nexus-OS-v6.2.apk
-            EG-Nexus-OS-v6.2.apk.sha256
+            EG-Nexus-OS-v${{ env.PKG_VERSION }}.apk
+            EG-Nexus-OS-v${{ env.PKG_VERSION }}.apk.sha256
             dist/sbom-provenance.json
             dist/sbom.cdx.json

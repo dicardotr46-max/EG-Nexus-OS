@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws: wss: capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.3.2 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
+  <title>EG Nexus OS v6.3.3 | سیستم شخصی ایجنت‌ها (نسخه کامل و یکپارچه فاز ۱ تا ۵ + NexusBus & BlackBox)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -546,10 +546,16 @@ body > header,
       </div>
       <div class="flex flex-col bg-cue-card border border-cue-border rounded-2xl overflow-hidden min-h-[320px]">
         <div class="px-3 py-2 bg-black/40 border-b border-cue-border flex items-center justify-between text-xs">
-          <span class="font-bold text-slate-300">پیش‌نمایش زنده (Live WebView Sandbox)</span>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-300">پیش‌نمایش زنده (Live WebView Sandbox)</span>
+            <label class="flex items-center gap-1 text-[10px] text-slate-300 cursor-pointer select-none">
+              <input type="checkbox" id="allowPreviewScriptsToggle" onchange="toggleAllowPreviewScripts(this.checked)" class="accent-emerald-500 rounded" />
+              <span>اجرای اسکریپت</span>
+            </label>
+          </div>
           <button onclick="forwardRuntimeErrorToQA()" id="studioBugFixBtn" class="hidden px-2 py-0.5 rounded-lg bg-rose-500 text-white text-[10px] font-bold animate-pulse">🐞 ارسال باگ به ایجنت QA</button>
         </div>
-        <iframe id="studioPreviewFrame" sandbox="allow-scripts" class="flex-1 w-full bg-white"></iframe>
+        <iframe id="studioPreviewFrame" sandbox="" class="flex-1 w-full bg-white"></iframe>
       </div>
     </div>
   </section>
@@ -13200,12 +13206,41 @@ body > header,
         }
       });
     }
+    function isPreviewScriptsAllowed() {
+      if (typeof appState !== 'undefined' && appState && appState.allowPreviewScripts === true) return true;
+      if (typeof window !== 'undefined' && window.allowPreviewScripts === true) return true;
+      const toggle = document.getElementById('allowPreviewScriptsToggle');
+      if (toggle && toggle.checked) return true;
+      return false;
+    }
+    function toggleAllowPreviewScripts(allowed) {
+      const isAllowed = Boolean(allowed);
+      if (typeof appState !== 'undefined' && appState) {
+        appState.allowPreviewScripts = isAllowed;
+      }
+      if (typeof window !== 'undefined') {
+        window.allowPreviewScripts = isAllowed;
+      }
+      const frame = document.getElementById('studioPreviewFrame');
+      if (frame) {
+        frame.setAttribute('sandbox', isAllowed ? 'allow-scripts' : '');
+      }
+      if (typeof runStudioLivePreview === 'function') {
+        runStudioLivePreview();
+      }
+    }
     function runStudioLivePreview() {
       const ed = document.getElementById('studioCodeEditor');
       if (ed) appState.studioCode = ed.value;
       saveState();
       const frame = document.getElementById('studioPreviewFrame');
       if (!frame) return;
+      // P2-06: Keep preview scripts disabled / sandboxed without allow-scripts unless user explicitly enables
+      const allowScripts = isPreviewScriptsAllowed();
+      frame.setAttribute('sandbox', allowScripts ? 'allow-scripts' : '');
+      const toggle = document.getElementById('allowPreviewScriptsToggle');
+      if (toggle) toggle.checked = allowScripts;
+
       // Reset previous error state before running fresh preview
       uiState.lastStudioErrorText = '';
       const st = document.getElementById('studioErrorStatus');
@@ -13237,7 +13272,8 @@ body > header,
           };
         })();
       <\/script>`;
-      const cspMeta = '<meta http-equiv="Content-Security-Policy" content="object-src \'none\'; base-uri \'none\'; form-action \'none\';" />\n';
+      // P2-06: Lock down srcdoc CSP: connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none';
+      const cspMeta = '<meta http-equiv="Content-Security-Policy" content="connect-src \'none\'; form-action \'none\'; object-src \'none\'; base-uri \'none\';" />\n';
       const rawCode = String(appState.studioCode || '');
       if (/<head[^>]*>/i.test(rawCode)) {
         frame.srcdoc = rawCode.replace(/<head[^>]*>/i, match => match + cspMeta + errorHook);
@@ -17911,12 +17947,13 @@ body > header,
       const clean = String(code || '').trim();
       if (!clean) return '';
       const l = String(lang || '').toLowerCase();
+      const studioCsp = '<meta http-equiv="Content-Security-Policy" content="connect-src \'none\'; form-action \'none\'; object-src \'none\'; base-uri \'none\';" />';
       if (l === 'css') {
         const safeCss = clean.replace(/<\/style/gi, '<\\/style');
-        return '<!DOCTYPE html>\n<html lang="fa" dir="rtl">\n<head>\n<meta charset="UTF-8" />\n<style>\nbody { background:#090d16; color:#f8fafc; font-family:system-ui,sans-serif; padding:16px; }\n' + safeCss + '\n</style>\n</head>\n<body>\n<div class="preview-box">پیش‌نمایش استایل CSS در استودیو</div>\n</body>\n</html>';
+        return '<!DOCTYPE html>\n<html lang="fa" dir="rtl">\n<head>\n<meta charset="UTF-8" />\n' + studioCsp + '\n<style>\nbody { background:#090d16; color:#f8fafc; font-family:system-ui,sans-serif; padding:16px; }\n' + safeCss + '\n</style>\n</head>\n<body>\n<div class="preview-box">پیش‌نمایش استایل CSS در استودیو</div>\n</body>\n</html>';
       }
       const safeJs = clean.replace(/<\/script/gi, '<\\/script');
-      return '<!DOCTYPE html>\n<html lang="fa" dir="rtl">\n<head>\n<meta charset="UTF-8" />\n<style>body{background:#090d16;color:#f8fafc;font-family:system-ui,sans-serif;padding:14px;margin:0;}#consoleOut{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:10px;font-family:monospace;font-size:12px;color:#38bdf8;white-space:pre-wrap;direction:ltr;text-align:left;margin-top:10px;}</style>\n</head>\n<body>\n<div id="app"></div>\n<pre id="consoleOut"></pre>\n<script>\n(function(){\n  var out = document.getElementById("consoleOut");\n  function fmtArg(x) {\n    if (typeof x !== "object" || x === null) return String(x);\n    try {\n      var seen = new WeakSet();\n      return JSON.stringify(x, function(k, v) {\n        if (typeof v === "object" && v !== null) {\n          if (seen.has(v)) return "[Circular]";\n          seen.add(v);\n        }\n        return v;\n      }, 2);\n    } catch (e) { return String(x); }\n  }\n  ["log", "info", "warn", "error"].forEach(function(lvl) {\n    var orig = console[lvl];\n    console[lvl] = function() {\n      var prefix = lvl === "log" ? "" : "[" + lvl.toUpperCase() + "] ";\n      var msg = prefix + Array.prototype.slice.call(arguments).map(fmtArg).join(" ");\n      if (out) out.textContent += (out.textContent ? "\\n" : "") + msg;\n      if (orig) orig.apply(console, arguments);\n    };\n  });\n})();\n' + safeJs + '\n<\/script>\n</body>\n</html>';
+      return '<!DOCTYPE html>\n<html lang="fa" dir="rtl">\n<head>\n<meta charset="UTF-8" />\n' + studioCsp + '\n<style>body{background:#090d16;color:#f8fafc;font-family:system-ui,sans-serif;padding:14px;margin:0;}#consoleOut{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:10px;font-family:monospace;font-size:12px;color:#38bdf8;white-space:pre-wrap;direction:ltr;text-align:left;margin-top:10px;}</style>\n</head>\n<body>\n<div id="app"></div>\n<pre id="consoleOut"></pre>\n<script>\n(function(){\n  var out = document.getElementById("consoleOut");\n  function fmtArg(x) {\n    if (typeof x !== "object" || x === null) return String(x);\n    try {\n      var seen = new WeakSet();\n      return JSON.stringify(x, function(k, v) {\n        if (typeof v === "object" && v !== null) {\n          if (seen.has(v)) return "[Circular]";\n          seen.add(v);\n        }\n        return v;\n      }, 2);\n    } catch (e) { return String(x); }\n  }\n  ["log", "info", "warn", "error"].forEach(function(lvl) {\n    var orig = console[lvl];\n    console[lvl] = function() {\n      var prefix = lvl === "log" ? "" : "[" + lvl.toUpperCase() + "] ";\n      var msg = prefix + Array.prototype.slice.call(arguments).map(fmtArg).join(" ");\n      if (out) out.textContent += (out.textContent ? "\\n" : "") + msg;\n      if (orig) orig.apply(console, arguments);\n    };\n  });\n})();\n' + safeJs + '\n<\/script>\n</body>\n</html>';
     }
 
 
@@ -18021,15 +18058,22 @@ body > header,
         window._phase3RunPreviewHooked = true;
         window.runStudioLivePreview = function() {
           syncPhase3StudioEditorAndState(false);
+          const frame = document.getElementById('studioPreviewFrame');
+          const allowScripts = isPreviewScriptsAllowed();
+          if (frame) {
+            frame.setAttribute('sandbox', allowScripts ? 'allow-scripts' : '');
+            const toggle = document.getElementById('allowPreviewScriptsToggle');
+            if (toggle) toggle.checked = allowScripts;
+          }
           const res = origRunPreview();
           try {
-            const frame = document.getElementById('studioPreviewFrame');
             if (frame && typeof frame.srcdoc === 'string' && !frame.srcdoc.includes('__NEXUS_SBX__:')) {
               const poly = buildSandboxStorageAndModalPolyfillScript();
+              const cspMeta = '<meta http-equiv="Content-Security-Policy" content="connect-src \'none\'; form-action \'none\'; object-src \'none\'; base-uri \'none\';" />\n';
               if (/<head[^>]*>/i.test(frame.srcdoc)) {
-                frame.srcdoc = frame.srcdoc.replace(/<head[^>]*>/i, m => m + poly);
+                frame.srcdoc = frame.srcdoc.replace(/<head[^>]*>/i, m => m + '\n' + cspMeta + poly);
               } else {
-                frame.srcdoc = poly + frame.srcdoc;
+                frame.srcdoc = `<head>\n${cspMeta}</head>\n` + poly + frame.srcdoc;
               }
             }
           } catch (e) {}
@@ -18458,8 +18502,11 @@ body > header,
       if (!studioView || !tabBar) return false;
       if (!tabBar.id) tabBar.id = 'studioTabsBar';
       const previewFrame = document.getElementById('studioPreviewFrame');
-      // Keep the preview isolated: scripts run, but cannot reach the host DOM/storage.
-      if (previewFrame && previewFrame.getAttribute('sandbox') !== 'allow-scripts') previewFrame.setAttribute('sandbox', 'allow-scripts');
+      // P2-06: By default, keep preview scripts disabled / sandboxed without allow-scripts unless explicitly enabled
+      const allowScripts = isPreviewScriptsAllowed();
+      if (previewFrame) previewFrame.setAttribute('sandbox', allowScripts ? 'allow-scripts' : '');
+      const toggle = document.getElementById('allowPreviewScriptsToggle');
+      if (toggle) toggle.checked = allowScripts;
       const initEd = document.getElementById('studioCodeEditor');
       if (initEd) {
         if (!initEd._phase3InputBound) {
@@ -20706,6 +20753,12 @@ body > header,
       saveState();
       const frame = document.getElementById('studioPreviewFrame');
       if (!frame) return;
+      // P2-06: Keep preview scripts disabled / sandboxed without allow-scripts unless user explicitly enables
+      const allowScripts = isPreviewScriptsAllowed();
+      frame.setAttribute('sandbox', allowScripts ? 'allow-scripts' : '');
+      const toggle = document.getElementById('allowPreviewScriptsToggle');
+      if (toggle) toggle.checked = allowScripts;
+
       // Reset previous error state before running fresh preview
       uiState.lastStudioErrorText = '';
       const st = document.getElementById('studioErrorStatus');
@@ -20742,7 +20795,8 @@ body > header,
       const rawCode = String(appState.studioCode || '');
       // Compose the storage/modal polyfill BEFORE the one navigation.
       // The legacy wrapper sees its marker and does not navigate a second time.
-      const cspMeta = '<meta http-equiv="Content-Security-Policy" content="object-src \'none\'; base-uri \'none\'; form-action \'none\';" />\n';
+      // P2-06: Lock down srcdoc CSP: connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none';
+      const cspMeta = '<meta http-equiv="Content-Security-Policy" content="connect-src \'none\'; form-action \'none\'; object-src \'none\'; base-uri \'none\';" />\n';
       const previewPrefix = cspMeta + buildSandboxStorageAndModalPolyfillScript() + errorHook;
       if (/<head[^>]*>/i.test(rawCode)) {
         frame.srcdoc = rawCode.replace(/<head[^>]*>/i, match => match + previewPrefix);
@@ -27515,7 +27569,7 @@ if (typeof document !== 'undefined') {
         };
       }
 
-      return await fetchWithPhase5Timeout(url, options, timeoutMs, externalController);
+      return await fetchWithPhase5Timeout(url, Object.assign({}, options, { isBridgeRequest: true, skipSsrfCheck: true }), timeoutMs, externalController);
     }
 
 
@@ -27776,7 +27830,16 @@ if (typeof document !== 'undefined') {
 
 
       try {
-        const mergedOptions = stageController ? Object.assign({}, options, { signal: stageController.signal }) : options;
+        if (!options?.isBridgeRequest && !options?.skipSsrfCheck && typeof evaluateBrowserDomainPolicy === 'function') {
+          const prePolicyCheck = evaluateBrowserDomainPolicy(url);
+          if (prePolicyCheck && prePolicyCheck.blocked) {
+            cleanupTimerAndListener();
+            throw new Error(`SSRF_BLOCKED: ${prePolicyCheck.reason}`);
+          }
+        }
+        const mergedOptions = stageController
+          ? Object.assign({}, options, { redirect: 'error', signal: stageController.signal })
+          : Object.assign({}, options, { redirect: 'error' });
         const res = await fetch(url, mergedOptions);
         if (res && typeof res === 'object') {
           res._cleanupPhase5 = cleanupTimerAndListener;
@@ -28506,6 +28569,7 @@ if (typeof document !== 'undefined') {
 
       if (
         h === 'localhost' ||
+        h === '169.254.169.254' ||
         h.endsWith('.localhost') ||
         h.endsWith('.local') ||
         h.endsWith('.internal') ||
@@ -28563,8 +28627,11 @@ if (typeof document !== 'undefined') {
         /^2001:(?:0?:|db8:|2:)/i.test(h) ||
         /^100::/i.test(h) ||
         /^f[cd][0-9a-f]{2}:/i.test(h) ||
-        /^fe[89ab][0-9a-f]:/i.test(h) ||
-        /^ff[0-9a-f]{2}:/i.test(h)
+        /^fe[89ab]/i.test(h) ||
+        /^ff[0-9a-f]{2}:/i.test(h) ||
+        /^ff[0-9a-f]{1,4}::?/i.test(h) ||
+        /^0*(?::0*)*:0*1$/i.test(h) ||
+        /^0*(?::0*)*$/i.test(h)
       ) {
         return true;
       }
@@ -28576,7 +28643,7 @@ if (typeof document !== 'undefined') {
 
 
       // مسدودسازی آدرس‌های دامنه دارای IP داخلی تعبیه‌شده (DNS Rebinding مانند 192-168-1-1.example.com یا 127.0.0.1.xip.io)
-      if (/(?:^|[.-])(?:127\.0\.0\.1|169\.254\.169\.254|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127-0-0-1|169-254-169-254)(?:$|[.-])/i.test(h)) {
+      if (/(?:^|[.-])(?:127\.0\.0\.1|169\.254\.169\.254|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|127-0-0-1|169-254-169-254|fe80)(?:$|[.-])/i.test(h)) {
         return true;
       }
 
@@ -28589,7 +28656,7 @@ if (typeof document !== 'undefined') {
         }
         const nums = octets.map(Number);
         if (nums.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-        const [a, b, c] = nums;
+        const [a, b, c, d] = nums;
         if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
         if (a === 169 && b === 254) return true;
         if (a === 192 && b === 168) return true;
@@ -28598,6 +28665,7 @@ if (typeof document !== 'undefined') {
         if (a === 100 && b >= 64 && b <= 127) return true;
         if (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) return true;
         if (a === 203 && b === 0 && c === 113) return true;
+        if (d === 255 || (a === 255 && b === 255 && c === 255 && d === 255)) return true;
       }
       return false;
     }
@@ -28784,6 +28852,10 @@ if (typeof document !== 'undefined') {
 
     async function fetchPageWithMultiStageFallback(cleanTarget, abortController, options = {}) {
       ensurePhase5State();
+      const initialPolicyCheck = evaluateBrowserDomainPolicy(cleanTarget);
+      if (initialPolicyCheck.blocked) {
+        throw new Error(`SSRF_BLOCKED: ${initialPolicyCheck.reason}`);
+      }
       const preferRawDom = Boolean(options && options.preferRawDom);
       const isCloudIsolatedMode = appState.browserConfig.mode === 'cloud_datacenter';
       const canUseThirdPartyProxy = isUrlSafeForThirdPartyProxy(cleanTarget);
@@ -28804,11 +28876,16 @@ if (typeof document !== 'undefined') {
 
       const tryJinaStage = async () => {
         if (!canUseThirdPartyProxy) return null;
+        const jinaPreCheck = evaluateBrowserDomainPolicy(cleanTarget);
+        if (jinaPreCheck.blocked) {
+          throw new Error(`SSRF_BLOCKED: ${jinaPreCheck.reason}`);
+        }
         try {
           const res1 = await fetchWithPhase5Timeout('https://r.jina.ai/' + cleanTarget, {
             headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
             credentials: 'omit',
-            referrerPolicy: 'no-referrer'
+            referrerPolicy: 'no-referrer',
+            redirect: 'error'
           }, getRemainingBudgetMs(8000), abortController);
           if (res1.ok) {
             const txt1 = await readBoundedResponseText(res1, PHASE5_MAX_BROWSER_BYTES);
@@ -28828,7 +28905,7 @@ if (typeof document !== 'undefined') {
             disposePhase5Response(res1);
           }
         } catch (e1) {
-          if (abortController?.signal?.aborted || String(e1?.message || '').startsWith('SSRF_REDIRECT_BLOCKED:')) throw e1;
+          if (abortController?.signal?.aborted || String(e1?.message || '').startsWith('SSRF_REDIRECT_BLOCKED:') || String(e1?.message || '').startsWith('SSRF_BLOCKED:')) throw e1;
         }
         return null;
       };
@@ -28837,11 +28914,16 @@ if (typeof document !== 'undefined') {
       const tryDirectCorsStage = async () => {
         // در حالت Cloud Browser ایزوله، درخواست مستقیم از مرورگر کاربر ارسال نمی‌شود تا IP و نشست کاربر ایزوله بماند
         if (isCloudIsolatedMode && canUseThirdPartyProxy) return null;
+        const directPreCheck = evaluateBrowserDomainPolicy(cleanTarget);
+        if (directPreCheck.blocked) {
+          throw new Error(`SSRF_BLOCKED: ${directPreCheck.reason}`);
+        }
         try {
           const res2 = await fetchWithPhase5Timeout(cleanTarget, {
             headers: { 'Accept': 'text/html,application/json,text/plain,*/*' },
             credentials: isCloudIsolatedMode ? 'omit' : 'same-origin',
-            referrerPolicy: 'no-referrer'
+            referrerPolicy: 'no-referrer',
+            redirect: 'error'
           }, getRemainingBudgetMs(5500), abortController);
           if (res2.url && res2.url !== cleanTarget) {
             const redirectCheck = evaluateBrowserDomainPolicy(res2.url);
@@ -28867,7 +28949,7 @@ if (typeof document !== 'undefined') {
             disposePhase5Response(res2);
           }
         } catch (e2) {
-          if (abortController?.signal?.aborted || String(e2?.message || '').startsWith('SSRF_REDIRECT_BLOCKED:')) throw e2;
+          if (abortController?.signal?.aborted || String(e2?.message || '').startsWith('SSRF_REDIRECT_BLOCKED:') || String(e2?.message || '').startsWith('SSRF_BLOCKED:')) throw e2;
         }
         return null;
       };
@@ -28880,10 +28962,15 @@ if (typeof document !== 'undefined') {
           }
           return null;
         }
+        const proxyPreCheck = evaluateBrowserDomainPolicy(cleanTarget);
+        if (proxyPreCheck.blocked) {
+          throw new Error(`SSRF_BLOCKED: ${proxyPreCheck.reason}`);
+        }
         try {
           const res3 = await fetchWithPhase5Timeout('https://api.allorigins.win/raw?url=' + encodeURIComponent(cleanTarget), {
             credentials: 'omit',
-            referrerPolicy: 'no-referrer'
+            referrerPolicy: 'no-referrer',
+            redirect: 'error'
           }, getRemainingBudgetMs(6500), abortController);
           if (res3.url && !res3.url.includes('api.allorigins.win')) {
             const redirectCheck3 = evaluateBrowserDomainPolicy(res3.url);

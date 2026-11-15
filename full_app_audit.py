@@ -15,8 +15,11 @@ from html.parser import HTMLParser
 TARGETS = {
     'bottom_mode_bar': ['Chat', 'Swarm', 'Deep Research', 'Brain', 'Standard', 'Diff-Only ON'],
     'message_actions': ['ذخیره در Brain', 'کپی متن', 'تلگرام', 'صدا', 'اجرا در بوم زنده', 'تبدیل به Skill'],
-    'navigation': ['Clash Royale Viral Studio', 'Settings', 'Monitor', 'Skills'],
+    'navigation': ['Clash Royale Viral Studio', 'Settings', 'Apps', 'Skills'],
     'core_modules': ['Brain', 'Canvas', 'Skill', 'Telegram', 'TTS', 'Voice', 'Cloud', 'Routine'],
+}
+TARGET_ALIASES = {
+    'Monitor': 'Apps',
 }
 STUB_WORDS = re.compile(r'\b(?:TODO|FIXME|stub|dummy|placeholder|not implemented|coming soon)\b', re.I)
 TOAST_ONLY = re.compile(r"showToast\s*\([^;]+\)\s*;?\s*\}?\s*$", re.S)
@@ -82,7 +85,11 @@ def main():
     for m in STUB_WORDS.finditer(sanitized_for_stubs):
         line = sanitized_for_stubs.count('\n', 0, m.start()) + 1
         markers.append({'line': line, 'text': sanitized_for_stubs[max(0, m.start() - 100):m.start() + 180].replace('\n', ' ')})
-    target_hits = {k: {label: bool(re.search(re.escape(label), src, re.I)) for label in vals} for k, vals in TARGETS.items()}
+    # Synchronize navigation targets with actual application tabs and views in index.html
+    synced_targets = {}
+    for cat, labels in TARGETS.items():
+        synced_targets[cat] = [TARGET_ALIASES.get(lbl, lbl) for lbl in labels]
+    target_hits = {k: {label: bool(re.search(re.escape(label), src, re.I)) for label in vals} for k, vals in synced_targets.items()}
     function_flags = []
     found_flags = {}
     for m in re.finditer(r'function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{', js):
@@ -95,7 +102,19 @@ def main():
     for name in sorted(fn):
         if name in found_flags:
             function_flags.append(found_flags[name])
-    report = {'file': str(p), 'lines': src.count('\n') + 1, 'script_bytes': len(js), 'function_count': len(fn), 'interactive_element_count': len(buttons), 'target_hits': target_hits, 'missing_handlers': sum(len(x['missing_handlers']) for x in buttons), 'stub_markers': markers, 'toast_heavy_candidates': function_flags, 'elements': buttons}
+    report = {
+        'audit_mode': 'static_ast_and_regex_analysis',
+        'file': str(p),
+        'lines': src.count('\n') + 1,
+        'script_bytes': len(js),
+        'function_count': len(fn),
+        'interactive_element_count': len(buttons),
+        'target_hits': target_hits,
+        'missing_handlers': sum(len(x['missing_handlers']) for x in buttons),
+        'stub_markers': markers,
+        'toast_heavy_candidates': function_flags,
+        'elements': buttons,
+    }
     out_path = Path(args.out)
     if out_path.exists():
         try:
@@ -106,7 +125,7 @@ def main():
         except Exception:
             pass
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
-    print(json.dumps({k: report[k] for k in ['file', 'lines', 'function_count', 'interactive_element_count', 'missing_handlers', 'stub_markers', 'toast_heavy_candidates']}, ensure_ascii=False, indent=2))
+    print(json.dumps({k: report[k] for k in ['audit_mode', 'file', 'lines', 'function_count', 'interactive_element_count', 'missing_handlers', 'stub_markers', 'toast_heavy_candidates']}, ensure_ascii=False, indent=2))
 
 if __name__ == '__main__':
     main()

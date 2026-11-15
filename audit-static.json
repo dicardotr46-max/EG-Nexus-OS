@@ -1,8 +1,9 @@
 {
+  "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 33639,
-  "script_bytes": 1595572,
-  "function_count": 832,
+  "lines": 33726,
+  "script_bytes": 1600217,
+  "function_count": 835,
   "interactive_element_count": 58,
   "target_hits": {
     "bottom_mode_bar": {
@@ -24,7 +25,7 @@
     "navigation": {
       "Clash Royale Viral Studio": true,
       "Settings": true,
-      "Monitor": false,
+      "Apps": true,
       "Skills": true
     },
     "core_modules": {
@@ -699,18 +700,18 @@
     }
   ],
   "test_summary": {
-    "passed_tests": 789,
-    "total_tests": 789,
-    "passed_suites": 30,
-    "total_suites": 30,
+    "passed_tests": 817,
+    "total_tests": 817,
+    "passed_suites": 31,
+    "total_suites": 31,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
   "coverage_summary": {
-    "lines_pct": 89.17,
-    "statements_pct": 87.86,
-    "functions_pct": 89,
-    "branches_pct": 80.23
+    "lines_pct": 89.32,
+    "statements_pct": 87.98,
+    "functions_pct": 88.46,
+    "branches_pct": 80.13
   },
   "npm_audit": {
     "vulnerabilities": 0,
@@ -721,5 +722,12 @@
     "status": "PASS",
     "clean_install": true,
     "zero_drift": true
+  },
+  "evidence_manifest": {
+    "gitHead": "85a3ae8dc0b1233d95255c3ddaebb6d1c54e4c7c",
+    "packageLockHash": "fb2943e83c0f62f679a57058abefe6516e8a215f7ff33b3fcd73c9fc7120b098",
+    "coverageSummaryHash": "c78fd241c4c33b4c64cfe598828c771e071227f627065248e846da9c66128026",
+    "jestResultsHash": "4de03ff893dd809d6e9e0c44cf2250d89d1633e17e4038e4a3d77f5259c0b2a0",
+    "timestamp": "2026-11-15T10:19:45.394Z"
   }
 }

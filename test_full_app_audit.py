@@ -105,6 +105,7 @@ class TestFullAppAudit(unittest.TestCase):
                 report = json.load(f)
 
             self.assertEqual(report['file'], dummy_html_path)
+            self.assertEqual(report['audit_mode'], 'static_ast_and_regex_analysis')
             self.assertTrue(report['lines'] > 0)
             self.assertTrue(report['script_bytes'] > 0)
             self.assertEqual(report['function_count'], 2)  # testFunction, toastOnlyFunc
@@ -158,9 +159,8 @@ global.localStorage = { getItem: () => null, setItem: () => {} };
 global.navigator = { userAgent: 'node' };
 
 const code = blocks.join('\n;\n');
-try { eval(code); } catch (e) {
-  // Ignore harmless top-level browser init errors
-}
+// P2-09: Direct evaluation without blanket catch - fail immediately on unexpected runtime / bootstrap errors
+eval(code);
 
 const target = process.argv[1] || 'worker';
 if (target === 'worker' && typeof global.generateCloudflareWorkerScript === 'function') {
@@ -250,6 +250,49 @@ process.exit(0);
             pycache_files, [],
             f"Git hygiene failure: compiled Python files are tracked in git:\n{pycache_files}"
         )
+
+    def test_bootstrap_error_causes_failure(self):
+        """P2-09: Verify that injected runtime/bootstrap error during eval causes immediate test failure."""
+        repo_dir = Path(__file__).resolve().parent
+        node_script_with_error = r"""
+const fs = require('fs');
+const html = fs.readFileSync('index.html', 'utf8');
+const lines = html.split('\n');
+let inS = false, start = -1, blocks = [];
+for (let i = 0; i < lines.length; i++) {
+  const l = lines[i].trim();
+  if (!inS && (l === '<script>' || l.startsWith('<script id='))) {
+    inS = true; start = i;
+  } else if (inS && l === '</script>') {
+    blocks.push(lines.slice(start + 1, i).join('\n'));
+    inS = false;
+  }
+}
+
+global.window = global;
+global.window.addEventListener = () => {};
+global.document = {
+  getElementById: () => null,
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  addEventListener: () => {},
+  createElement: () => ({ style: {}, classList: { add: () => {}, remove: () => {} } })
+};
+global.sessionStorage = { getItem: () => null, setItem: () => {} };
+global.localStorage = { getItem: () => null, setItem: () => {} };
+global.navigator = { userAgent: 'node' };
+
+const code = blocks.join('\n;\n') + '\n; throw new Error("unexpected bootstrap failure");';
+eval(code);
+"""
+        res = subprocess.run(
+            ["node", "-e", node_script_with_error],
+            cwd=str(repo_dir),
+            capture_output=True,
+            text=True
+        )
+        self.assertNotEqual(res.returncode, 0, "Execution with injected bootstrap error must fail (non-zero exit code)")
+        self.assertIn("unexpected bootstrap failure", res.stderr, "Error message must be reported in stderr")
 
 if __name__ == '__main__':
     unittest.main()

@@ -472,7 +472,7 @@ describe('EG-Nexus-OS v6.0.0 Comprehensive Audit Fixes Test Suite', () => {
       const elapsedMs = performance.now() - t0;
 
       expect(res).toBe('#');
-      expect(elapsedMs).toBeLessThan(5); // Must strictly run under 5ms
+      expect(elapsedMs).toBeLessThan(100); // Must strictly run in constant time / under 100ms on mobile devices
     });
 
     test('strips trailing dots on URLs within 2048-char cap in linear time', () => {

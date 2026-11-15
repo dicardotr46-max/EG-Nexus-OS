@@ -634,14 +634,18 @@ describe('Coverage Boost Suite', () => {
 
     test('readSessionSecrets returns cached secrets directly when initialized', () => {
       secrets._resetSessionMemoryCache();
-      const mockStorage = {
-        getItem: () => JSON.stringify({
+      const storeData = {
+        [secrets.SESSION_SECRETS_KEY]: JSON.stringify({
           encrypted: false,
           initialized: true,
+          legacyMigration: true,
           apiKeys: { gemini: 'cached_test_key' }
-        }),
-        setItem: () => {},
-        removeItem: () => {}
+        })
+      };
+      const mockStorage = {
+        getItem: (k) => storeData[k] || null,
+        setItem: (k, v) => { storeData[k] = String(v); },
+        removeItem: (k) => { delete storeData[k]; }
       };
 
       // First read caches it
@@ -950,6 +954,7 @@ describe('Coverage Boost Suite', () => {
       expect(secrets.getKeystoreBackend()).toBe('NodeCrypto');
 
       // IndexedDB-WebCrypto backend
+      const origGetNodeCrypto = secrets._getNodeCrypto;
       secrets._getNodeCrypto = null;
       const origCrypto = global.crypto;
       if (!global.crypto) global.crypto = {};
@@ -965,7 +970,7 @@ describe('Coverage Boost Suite', () => {
       // Restore crypto
       Object.defineProperty(global, 'crypto', { value: origGlobalCrypto, configurable: true, writable: true });
       if (origCrypto) global.crypto = origCrypto;
-      secrets._getNodeCrypto = secrets._getNodeCrypto; // restore
+      secrets._getNodeCrypto = origGetNodeCrypto; // restore
       if (origNativeKs) global.window.NexusKeystoreNative = origNativeKs;
 
       // 3. Property accessors on empty secrets structure
@@ -1003,6 +1008,7 @@ describe('Coverage Boost Suite', () => {
       memStore[secretsKey] = JSON.stringify({
         encrypted: false,
         version: 1,
+        legacyMigration: true,
         botToken: 'migrated_plain_bot_token',
         geminiApiKey: 'migrated_gemini_key'
       });

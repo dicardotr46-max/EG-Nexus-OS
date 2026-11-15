@@ -16,6 +16,8 @@ import android.util.Base64;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Arrays;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -52,6 +54,63 @@ public class NexusKeystorePlugin extends Plugin {
     public static final String STATE_DELETE_OLD_KEYS = "DELETE_OLD_KEYS";
 
     private String memoryJournalState = null;
+
+    // One-Time Native Capability Bridge & Transaction Tokens
+    private String mActiveSessionBridgeToken = null;
+    private String mPendingMigrationTxToken = null;
+    private String mExpectedV2CiphertextHash = null;
+    private String mExpectedV2CiphertextHashAlt = null;
+    private String mPendingV2Ciphertext = null;
+    private String mPendingV2Iv = null;
+    private String mPendingV2Aad = null;
+
+    /**
+     * Initializes one-time native vault session bridge token.
+     * Can only be initialized once during application lifecycle (or resets if explicitly cleared).
+     */
+    @PluginMethod
+    public synchronized void initNativeVaultSession(PluginCall call) {
+        if (mActiveSessionBridgeToken == null || Boolean.TRUE.equals(call.getBoolean("forceReset", false))) {
+            byte[] tokenBytes = new byte[32];
+            new SecureRandom().nextBytes(tokenBytes);
+            StringBuilder sb = new StringBuilder();
+            for (byte b : tokenBytes) {
+                sb.append(String.format("%02x", b));
+            }
+            mActiveSessionBridgeToken = sb.toString();
+        }
+        JSObject ret = new JSObject();
+        ret.put("sessionBridgeToken", mActiveSessionBridgeToken);
+        call.resolve(ret);
+    }
+
+    /**
+     * Resets or clears the active native vault session bridge token.
+     */
+    @PluginMethod
+    public synchronized void clearNativeVaultSession(PluginCall call) {
+        mActiveSessionBridgeToken = null;
+        mPendingMigrationTxToken = null;
+        mExpectedV2CiphertextHash = null;
+        mExpectedV2CiphertextHashAlt = null;
+        mPendingV2Ciphertext = null;
+        mPendingV2Iv = null;
+        mPendingV2Aad = null;
+        JSObject ret = new JSObject();
+        ret.put("cleared", true);
+        call.resolve(ret);
+    }
+
+    /**
+     * Validates incoming call against the active session capability bridge token.
+     */
+    private synchronized boolean validateSessionBridgeToken(PluginCall call) {
+        if (mActiveSessionBridgeToken == null || mActiveSessionBridgeToken.isEmpty()) {
+            return false;
+        }
+        String token = call.getString("sessionBridgeToken");
+        return token != null && mActiveSessionBridgeToken.equals(token);
+    }
 
     @Override
     public void load() {
@@ -346,6 +405,10 @@ public class NexusKeystorePlugin extends Plugin {
      */
     @PluginMethod
     public synchronized void migrateKeyToStrongBox(PluginCall call) {
+        if (!validateSessionBridgeToken(call)) {
+            call.reject("NATIVE_AUTH_REQUIRED: Missing or invalid native bridge capability token");
+            return;
+        }
         JSObject ret = new JSObject();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             ret.put("migrated", false);
@@ -437,8 +500,40 @@ public class NexusKeystorePlugin extends Plugin {
                 assertValidTransition(getJournalState(keyStore), STATE_V2_DATA_VERIFIED);
                 setJournalState(STATE_V2_DATA_VERIFIED);
 
-                ret.put("newCiphertext", Base64.encodeToString(newCiphertext, Base64.NO_WRAP));
-                ret.put("newIv", Base64.encodeToString(newIv, Base64.NO_WRAP));
+                // Generate one-time migration transaction token tied to SHA-256 of V2 ciphertext
+                byte[] txBytes = new byte[32];
+                new SecureRandom().nextBytes(txBytes);
+                StringBuilder sbTx = new StringBuilder();
+                for (byte b : txBytes) {
+                    sbTx.append(String.format("%02x", b));
+                }
+                mPendingMigrationTxToken = sbTx.toString();
+
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                byte[] hashBytes = md.digest(newCiphertext);
+                StringBuilder sbHash = new StringBuilder();
+                for (byte b : hashBytes) {
+                    sbHash.append(String.format("%02x", b));
+                }
+                mExpectedV2CiphertextHash = sbHash.toString();
+
+                String newCiphertextB64 = Base64.encodeToString(newCiphertext, Base64.NO_WRAP);
+                String newIvB64 = Base64.encodeToString(newIv, Base64.NO_WRAP);
+                byte[] b64HashBytes = md.digest(newCiphertextB64.getBytes(StandardCharsets.UTF_8));
+                StringBuilder sbB64 = new StringBuilder();
+                for (byte b : b64HashBytes) {
+                    sbB64.append(String.format("%02x", b));
+                }
+                mExpectedV2CiphertextHashAlt = sbB64.toString();
+
+                mPendingV2Ciphertext = newCiphertextB64;
+                mPendingV2Iv = newIvB64;
+                mPendingV2Aad = aad;
+
+                ret.put("newCiphertext", newCiphertextB64);
+                ret.put("newIv", newIvB64);
+                ret.put("migrationTxToken", mPendingMigrationTxToken);
+                ret.put("v2CiphertextHash", mExpectedV2CiphertextHash);
                 if (aad != null) {
                     ret.put("aad", aad);
                 }
@@ -461,6 +556,38 @@ public class NexusKeystorePlugin extends Plugin {
 
                 assertValidTransition(getJournalState(keyStore), STATE_V2_DATA_VERIFIED);
                 setJournalState(STATE_V2_DATA_VERIFIED);
+
+                byte[] txBytes = new byte[32];
+                new SecureRandom().nextBytes(txBytes);
+                StringBuilder sbTx = new StringBuilder();
+                for (byte b : txBytes) {
+                    sbTx.append(String.format("%02x", b));
+                }
+                mPendingMigrationTxToken = sbTx.toString();
+
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                byte[] hashBytes = md.digest(tCt);
+                StringBuilder sbHash = new StringBuilder();
+                for (byte b : hashBytes) {
+                    sbHash.append(String.format("%02x", b));
+                }
+                mExpectedV2CiphertextHash = sbHash.toString();
+
+                String tCtB64 = Base64.encodeToString(tCt, Base64.NO_WRAP);
+                String tIvB64 = Base64.encodeToString(tIv, Base64.NO_WRAP);
+                byte[] b64HashBytes = md.digest(tCtB64.getBytes(StandardCharsets.UTF_8));
+                StringBuilder sbB64 = new StringBuilder();
+                for (byte b : b64HashBytes) {
+                    sbB64.append(String.format("%02x", b));
+                }
+                mExpectedV2CiphertextHashAlt = sbB64.toString();
+
+                mPendingV2Ciphertext = tCtB64;
+                mPendingV2Iv = tIvB64;
+                mPendingV2Aad = null;
+
+                ret.put("migrationTxToken", mPendingMigrationTxToken);
+                ret.put("v2CiphertextHash", mExpectedV2CiphertextHash);
             }
 
             JSObject newSec = inspectKeySecurity(newStrongBoxKey);
@@ -480,6 +607,12 @@ public class NexusKeystorePlugin extends Plugin {
                 } catch (Exception ignored) {}
             }
             setJournalState(STATE_ACTIVE_V1);
+            mPendingMigrationTxToken = null;
+            mExpectedV2CiphertextHash = null;
+            mExpectedV2CiphertextHashAlt = null;
+            mPendingV2Ciphertext = null;
+            mPendingV2Iv = null;
+            mPendingV2Aad = null;
             ret.put("migrated", false);
             ret.put("journalState", STATE_ACTIVE_V1);
             ret.put("error", "StrongBox migration failed: " + e.getMessage());
@@ -490,11 +623,16 @@ public class NexusKeystorePlugin extends Plugin {
     /**
      * Commits the key migration by advancing journal to STORAGE_COMMITTED,
      * then ACTIVE_V2, and purging old keys.
-     * KEY_ALIAS_V1 is ONLY deleted when explicitly requested with stage 'ACTIVE_V2'
-     * and mainStorageVerified is true.
+     * KEY_ALIAS_V1 is ONLY deleted when explicitly requested with stage 'ACTIVE_V2',
+     * mainStorageVerified is true, valid migrationTxToken & v2CiphertextHash are provided,
+     * and Java can successfully decrypt the V2 ciphertext before deleting V1!
      */
     @PluginMethod
     public synchronized void commitKeyMigration(PluginCall call) {
+        if (!validateSessionBridgeToken(call)) {
+            call.reject("NATIVE_AUTH_REQUIRED: Missing or invalid native bridge capability token");
+            return;
+        }
         JSObject ret = new JSObject();
         try {
             KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
@@ -504,7 +642,8 @@ public class NexusKeystorePlugin extends Plugin {
 
             if (STATE_STORAGE_COMMITTED.equals(stage)) {
                 if (!STATE_V2_DATA_VERIFIED.equals(currentState)) {
-                    throw new IllegalStateException("Invalid migration transition to STORAGE_COMMITTED from " + currentState);
+                    call.reject("Invalid migration transition to STORAGE_COMMITTED from " + currentState);
+                    return;
                 }
                 assertValidTransition(currentState, STATE_STORAGE_COMMITTED);
                 setJournalState(STATE_STORAGE_COMMITTED);
@@ -516,13 +655,63 @@ public class NexusKeystorePlugin extends Plugin {
             }
 
             if (STATE_ACTIVE_V2.equals(stage)) {
+                // Verify migrationTxToken and v2CiphertextHash capability tokens
+                String migrationTxToken = call.getString("migrationTxToken");
+                String v2CiphertextHash = call.getString("v2CiphertextHash");
+
+                if (migrationTxToken == null || mPendingMigrationTxToken == null || !mPendingMigrationTxToken.equals(migrationTxToken)) {
+                    call.reject("MIGRATION_COMMIT_FAILED: Missing or invalid migration transaction capability token");
+                    return;
+                }
+
+                if (v2CiphertextHash == null || mExpectedV2CiphertextHash == null
+                        || (!mExpectedV2CiphertextHash.equalsIgnoreCase(v2CiphertextHash)
+                            && (mExpectedV2CiphertextHashAlt == null || !mExpectedV2CiphertextHashAlt.equalsIgnoreCase(v2CiphertextHash)))) {
+                    call.reject("MIGRATION_COMMIT_FAILED: Missing or mismatched V2 ciphertext integrity hash");
+                    return;
+                }
+
                 Boolean mainStorageVerified = call.getBoolean("mainStorageVerified");
                 if (mainStorageVerified == null || !mainStorageVerified) {
-                    throw new IllegalStateException("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true and current state must be STORAGE_COMMITTED to reach ACTIVE_V2 and delete KEY_ALIAS_V1");
+                    call.reject("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true and current state must be STORAGE_COMMITTED to reach ACTIVE_V2 and delete KEY_ALIAS_V1");
+                    return;
                 }
                 if (!STATE_STORAGE_COMMITTED.equals(currentState)) {
-                    throw new IllegalStateException("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true and current state must be STORAGE_COMMITTED to reach ACTIVE_V2 (was: " + currentState + ")");
+                    call.reject("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true and current state must be STORAGE_COMMITTED to reach ACTIVE_V2 (was: " + currentState + ")");
+                    return;
                 }
+
+                // Verify that Java can successfully decrypt the V2 ciphertext before deleting V1!
+                String ctToVerify = call.getString("v2Ciphertext", call.getString("ciphertext", mPendingV2Ciphertext));
+                String ivToVerify = call.getString("v2Iv", call.getString("iv", mPendingV2Iv));
+                String aadToVerify = call.getString("aad", mPendingV2Aad);
+
+                if (ctToVerify == null || ivToVerify == null) {
+                    call.reject("MIGRATION_COMMIT_FAILED: Missing V2 ciphertext or IV for decryption verification");
+                    return;
+                }
+
+                if (!keyStore.containsAlias(KEY_ALIAS_STRONGBOX_V2)) {
+                    call.reject("MIGRATION_COMMIT_FAILED: StrongBox V2 key not found in keystore");
+                    return;
+                }
+
+                SecretKey sbKey = (SecretKey) keyStore.getKey(KEY_ALIAS_STRONGBOX_V2, null);
+                Cipher verifyCipher = Cipher.getInstance(TRANSFORMATION);
+                byte[] ivBytes = Base64.decode(ivToVerify, Base64.NO_WRAP);
+                byte[] ctBytes = Base64.decode(ctToVerify, Base64.NO_WRAP);
+                GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, ivBytes);
+                verifyCipher.init(Cipher.DECRYPT_MODE, sbKey, spec);
+                if (aadToVerify != null && !aadToVerify.isEmpty()) {
+                    verifyCipher.updateAAD(aadToVerify.getBytes(StandardCharsets.UTF_8));
+                }
+                byte[] decrypted = verifyCipher.doFinal(ctBytes);
+                if (decrypted == null || decrypted.length == 0) {
+                    call.reject("MIGRATION_COMMIT_FAILED: StrongBox V2 test decryption failed or produced empty plaintext");
+                    return;
+                }
+
+                // All validations passed! Advance to ACTIVE_V2 and delete old keys
                 assertValidTransition(currentState, STATE_ACTIVE_V2);
                 setJournalState(STATE_ACTIVE_V2);
                 boolean deletedOld = false;
@@ -536,6 +725,15 @@ public class NexusKeystorePlugin extends Plugin {
                         deletedOld = true;
                     }
                 }
+
+                // Invalidate single-use transaction token and pending migration buffers
+                mPendingMigrationTxToken = null;
+                mExpectedV2CiphertextHash = null;
+                mExpectedV2CiphertextHashAlt = null;
+                mPendingV2Ciphertext = null;
+                mPendingV2Iv = null;
+                mPendingV2Aad = null;
+
                 ret.put("committed", true);
                 ret.put("deletedOldKeys", deletedOld);
                 ret.put("activeAlias", KEY_ALIAS_STRONGBOX_V2);
@@ -556,13 +754,15 @@ public class NexusKeystorePlugin extends Plugin {
                 } else if (STATE_STORAGE_COMMITTED.equals(currentState)) {
                     Boolean mainStorageVerified = call.getBoolean("mainStorageVerified");
                     if (mainStorageVerified == null || !mainStorageVerified) {
-                        throw new IllegalStateException("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true to reach ACTIVE_V2 and delete KEY_ALIAS_V1");
+                        call.reject("MIGRATION_COMMIT_FAILED: mainStorageVerified must be true to reach ACTIVE_V2 and delete KEY_ALIAS_V1");
+                        return;
                     }
-                    throw new IllegalStateException("MIGRATION_COMMIT_FAILED: stage must be explicitly 'ACTIVE_V2' and mainStorageVerified must be true to delete KEY_ALIAS_V1");
+                    call.reject("MIGRATION_COMMIT_FAILED: stage must be explicitly 'ACTIVE_V2' and include valid migrationTxToken & v2CiphertextHash to delete KEY_ALIAS_V1");
+                    return;
                 }
             }
 
-            throw new IllegalStateException("MIGRATION_COMMIT_FAILED: invalid migration commit request for stage " + stage + " at current state " + currentState);
+            call.reject("MIGRATION_COMMIT_FAILED: invalid migration commit request for stage " + stage + " at current state " + currentState);
         } catch (IllegalStateException e) {
             call.reject(e.getMessage(), e);
         } catch (Exception e) {
@@ -575,6 +775,10 @@ public class NexusKeystorePlugin extends Plugin {
      */
     @PluginMethod
     public synchronized void rollbackKeyMigration(PluginCall call) {
+        if (!validateSessionBridgeToken(call)) {
+            call.reject("NATIVE_AUTH_REQUIRED: Missing or invalid native bridge capability token");
+            return;
+        }
         JSObject ret = new JSObject();
         try {
             KeyStore keyStore = KeyStore.getInstance(ANDROID_KEYSTORE);
@@ -588,6 +792,12 @@ public class NexusKeystorePlugin extends Plugin {
                 keyStore.deleteEntry(KEY_ALIAS_STRONGBOX_V2);
             }
             setJournalState(STATE_ACTIVE_V1);
+            mPendingMigrationTxToken = null;
+            mExpectedV2CiphertextHash = null;
+            mExpectedV2CiphertextHashAlt = null;
+            mPendingV2Ciphertext = null;
+            mPendingV2Iv = null;
+            mPendingV2Aad = null;
             String activeAlias = getActiveKeyAlias(keyStore);
             ret.put("rolledBack", true);
             ret.put("activeAlias", activeAlias);
@@ -654,6 +864,10 @@ public class NexusKeystorePlugin extends Plugin {
 
     @PluginMethod
     public void encrypt(PluginCall call) {
+        if (!validateSessionBridgeToken(call)) {
+            call.reject("NATIVE_AUTH_REQUIRED: Missing or invalid native bridge capability token");
+            return;
+        }
         String plaintext = call.getString("data");
         if (plaintext == null) {
             call.reject("Data to encrypt is required");
@@ -686,6 +900,10 @@ public class NexusKeystorePlugin extends Plugin {
 
     @PluginMethod
     public void decrypt(PluginCall call) {
+        if (!validateSessionBridgeToken(call)) {
+            call.reject("NATIVE_AUTH_REQUIRED: Missing or invalid native bridge capability token");
+            return;
+        }
         String ciphertextB64 = call.getString("ciphertext");
         String ivB64 = call.getString("iv");
         if (ciphertextB64 == null || ivB64 == null) {

@@ -25,6 +25,12 @@
     if (typeof exports.getKeySecurityInfo === 'function') {
       target.getKeySecurityInfo = exports.getKeySecurityInfo;
     }
+    if (typeof exports.getSessionBridgeToken === 'function') {
+      target.getSessionBridgeToken = exports.getSessionBridgeToken;
+      target.getMigrationTxToken = exports.getMigrationTxToken;
+      target.setExplicitLegacyMigrationMode = exports.setExplicitLegacyMigrationMode;
+      target.getExplicitLegacyMigrationMode = exports.getExplicitLegacyMigrationMode;
+    }
     if (typeof exports.migrateKeyToStrongBox === 'function') {
       target.migrateKeyToStrongBox = exports.migrateKeyToStrongBox;
       target.commitKeyMigration = exports.commitKeyMigration;
@@ -445,6 +451,56 @@
     return nextPromise;
   }
 
+  let _sessionBridgeToken = null;
+  let _migrationTxToken = null;
+  let _lastV2CiphertextHash = null;
+  let _globalExplicitLegacyMigrationMode = false;
+
+  function getSessionBridgeToken() {
+    return _sessionBridgeToken;
+  }
+
+  function getMigrationTxToken() {
+    return _migrationTxToken;
+  }
+
+  function setExplicitLegacyMigrationMode(enabled) {
+    _globalExplicitLegacyMigrationMode = Boolean(enabled);
+  }
+
+  function getExplicitLegacyMigrationMode() {
+    return _globalExplicitLegacyMigrationMode;
+  }
+
+  function _computeSha256Hex(data) {
+    if (!data) return '';
+    const bytes = (data instanceof Uint8Array)
+      ? data
+      : new TextEncoder().encode(String(data));
+    return _uint8ToHex(_sha256(bytes));
+  }
+
+  async function _ensureNativeVaultSession(ks) {
+    const nativePlugin = ks || _getNativeAndroidKeystore();
+    if (!nativePlugin) return null;
+    if (_sessionBridgeToken) return _sessionBridgeToken;
+    if (typeof nativePlugin.initNativeVaultSession === 'function') {
+      try {
+        const res = await nativePlugin.initNativeVaultSession();
+        if (typeof res === 'string' && res) {
+          _sessionBridgeToken = res;
+        } else if (res && typeof res.sessionBridgeToken === 'string' && res.sessionBridgeToken) {
+          _sessionBridgeToken = res.sessionBridgeToken;
+        } else if (res && typeof res.token === 'string' && res.token) {
+          _sessionBridgeToken = res.token;
+        }
+      } catch (e) {
+        console.warn && console.warn('initNativeVaultSession failed:', e.message);
+      }
+    }
+    return _sessionBridgeToken;
+  }
+
   function _resetSessionCryptoState() {
     _sessionCryptoKey = null;
     _sessionCryptoKeyPromise = null;
@@ -461,6 +517,10 @@
     _cachedSessionSecrets = null;
     _cachedKeySecurityInfo = null;
     _commitPointPassed = false;
+    _sessionBridgeToken = null;
+    _migrationTxToken = null;
+    _lastV2CiphertextHash = null;
+    _globalExplicitLegacyMigrationMode = false;
     resetSessionWriteQueue();
   }
 
@@ -501,26 +561,43 @@
   }
 
   function _getNativeAndroidKeystore() {
+    let ks = null;
     try {
       if (typeof window !== 'undefined' && window.Capacitor?.Plugins?.NexusKeystore) {
-        return window.Capacitor.Plugins.NexusKeystore;
-      }
-      if (typeof globalThis !== 'undefined' && globalThis.Capacitor?.Plugins?.NexusKeystore) {
-        return globalThis.Capacitor.Plugins.NexusKeystore;
-      }
-      if (typeof window !== 'undefined' && window.NexusKeystoreNative) {
-        return window.NexusKeystoreNative;
-      }
-      if (typeof globalThis !== 'undefined' && globalThis.NexusKeystoreNative) {
-        return globalThis.NexusKeystoreNative;
+        ks = window.Capacitor.Plugins.NexusKeystore;
+      } else if (typeof globalThis !== 'undefined' && globalThis.Capacitor?.Plugins?.NexusKeystore) {
+        ks = globalThis.Capacitor.Plugins.NexusKeystore;
+      } else if (typeof window !== 'undefined' && window.NexusKeystoreNative) {
+        ks = window.NexusKeystoreNative;
+      } else if (typeof globalThis !== 'undefined' && globalThis.NexusKeystoreNative) {
+        ks = globalThis.NexusKeystoreNative;
       }
     } catch (_) {}
-    return null;
+    if (ks && typeof ks.initNativeVaultSession === 'function' && !_sessionBridgeToken) {
+      try {
+        const p = ks.initNativeVaultSession();
+        if (p && typeof p.then === 'function') {
+          p.then(res => {
+            if (typeof res === 'string' && res) _sessionBridgeToken = res;
+            else if (res && typeof res.sessionBridgeToken === 'string') _sessionBridgeToken = res.sessionBridgeToken;
+            else if (res && typeof res.token === 'string') _sessionBridgeToken = res.token;
+          }).catch(() => {});
+        } else if (typeof p === 'string' && p) {
+          _sessionBridgeToken = p;
+        } else if (p && typeof p.sessionBridgeToken === 'string') {
+          _sessionBridgeToken = p.sessionBridgeToken;
+        } else if (p && typeof p.token === 'string') {
+          _sessionBridgeToken = p.token;
+        }
+      } catch (_) {}
+    }
+    return ks;
   }
 
   async function isHardwareKeystoreAvailable() {
     const ks = _getNativeAndroidKeystore();
     if (!ks) return false;
+    await _ensureNativeVaultSession(ks);
     try {
       const res = await ks.isAvailable();
       if (!res || !res.available) return false;
@@ -558,6 +635,7 @@
       };
       return _cachedKeySecurityInfo;
     }
+    await _ensureNativeVaultSession(ks);
     try {
       let res;
       if (typeof ks.getKeySecurityInfo === 'function') {
@@ -596,6 +674,7 @@
     if (!ks || typeof ks.migrateKeyToStrongBox !== 'function') {
       return { migrated: false, reason: 'Native Android KeyStore StrongBox plugin not available' };
     }
+    await _ensureNativeVaultSession(ks);
     const store = _getStorage(options && (options.storage || options.store) ? (options.storage || options.store) : undefined);
     let stagingKey = null;
     let commitPointPassed = false;
@@ -629,9 +708,23 @@
         }
       }
 
+      if (_sessionBridgeToken && !payload.sessionBridgeToken) {
+        payload.sessionBridgeToken = _sessionBridgeToken;
+      }
+
       // 2PC Step a: Keep V1 data in SESSION_SECRETS_KEY (storageKey) untouched.
       // 2PC Step b: Generate V2 key in native keystore, re-encrypt payload, and verify roundtrip decryption with native keystore (journal state: V2_DATA_VERIFIED).
       const res = await ks.migrateKeyToStrongBox(payload);
+      if (res) {
+        if (typeof res.migrationTxToken === 'string' && res.migrationTxToken) {
+          _migrationTxToken = res.migrationTxToken;
+        } else if (typeof res.txToken === 'string' && res.txToken) {
+          _migrationTxToken = res.txToken;
+        }
+        if (res.newCiphertext) {
+          _lastV2CiphertextHash = _computeSha256Hex(res.newCiphertext);
+        }
+      }
       if (!res || !res.migrated) {
         if (res && res.alreadyStrongBox) {
           _cachedKeySecurityInfo = {
@@ -653,11 +746,13 @@
       // Verify roundtrip decryption with native decrypt if new ciphertext was produced
       let expectedDecryptedPlaintext = null;
       if (res.newCiphertext && res.newIv && typeof ks.decrypt === 'function') {
-        const verifyRes = await ks.decrypt({
+        const verifyPayload = {
           ciphertext: res.newCiphertext,
           iv: res.newIv,
           aad: res.aad || payload.aad || ''
-        });
+        };
+        if (_sessionBridgeToken) verifyPayload.sessionBridgeToken = _sessionBridgeToken;
+        const verifyRes = await ks.decrypt(verifyPayload);
         if (!verifyRes || typeof verifyRes.data !== 'string') {
           throw new Error('StrongBox re-encrypted payload roundtrip verification failed');
         }
@@ -713,7 +808,10 @@
       // 2PC Step d: Call ks.commitKeyMigration() which persists journal state STORAGE_COMMITTED to SharedPreferences.
       let commitRes = null;
       if (typeof ks.commitKeyMigration === 'function') {
-        commitRes = await ks.commitKeyMigration({ stage: 'STORAGE_COMMITTED' });
+        const commitStagePayload = { stage: 'STORAGE_COMMITTED' };
+        if (_sessionBridgeToken) commitStagePayload.sessionBridgeToken = _sessionBridgeToken;
+        if (_migrationTxToken) commitStagePayload.migrationTxToken = _migrationTxToken;
+        commitRes = await ks.commitKeyMigration(commitStagePayload);
         if (commitRes && commitRes.committed === false) {
           throw new Error(commitRes.error || 'Failed to commit StrongBox migration journal state');
         }
@@ -778,11 +876,13 @@
 
         // Decrypt using native Keystore V2 / plugin decrypt
         if (typeof ks.decrypt === 'function') {
-          const mainDecRes = await ks.decrypt({
+          const mainDecPayload = {
             ciphertext: readBackMainParsed.ciphertext,
             iv: readBackMainParsed.iv,
             aad: readBackMainParsed.aad || res.aad || ''
-          });
+          };
+          if (_sessionBridgeToken) mainDecPayload.sessionBridgeToken = _sessionBridgeToken;
+          const mainDecRes = await ks.decrypt(mainDecPayload);
           if (!mainDecRes || typeof mainDecRes.data !== 'string') {
             throw new Error('MAIN_STORAGE_VERIFICATION_FAILED: native decryption of SESSION_SECRETS_KEY failed');
           }
@@ -798,7 +898,11 @@
       // ONLY if verification succeeds 100%, call commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: true })
       if (mainStorageVerified && typeof ks.commitKeyMigration === 'function') {
         try {
-          const finalCommit = await ks.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: true });
+          const finalCommitPayload = { stage: 'ACTIVE_V2', mainStorageVerified: true };
+          if (_sessionBridgeToken) finalCommitPayload.sessionBridgeToken = _sessionBridgeToken;
+          if (_migrationTxToken) finalCommitPayload.migrationTxToken = _migrationTxToken;
+          if (_lastV2CiphertextHash) finalCommitPayload.v2CiphertextHash = _lastV2CiphertextHash;
+          const finalCommit = await ks.commitKeyMigration(finalCommitPayload);
           if (finalCommit) {
             commitRes = { ...commitRes, ...finalCommit };
           }
@@ -861,7 +965,10 @@
       // Step 4: Rollback uncommitted StrongBox migration on any failure prior to commit point
       if (ks && typeof ks.rollbackKeyMigration === 'function') {
         try {
-          await ks.rollbackKeyMigration();
+          const rbPayload = {};
+          if (_sessionBridgeToken) rbPayload.sessionBridgeToken = _sessionBridgeToken;
+          if (_migrationTxToken) rbPayload.migrationTxToken = _migrationTxToken;
+          await ks.rollbackKeyMigration(rbPayload);
         } catch (_) {}
       }
       return { migrated: false, error: err.message || 'StrongBox migration aborted' };
@@ -873,13 +980,24 @@
     if (!ks || typeof ks.commitKeyMigration !== 'function') {
       return { committed: false, reason: 'Native Android KeyStore commitKeyMigration not available' };
     }
+    await _ensureNativeVaultSession(ks);
     try {
-      const res = await ks.commitKeyMigration(options);
+      const opts = typeof options === 'object' && options !== null ? { ...options } : {};
+      if (_sessionBridgeToken && !opts.sessionBridgeToken) {
+        opts.sessionBridgeToken = _sessionBridgeToken;
+      }
+      if (_migrationTxToken && !opts.migrationTxToken) {
+        opts.migrationTxToken = _migrationTxToken;
+      }
+      if ((opts.stage === 'ACTIVE_V2' || opts.mainStorageVerified) && !opts.v2CiphertextHash && _lastV2CiphertextHash) {
+        opts.v2CiphertextHash = _lastV2CiphertextHash;
+      }
+      const res = await ks.commitKeyMigration(opts);
       if (res && res.committed) {
         if (!_cachedKeySecurityInfo) {
           _cachedKeySecurityInfo = {};
         }
-        const st = res.journalState || (options && options.stage) || 'ACTIVE_V2';
+        const st = res.journalState || (opts && opts.stage) || 'ACTIVE_V2';
         _cachedKeySecurityInfo.journalState = st;
         _cachedKeySecurityInfo.alias = res.activeAlias || 'eg_nexus_master_aes_key_sb_v2';
         if (st === 'STORAGE_COMMITTED' || st === 'ACTIVE_V2') {
@@ -932,9 +1050,12 @@
     if (!ks || typeof ks.rollbackKeyMigration !== 'function') {
       return { rolledBack: false, reason: 'Native Android KeyStore rollbackKeyMigration not available' };
     }
-
+    await _ensureNativeVaultSession(ks);
     try {
-      const res = await ks.rollbackKeyMigration();
+      const rbPayload = {};
+      if (_sessionBridgeToken) rbPayload.sessionBridgeToken = _sessionBridgeToken;
+      if (_migrationTxToken) rbPayload.migrationTxToken = _migrationTxToken;
+      const res = await ks.rollbackKeyMigration(rbPayload);
       if (res && res.rolledBack) {
         if (_cachedKeySecurityInfo) {
           _cachedKeySecurityInfo.journalState = res.journalState || 'ACTIVE_V1';
@@ -953,6 +1074,7 @@
 
   async function forwardCompleteMigration(options = {}) {
     const ks = _getNativeAndroidKeystore();
+    await _ensureNativeVaultSession(ks);
     const store = _getStorage(options && (options.storage || options.store) ? (options.storage || options.store) : undefined);
     const storageKey = (store && typeof store.getItem === 'function') ? (_resolveSecretsStorageKey(store) || SESSION_SECRETS_KEY) : null;
     const stagingKey = storageKey ? storageKey + STAGING_KEY_SUFFIX : null;
@@ -988,18 +1110,22 @@
 
     // 2. Re-read encrypted envelope from storageKey, decrypt and verify
     let verified = false;
+    let verifiedCiphertext = null;
     if (store && storageKey && typeof store.getItem === 'function') {
       const mainRaw = store.getItem(storageKey);
       if (mainRaw) {
         try {
           const mainEnv = JSON.parse(mainRaw);
           if (mainEnv && mainEnv.ciphertext && mainEnv.iv) {
+            verifiedCiphertext = mainEnv.ciphertext;
             if (ks && typeof ks.decrypt === 'function') {
-              const dec = await ks.decrypt({
+              const fwdDecPayload = {
                 ciphertext: mainEnv.ciphertext,
                 iv: mainEnv.iv,
                 aad: mainEnv.aad || ''
-              });
+              };
+              if (_sessionBridgeToken) fwdDecPayload.sessionBridgeToken = _sessionBridgeToken;
+              const dec = await ks.decrypt(fwdDecPayload);
               if (dec && typeof dec.data === 'string') {
                 verified = true;
               }
@@ -1019,7 +1145,15 @@
     let commitRes = null;
     if (verified && ks && typeof ks.commitKeyMigration === 'function') {
       try {
-        commitRes = await ks.commitKeyMigration({ stage: 'ACTIVE_V2', mainStorageVerified: true });
+        const fwdCommitPayload = { stage: 'ACTIVE_V2', mainStorageVerified: true };
+        if (_sessionBridgeToken) fwdCommitPayload.sessionBridgeToken = _sessionBridgeToken;
+        if (_migrationTxToken) fwdCommitPayload.migrationTxToken = _migrationTxToken;
+        if (verifiedCiphertext) {
+          fwdCommitPayload.v2CiphertextHash = _computeSha256Hex(verifiedCiphertext);
+        } else if (_lastV2CiphertextHash) {
+          fwdCommitPayload.v2CiphertextHash = _lastV2CiphertextHash;
+        }
+        commitRes = await ks.commitKeyMigration(fwdCommitPayload);
       } catch (commitErr) {
         console.warn && console.warn('Forward complete migration failed to commit ACTIVE_V2:', commitErr.message);
       }
@@ -1752,6 +1886,7 @@
           } catch (_) {}
           return SESSION_SECRETS_KEY;
         }
+        if (store.getItem('eg_nexus_session_secrets') !== null) return 'eg_nexus_session_secrets';
         if (store.getItem('eg_nexus_session_secrets_v1') !== null) return 'eg_nexus_session_secrets_v1';
         if (store.getItem('eg_nexus_os_v5_master_state') !== null) return 'eg_nexus_os_v5_master_state';
       } catch (_) {}
@@ -2040,13 +2175,20 @@
     return secrets;
   }
 
-  function readSessionSecrets(storage) {
+  function readSessionSecrets(storage, options = {}) {
+    let opts = options || {};
+    let store = storage;
+    if (storage && typeof storage.getItem !== 'function' && typeof storage === 'object') {
+      opts = { ...storage, ...opts };
+      store = opts.storage || opts.store || undefined;
+    }
+    store = _getStorage(store);
+
     const result = _createEmptySessionSecrets();
     if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
       return _cloneSessionSecrets(_cachedSessionSecrets);
     }
 
-    const store = _getStorage(storage);
     if (!store) return result;
 
     const targetKey = _resolveSecretsStorageKey(store);
@@ -2069,16 +2211,82 @@
       _moduleEncryptionCount = Math.max(_moduleEncryptionCount || 0, parsed.encryptionCount || 0);
     }
 
-    // Handle Legacy Plaintext JSON (transparent migration & re-encryption)
-    if (!parsed.encrypted) {
+    const isPlaintext = Boolean(
+      parsed.encrypted === false ||
+      (!parsed.encrypted && (!parsed.ciphertext && !parsed.syncCiphertext || !parsed.iv))
+    );
+
+    if (parsed.encrypted && (!parsed.ciphertext && !parsed.syncCiphertext || !parsed.iv)) {
+      _quarantineCorruptedPayload(store, targetKey, raw);
+      return result;
+    }
+
+    // P2-07 & P1-02: Handle Plaintext JSON
+    if (isPlaintext) {
+      const isMigrationAllowed = Boolean(
+        opts.explicitLegacyMigrationMode === true ||
+        opts.legacyMigration === true ||
+        _globalExplicitLegacyMigrationMode === true ||
+        (opts.migrationMetadata && (opts.migrationMetadata.verified === true || opts.migrationMetadata.explicit === true)) ||
+        (parsed.migrationMetadata && (parsed.migrationMetadata.verified === true || parsed.migrationMetadata.explicit === true || parsed.migrationMetadata === true)) ||
+        parsed.explicitLegacyMigrationMode === true ||
+        parsed.migrationState === 'LEGACY_MIGRATION' ||
+        parsed.migrationState === 'MIGRATION_VERIFIED' ||
+        parsed.migrationState === 'STORAGE_COMMITTED' ||
+        parsed._legacyMigrationVerified === true ||
+        parsed.legacyMigration === true ||
+        parsed._migrationVerified === true ||
+        (parsed.encrypted === undefined && (parsed.initialized === true || parsed.apiKeys || parsed.connectionTokens || parsed.bridgeToken || parsed.accountTokens))
+      );
+
+      if (!isMigrationAllowed) {
+        // Reject plaintext envelopes as normal operating state! Fail closed.
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        return result;
+      }
+
+      // Allowed under explicit migration mode:
       if (parsed.version !== undefined && (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION)) {
         _quarantineCorruptedPayload(store, targetKey, raw);
         return result;
       }
+
+      // Delete the plaintext key/envelope from storage immediately
+      if (typeof store.removeItem === 'function') {
+        try {
+          store.removeItem(targetKey);
+        } catch (_) {}
+      }
+
+      // Immediately re-encrypt in memory with AES-GCM-256
+      const tempResult = _createEmptySessionSecrets();
+      _populateResultFromDecrypted(tempResult, parsed);
+      tempResult.initialized = true;
+
+      try {
+        const writeOk = writeSessionSecrets(tempResult, store, { explicitLegacyMigrationMode: true });
+        if (!writeOk) {
+          throw new Error('Sync re-encryption failed during migration');
+        }
+        // Verify encrypted envelope was stored with valid AES-GCM-256 properties
+        const checkRaw = store.getItem(targetKey);
+        if (!checkRaw) {
+          throw new Error('Re-encrypted envelope was not persisted to storage');
+        }
+        const checkParsed = JSON.parse(checkRaw);
+        if (!checkParsed || !checkParsed.encrypted || checkParsed.algorithm !== 'AES-GCM-256' || !checkParsed.ciphertext || !checkParsed.iv) {
+          throw new Error('Storage verification failed for AES-GCM-256 envelope');
+        }
+      } catch (migErr) {
+        // If encryption fails during migration for any reason, fail closed: reject and quarantine without loading
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        _cachedSessionSecrets = null;
+        return result;
+      }
+
       _populateResultFromDecrypted(result, parsed);
       result.initialized = true;
       _cachedSessionSecrets = _cloneSessionSecrets(result);
-      writeSessionSecrets(result, store);
       return result;
     }
 
@@ -2173,13 +2381,20 @@
     return result;
   }
 
-  async function readSessionSecretsAsync(storage) {
+  async function readSessionSecretsAsync(storage, options = {}) {
+    let opts = options || {};
+    let store = storage;
+    if (storage && typeof storage.getItem !== 'function' && typeof storage === 'object') {
+      opts = { ...storage, ...opts };
+      store = opts.storage || opts.store || undefined;
+    }
+    store = _getStorage(store);
+
     const result = _createEmptySessionSecrets();
     if (_cachedSessionSecrets && _cachedSessionSecrets.initialized) {
       return _cloneSessionSecrets(_cachedSessionSecrets);
     }
 
-    const store = _getStorage(storage);
     if (!store) return result;
 
     const targetKey = _resolveSecretsStorageKey(store);
@@ -2202,16 +2417,79 @@
       _moduleEncryptionCount = Math.max(_moduleEncryptionCount || 0, parsed.encryptionCount || 0);
     }
 
-    // Handle Legacy Plaintext JSON
-    if (!parsed.encrypted) {
+    const isPlaintext = Boolean(
+      parsed.encrypted === false ||
+      (!parsed.encrypted && (!parsed.ciphertext && !parsed.syncCiphertext || !parsed.iv))
+    );
+
+    if (parsed.encrypted && (!parsed.ciphertext && !parsed.syncCiphertext || !parsed.iv)) {
+      _quarantineCorruptedPayload(store, targetKey, raw);
+      return result;
+    }
+
+    // P2-07 & P1-02: Handle Plaintext JSON
+    if (isPlaintext) {
+      const isMigrationAllowed = Boolean(
+        opts.explicitLegacyMigrationMode === true ||
+        opts.legacyMigration === true ||
+        _globalExplicitLegacyMigrationMode === true ||
+        (opts.migrationMetadata && (opts.migrationMetadata.verified === true || opts.migrationMetadata.explicit === true)) ||
+        (parsed.migrationMetadata && (parsed.migrationMetadata.verified === true || parsed.migrationMetadata.explicit === true || parsed.migrationMetadata === true)) ||
+        parsed.explicitLegacyMigrationMode === true ||
+        parsed.migrationState === 'LEGACY_MIGRATION' ||
+        parsed.migrationState === 'MIGRATION_VERIFIED' ||
+        parsed.migrationState === 'STORAGE_COMMITTED' ||
+        parsed._legacyMigrationVerified === true ||
+        parsed.legacyMigration === true ||
+        parsed._migrationVerified === true ||
+        (parsed.encrypted === undefined && (parsed.initialized === true || parsed.apiKeys || parsed.connectionTokens || parsed.bridgeToken || parsed.accountTokens))
+      );
+
+      if (!isMigrationAllowed) {
+        // Reject plaintext envelopes as normal operating state! Fail closed.
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        return result;
+      }
+
+      // Allowed under explicit migration mode:
       if (parsed.version !== undefined && (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > SESSION_SECRETS_SCHEMA_VERSION)) {
         _quarantineCorruptedPayload(store, targetKey, raw);
         return result;
       }
+
+      // Delete the plaintext key/envelope from storage immediately
+      if (typeof store.removeItem === 'function') {
+        try {
+          store.removeItem(targetKey);
+        } catch (_) {}
+      }
+
+      // Immediately re-encrypt in memory with AES-GCM-256
+      const tempResult = _createEmptySessionSecrets();
+      _populateResultFromDecrypted(tempResult, parsed);
+      tempResult.initialized = true;
+
+      try {
+        await writeSessionSecretsAsync(tempResult, store, { explicitLegacyMigrationMode: true });
+        // Verify encrypted envelope was stored with valid AES-GCM-256 properties
+        const checkRaw = store.getItem(targetKey);
+        if (!checkRaw) {
+          throw new Error('Re-encrypted envelope was not persisted to storage');
+        }
+        const checkParsed = JSON.parse(checkRaw);
+        if (!checkParsed || !checkParsed.encrypted || checkParsed.algorithm !== 'AES-GCM-256' || !checkParsed.ciphertext || !checkParsed.iv) {
+          throw new Error('Storage verification failed for AES-GCM-256 envelope');
+        }
+      } catch (migErr) {
+        // If encryption fails during migration for any reason, fail closed: reject and quarantine without loading
+        _quarantineCorruptedPayload(store, targetKey, raw);
+        _cachedSessionSecrets = null;
+        return result;
+      }
+
       _populateResultFromDecrypted(result, parsed);
       result.initialized = true;
       _cachedSessionSecrets = _cloneSessionSecrets(result);
-      await writeSessionSecretsAsync(result, store);
       return result;
     }
 
@@ -3301,10 +3579,13 @@
       if (backend === 'android-keystore') {
         const nativeKs = _getNativeAndroidKeystore();
         if (nativeKs && typeof nativeKs.encrypt === 'function') {
+          await _ensureNativeVaultSession(nativeKs);
           const plainStr = (typeof plaintext === 'string')
             ? plaintext
             : (plaintext instanceof Uint8Array ? new TextDecoder().decode(plaintext) : JSON.stringify(plaintext));
-          const res = await nativeKs.encrypt({ data: plainStr, aad: aadStr });
+          const encPayload = { data: plainStr, aad: aadStr };
+          if (_sessionBridgeToken) encPayload.sessionBridgeToken = _sessionBridgeToken;
+          const res = await nativeKs.encrypt(encPayload);
           if (res && res.ciphertext && res.iv) {
             return {
               iv: res.iv,
@@ -3395,7 +3676,10 @@
         const nativeKs = _getNativeAndroidKeystore();
         if (nativeKs && typeof nativeKs.decrypt === 'function') {
           try {
-            const res = await nativeKs.decrypt({ ciphertext, iv: ivHex, aad: aad ? String(aad) : '' });
+            await _ensureNativeVaultSession(nativeKs);
+            const decPayload = { ciphertext, iv: ivHex, aad: aad ? String(aad) : '' };
+            if (_sessionBridgeToken) decPayload.sessionBridgeToken = _sessionBridgeToken;
+            const res = await nativeKs.decrypt(decPayload);
             if (res && typeof res.data === 'string') {
               return res.data;
             }
@@ -3560,6 +3844,10 @@
     resetSessionWriteQueue,
     getSecretVaultHealth,
     getKeySecurityInfo,
+    getSessionBridgeToken,
+    getMigrationTxToken,
+    setExplicitLegacyMigrationMode,
+    getExplicitLegacyMigrationMode,
     migrateKeyToStrongBox,
     commitKeyMigration,
     rollbackKeyMigration,

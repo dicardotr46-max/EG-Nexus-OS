@@ -1,9 +1,9 @@
-# 🚀 EG Nexus OS v6.3.2 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
+# 🚀 EG Nexus OS v6.3.3 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-789%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-817%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -58,7 +58,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-**EG Nexus OS v6.3.2** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به ۷ اصلاح ساختاری و مهندسی نسخه v6.3.2 گردیده است.
+**EG Nexus OS v6.3.3** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به ۷ اصلاح ساختاری و مهندسی نسخه v6.3.2 گردیده است.
 
 ---
 
@@ -106,7 +106,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.3.2
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.3.3
 
 ### ۱. سیستم مدیریت بودجه مرکزی و رزرو/تسویه توکن (CentralBudgetManager & Token Reservation/Settlement)
 - **رزرو پیش از شبکه (`reserveTokens`):** متد `executeProviderRequest` پیش از ارسال هرگونه درخواست به ارائه‌دهندگان هوش مصنوعی یا اجرای ابزار، توکن‌های تخمینی را رزرو می‌کند. در صورت فراتر رفتن مجموع توکن‌های رزروشده و مصرفی از `maxTokenBudget`، بلافاصله خطای `429 TOKEN_BUDGET_EXCEEDED` صادر و درخواست بدون مصرف شبکه متوقف می‌شود.
@@ -198,7 +198,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.3.2 (تمام اکشن‌ها با SHA پین شده)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.3.3 (تمام اکشن‌ها با SHA پین شده)
 ├── __tests__/                      # مجموعه تست‌های جامع Jest (شامل سوئیت v630_ai_architecture_and_p0_fixes)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
@@ -228,16 +228,16 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها، مدیریت حالت، AgentExecutionGuard و MemoryGovernance
 │   ├── providers/                 # رجیستری ارتباط با مدل‌ها (ACTION_POLICY_MANIFEST و MODEL_REGISTRY)
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی، تاییدات و ژورنال 2PC StrongBox
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.3.2 و v6.3.1
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.3.3 و v6.3.1
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.3.2)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.3.2)
-├── package.json                   # شناسه پکیج نسخه 6.3.2 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.3.2)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.3.3)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.3.3)
+├── package.json                   # شناسه پکیج نسخه 6.3.3 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.3.3)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.3.2
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.3.3
 ```
 
 ---
@@ -246,7 +246,7 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.3.2`) را انتخاب کنید.
+2. آخرین نسخه منتشرشده (`v6.3.3`) را انتخاب کنید.
 3. فایل **`EG-Nexus-OS-v6.3.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است (توصیفگر اصالت: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`).
 
