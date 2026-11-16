@@ -281,6 +281,116 @@
       type: 'Search',
       website: 'https://duckduckgo.com',
       authType: 'none'
+    },
+
+    // Cue 26.18.15 Connectors
+    google_health: {
+      id: 'google_health',
+      name: 'Google Health',
+      tier: 'Production-ready',
+      category: 'Health',
+      type: 'App',
+      website: 'https://health.google',
+      authType: 'google_oauth'
+    },
+    oura: {
+      id: 'oura',
+      name: 'Oura Ring',
+      tier: 'Production-ready',
+      category: 'Health',
+      type: 'App',
+      website: 'https://ouraring.com',
+      authType: 'api_token'
+    },
+    agent_telecom: {
+      id: 'agent_telecom',
+      name: 'Agent Telecom & Phone/Email',
+      tier: 'Contract-tested',
+      category: 'Telecom',
+      type: 'App',
+      website: 'https://eg-nexus-os.internal/telecom',
+      authType: 'api_token'
+    },
+    cloud_pc: {
+      id: 'cloud_pc',
+      name: 'Cloud PC & Sovereign Workstation',
+      tier: 'Contract-tested',
+      category: 'Compute',
+      type: 'App',
+      website: 'https://eg-nexus-os.internal/cloud_pc',
+      authType: 'api_token'
+    },
+    plaid_banking: {
+      id: 'plaid_banking',
+      name: 'Plaid Banking',
+      tier: 'Production-ready',
+      category: 'Finance',
+      type: 'App',
+      website: 'https://plaid.com',
+      authType: 'api_token'
+    },
+    stripe_link: {
+      id: 'stripe_link',
+      name: 'Stripe Link',
+      tier: 'Production-ready',
+      category: 'Finance',
+      type: 'App',
+      website: 'https://stripe.com',
+      authType: 'oauth'
+    },
+    coinbase_wallet: {
+      id: 'coinbase_wallet',
+      name: 'Coinbase Wallet',
+      tier: 'Contract-tested',
+      category: 'Finance',
+      type: 'App',
+      website: 'https://coinbase.com/wallet',
+      authType: 'api_token'
+    },
+    robinhood_trading: {
+      id: 'robinhood_trading',
+      name: 'Robinhood Trading (Beta)',
+      tier: 'Beta',
+      category: 'Finance',
+      type: 'App',
+      website: 'https://robinhood.com',
+      authType: 'oauth'
+    },
+    outlook_mail: {
+      id: 'outlook_mail',
+      name: 'Outlook Mail',
+      tier: 'Production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://outlook.live.com',
+      authType: 'oauth'
+    },
+    outlook_calendar: {
+      id: 'outlook_calendar',
+      name: 'Outlook Calendar',
+      tier: 'Production-ready',
+      category: 'Productivity',
+      type: 'MultiAccount',
+      website: 'https://outlook.live.com',
+      authType: 'oauth'
+    },
+    notion: {
+      id: 'notion',
+      name: 'Notion',
+      tier: 'Production-ready',
+      category: 'Productivity',
+      type: 'App',
+      website: 'https://notion.so',
+      authType: 'api_key'
+    },
+    shopify: {
+      id: 'shopify',
+      name: 'Shopify Admin',
+      tier: 'Beta',
+      category: 'Productivity',
+      type: 'App',
+      website: 'https://shopify.com',
+      authType: 'api_token'
     }
   };
 
@@ -480,6 +590,98 @@
       npm_test: 'terminal:exec',
       git_push_verified: 'terminal:exec',
       npm_install_locked: 'terminal:exec'
+    },
+    google_health: {
+      read_sleep: 'health.read',
+      read_heart_rate: 'health.read',
+      read_resting_heart_rate: 'health.read',
+      read_oxygen_saturation: 'health.read',
+      read_steps: 'health.read',
+      read_calories: 'health.read',
+      read_weight: 'health.read',
+      sync_biometrics: 'health.write'
+    },
+    oura: {
+      read_sleep: 'health.read',
+      read_readiness: 'health.read',
+      read_activity: 'health.read',
+      sync: 'health.write'
+    },
+    agent_telecom: {
+      list_bindings: 'telecom.manage',
+      bind_agent_phone: 'telecom.manage',
+      bind_agent_email: 'telecom.manage',
+      handle_inbound_message: 'telecom.manage',
+      initiate_voice_session: 'telecom.manage'
+    },
+    cloud_pc: {
+      get_status: 'compute.control',
+      start_instance: 'compute.control',
+      stop_instance: 'compute.control',
+      restart_instance: 'compute.control',
+      create_snapshot: 'compute.control',
+      restore_snapshot: 'compute.control',
+      reset_ssh_secret: 'compute.control',
+      factory_reset: 'compute.control'
+    },
+    plaid_banking: {
+      list_accounts: 'finance.read',
+      get_balance: 'finance.read',
+      create_link_session: 'finance.manage',
+      disconnect: 'finance.manage'
+    },
+    stripe_link: {
+      get_status: 'finance.read',
+      get_payment_methods: 'finance.read',
+      start_auth: 'finance.manage',
+      complete_oauth: 'finance.manage',
+      authorize_card: 'finance.transact',
+      cancel_authorization: 'finance.transact',
+      disconnect: 'finance.manage'
+    },
+    coinbase_wallet: {
+      get_balance: 'finance.read',
+      get_address: 'finance.read',
+      get_transactions: 'finance.read',
+      send_transaction: 'finance.transact'
+    },
+    robinhood_trading: {
+      get_portfolio: 'finance.read',
+      get_quotes: 'finance.read',
+      place_order: 'finance.transact',
+      cancel_order: 'finance.transact'
+    },
+    outlook_mail: {
+      list: 'mail.read',
+      read: 'mail.read',
+      read_messages: 'mail.read',
+      send: 'mail.send',
+      send_message: 'mail.send',
+      delete: 'mail.delete'
+    },
+    outlook_calendar: {
+      list_events: 'calendar.read',
+      get_event: 'calendar.read',
+      create_event: 'calendar.write',
+      delete_event: 'calendar.write'
+    },
+    notion: {
+      search: 'notion.read',
+      search_pages: 'notion.read',
+      get_page: 'notion.read',
+      create_page: 'notion.write',
+      update_page: 'notion.write',
+      read_pages: 'notion.read',
+      read_databases: 'notion.read',
+      query_database: 'notion.read'
+    },
+    shopify: {
+      get_shop: 'shopify.read',
+      get_orders: 'shopify.read',
+      get_inventory: 'shopify.read',
+      list_products: 'shopify.read',
+      update_inventory: 'shopify.write',
+      update_product: 'shopify.write'
     }
   };
 
@@ -495,9 +697,13 @@
   }
 
   function getRequiredScope(providerId, action) {
-    const pid = String(providerId || '').trim().toLowerCase();
+    let pid = String(providerId || '').trim().toLowerCase();
     const act = String(action || '').trim().toLowerCase();
     if (!pid || !act) return null;
+    if (pid === 'outlook_cal') pid = 'outlook_calendar';
+    if (pid === 'plaid') pid = 'plaid_banking';
+    if (pid === 'coinbase') pid = 'coinbase_wallet';
+    if (pid === 'robinhood') pid = 'robinhood_trading';
     const pKey = Object.keys(PROVIDER_ACTION_SCOPES).find(k => k.toLowerCase() === pid);
     if (!pKey) return null;
     const p = PROVIDER_ACTION_SCOPES[pKey];
@@ -867,7 +1073,14 @@
       }
       if (s === requiredScope) return true;
       const canonicalScope = normalizeScope(s);
-      return canonicalScope === canonicalRequired;
+      if (canonicalScope === canonicalRequired) return true;
+      if (canonicalScope === 'telecom.manage' && canonicalRequired === 'telecom.read') return true;
+      if (canonicalScope === 'telecom.read' && canonicalRequired === 'telecom.manage' && act === 'list_bindings') return true;
+      if (canonicalScope === 'compute.control' && canonicalRequired === 'compute.read') return true;
+      if (canonicalScope === 'compute.read' && canonicalRequired === 'compute.control' && act === 'get_status') return true;
+      if (canonicalScope === 'finance.manage' && canonicalRequired === 'finance.read') return true;
+      if (canonicalScope === 'health.write' && canonicalRequired === 'health.read') return true;
+      return false;
     });
   }
 
@@ -1267,10 +1480,96 @@
       delete: 'high_risk'
     }),
     notion: Object.freeze({
+      search: 'read_only',
+      search_pages: 'read_only',
+      get_page: 'read_only',
+      create_page: 'mutating',
+      update_page: 'mutating',
       read_pages: 'read_only',
       read_databases: 'read_only',
-      search: 'read_only',
       query_database: 'read_only'
+    }),
+    google_health: Object.freeze({
+      read_sleep: 'read_only',
+      read_heart_rate: 'read_only',
+      read_resting_heart_rate: 'read_only',
+      read_oxygen_saturation: 'read_only',
+      read_steps: 'read_only',
+      read_calories: 'read_only',
+      read_weight: 'read_only',
+      sync_biometrics: 'mutating'
+    }),
+    oura: Object.freeze({
+      read_sleep: 'read_only',
+      read_readiness: 'read_only',
+      read_activity: 'read_only',
+      sync: 'mutating'
+    }),
+    agent_telecom: Object.freeze({
+      list_bindings: 'read_only',
+      bind_agent_phone: 'mutating',
+      bind_agent_email: 'mutating',
+      handle_inbound_message: 'mutating',
+      initiate_voice_session: 'high_risk'
+    }),
+    cloud_pc: Object.freeze({
+      get_status: 'read_only',
+      start_instance: 'mutating',
+      stop_instance: 'mutating',
+      restart_instance: 'mutating',
+      create_snapshot: 'mutating',
+      restore_snapshot: 'high_risk',
+      reset_ssh_secret: 'high_risk',
+      factory_reset: 'high_risk'
+    }),
+    plaid_banking: Object.freeze({
+      list_accounts: 'read_only',
+      get_balance: 'read_only',
+      create_link_session: 'mutating',
+      disconnect: 'high_risk'
+    }),
+    stripe_link: Object.freeze({
+      get_status: 'read_only',
+      get_payment_methods: 'read_only',
+      start_auth: 'mutating',
+      complete_oauth: 'mutating',
+      authorize_card: 'mutating',
+      cancel_authorization: 'mutating',
+      disconnect: 'high_risk'
+    }),
+    coinbase_wallet: Object.freeze({
+      get_balance: 'read_only',
+      get_address: 'read_only',
+      get_transactions: 'read_only',
+      send_transaction: 'high_risk'
+    }),
+    robinhood_trading: Object.freeze({
+      get_portfolio: 'read_only',
+      get_quotes: 'read_only',
+      place_order: 'high_risk',
+      cancel_order: 'mutating'
+    }),
+    outlook_mail: Object.freeze({
+      list: 'read_only',
+      read: 'read_only',
+      read_messages: 'read_only',
+      send: 'mutating',
+      send_message: 'mutating',
+      delete: 'high_risk'
+    }),
+    outlook_calendar: Object.freeze({
+      list_events: 'read_only',
+      get_event: 'read_only',
+      create_event: 'mutating',
+      delete_event: 'high_risk'
+    }),
+    shopify: Object.freeze({
+      get_shop: 'read_only',
+      get_orders: 'read_only',
+      get_inventory: 'read_only',
+      list_products: 'read_only',
+      update_inventory: 'mutating',
+      update_product: 'mutating'
     }),
     mcp: Object.freeze(Object.defineProperties({
       ...STANDARD_MCP_ACTIONS
@@ -1386,6 +1685,10 @@
     if (!providerManifest) {
       if (pid === 'google_calendar') providerManifest = ACTION_POLICY_MANIFEST.gcal;
       else if (pid === 'gcal' || pid === 'calendar') providerManifest = ACTION_POLICY_MANIFEST.google_calendar || ACTION_POLICY_MANIFEST.gcal;
+      else if (pid === 'outlook_cal') providerManifest = ACTION_POLICY_MANIFEST.outlook_calendar;
+      else if (pid === 'plaid') providerManifest = ACTION_POLICY_MANIFEST.plaid_banking;
+      else if (pid === 'coinbase') providerManifest = ACTION_POLICY_MANIFEST.coinbase_wallet;
+      else if (pid === 'robinhood') providerManifest = ACTION_POLICY_MANIFEST.robinhood_trading;
       else if (pid === 'drive') providerManifest = ACTION_POLICY_MANIFEST.google_drive;
       else if (pid === 'cloudflare_worker') providerManifest = ACTION_POLICY_MANIFEST.cloudflare;
       else if (pid === 'clash') providerManifest = ACTION_POLICY_MANIFEST.clash_royale;
@@ -1619,6 +1922,206 @@
     return null;
   }
 
+  function _getSimulatedConnectorResponse(providerId, action, params = {}) {
+    const pid = String(providerId || '').trim().toLowerCase();
+    const act = String(action || '').trim().toLowerCase();
+    const p = params || {};
+
+    if (pid === 'google_health') {
+      switch (act) {
+        case 'read_sleep':
+          return { sleepDurationHours: 7.5, deepSleepMinutes: 95, remSleepMinutes: 110, sleepScore: 88, source: 'Android Health Connect' };
+        case 'read_heart_rate':
+          return { bpm: 72, timestamp: '2026-11-16T10:00:00Z', restingBpm: 62, source: 'Android Health Connect' };
+        case 'read_resting_heart_rate':
+          return { restingHeartRate: 62, unit: 'bpm', date: '2026-11-16', source: 'Android Health Connect' };
+        case 'read_oxygen_saturation':
+          return { spo2Percentage: 98.5, timestamp: '2026-11-16T10:00:00Z', source: 'Android Health Connect' };
+        case 'read_steps':
+          return { steps: 8420, goal: 10000, date: '2026-11-16', source: 'Android Health Connect' };
+        case 'read_calories':
+          return { activeCalories: 450, totalCalories: 2200, unit: 'kcal', date: '2026-11-16', source: 'Android Health Connect' };
+        case 'read_weight':
+          return { weightKg: 74.2, timestamp: '2026-11-16T08:00:00Z', source: 'Android Health Connect' };
+        case 'sync_biometrics':
+          return { synced: true, recordsUpdated: 12, timestamp: '2026-11-16T11:00:00Z', source: 'Android Health Connect' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_google_health' };
+      }
+    }
+
+    if (pid === 'oura') {
+      switch (act) {
+        case 'read_sleep':
+          return { score: 85, durationSeconds: 27900, efficiency: 91, source: 'Oura Ring Gen4' };
+        case 'read_readiness':
+          return { score: 88, recoveryIndex: 'optimal', restingHeartRate: 58, hrvBalance: 'optimal' };
+        case 'read_activity':
+          return { score: 92, targetCalories: 550, burnedCalories: 580, steps: 9400 };
+        case 'sync':
+          return { synced: true, lastSyncTime: '2026-11-16T11:00:00Z', status: 'completed' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_oura' };
+      }
+    }
+
+    if (pid === 'agent_telecom') {
+      switch (act) {
+        case 'list_bindings':
+          return { bindings: [{ agentId: 'nexus-primary', phoneNumber: '+14155550199', email: 'agent-nexus@autonomous.ai', status: 'active' }] };
+        case 'bind_agent_phone':
+          return { success: true, agentId: p.agentId || 'agent-primary', phoneNumber: p.phoneNumber || '+14155550199', status: 'bound' };
+        case 'bind_agent_email':
+          return { success: true, agentId: p.agentId || 'agent-primary', email: p.email || 'agent@autonomous.ai', status: 'bound' };
+        case 'handle_inbound_message':
+          return { acknowledged: true, messageId: 'msg-sim-' + Date.now(), routedTo: p.agentId || 'agent-primary', status: 'queued' };
+        case 'initiate_voice_session':
+          return { sessionId: 'voice-sess-' + Date.now(), status: 'connected', sampleRateHz: 24000, duplex: true };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_agent_telecom' };
+      }
+    }
+
+    if (pid === 'cloud_pc') {
+      switch (act) {
+        case 'get_status':
+          return { instanceId: 'cpc-inst-01', state: 'running', ip: '100.64.0.12', uptimeHours: 42, cpuUsagePercent: 18, memoryUsagePercent: 34 };
+        case 'start_instance':
+          return { instanceId: p.instanceId || 'cpc-inst-01', action: 'start', state: 'starting', initiatedAt: '2026-11-16T11:00:00Z' };
+        case 'stop_instance':
+          return { instanceId: p.instanceId || 'cpc-inst-01', action: 'stop', state: 'stopping', initiatedAt: '2026-11-16T11:00:00Z' };
+        case 'restart_instance':
+          return { instanceId: p.instanceId || 'cpc-inst-01', action: 'restart', state: 'rebooting', initiatedAt: '2026-11-16T11:00:00Z' };
+        case 'create_snapshot':
+          return { snapshotId: 'snap-sim-' + Date.now(), instanceId: p.instanceId || 'cpc-inst-01', sizeBytes: 10737418240, status: 'created' };
+        case 'restore_snapshot':
+          return { restored: true, snapshotId: p.snapshotId || 'snap-001', instanceId: p.instanceId || 'cpc-inst-01', status: 'restoring' };
+        case 'reset_ssh_secret':
+          return { success: true, instanceId: p.instanceId || 'cpc-inst-01', secretRotated: true, expiresAt: '2026-12-01T00:00:00Z' };
+        case 'factory_reset':
+          return { reset: true, instanceId: p.instanceId || 'cpc-inst-01', state: 'provisioning', wipeData: true };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_cloud_pc' };
+      }
+    }
+
+    if (pid === 'plaid_banking' || pid === 'plaid') {
+      switch (act) {
+        case 'list_accounts':
+          return { accounts: [{ accountId: 'acc_plaid_01', name: 'Primary Checking', mask: '4589', balance: 14250.75, currency: 'USD' }] };
+        case 'get_balance':
+          return { accountId: p.accountId || 'acc_plaid_01', current: 14250.75, available: 13950.00, currency: 'USD' };
+        case 'create_link_session':
+          return { linkToken: 'link-sandbox-tok-' + Date.now(), expiration: '2026-11-16T15:00:00Z', status: 'created' };
+        case 'disconnect':
+          return { disconnected: true, itemId: p.itemId || 'plaid_item_01', revoked: true };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_plaid_banking' };
+      }
+    }
+
+    if (pid === 'stripe_link') {
+      switch (act) {
+        case 'get_status':
+          return { linked: true, customerId: 'cus_stripe_01', defaultPaymentMethod: 'card_visa_4242', livemode: false };
+        case 'start_auth':
+          return { authSessionId: 'sess_stripe_auth_' + Date.now(), redirectUrl: 'https://checkout.stripe.com/link-auth', status: 'initiated' };
+        case 'complete_oauth':
+          return { success: true, customerId: 'cus_stripe_01', authState: 'completed' };
+        case 'disconnect':
+          return { disconnected: true, customerId: p.customerId || 'cus_stripe_01', status: 'revoked' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_stripe_link' };
+      }
+    }
+
+    if (pid === 'coinbase_wallet' || pid === 'coinbase') {
+      switch (act) {
+        case 'get_balance':
+          return { address: '0x71C28B...49A1', balances: [{ asset: 'ETH', balance: '2.45', usdValue: 8575.00 }, { asset: 'USDC', balance: '1200.00', usdValue: 1200.00 }] };
+        case 'get_transactions':
+          return { transactions: [{ hash: '0xabc123...def456', type: 'receive', amount: '0.5 ETH', timestamp: '2026-11-15T18:22:00Z', status: 'confirmed' }] };
+        case 'send_transaction':
+          return { txHash: '0x987654...3210ab', status: 'broadcasted', recipient: p.to || '0x000...000', amount: p.amount || '0.01' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_coinbase_wallet' };
+      }
+    }
+
+    if (pid === 'robinhood_trading' || pid === 'robinhood') {
+      switch (act) {
+        case 'get_portfolio':
+          return { totalEquityUSD: 48250.00, cashUSD: 3120.00, buyingPowerUSD: 6240.00, positionsCount: 8 };
+        case 'get_quotes':
+          return { symbol: p.symbol || 'NVDA', lastPrice: 148.50, changePercent: 2.35, high: 150.10, low: 146.20 };
+        case 'place_order':
+          return { orderId: 'ord_rh_' + Date.now(), symbol: p.symbol || 'NVDA', side: p.side || 'buy', quantity: p.quantity || 1, status: 'filled' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_robinhood_trading' };
+      }
+    }
+
+    if (pid === 'outlook_mail') {
+      switch (act) {
+        case 'list':
+          return { messages: [{ id: 'ms-mail-01', subject: 'Project Cue 26.18.15 Update', from: 'team@microsoft.com', receivedAt: '2026-11-16T09:30:00Z', isRead: false }] };
+        case 'read':
+          return { id: p.id || 'ms-mail-01', subject: 'Project Cue 26.18.15 Update', body: 'The update for Cue 26.18.15 is deployed successfully.', from: 'team@microsoft.com' };
+        case 'send':
+          return { sent: true, messageId: 'ms-mail-out-' + Date.now(), recipient: p.to || 'colleague@example.com' };
+        case 'delete':
+          return { deleted: true, messageId: p.id || 'ms-mail-01' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_outlook_mail' };
+      }
+    }
+
+    if (pid === 'outlook_calendar' || pid === 'outlook_cal') {
+      switch (act) {
+        case 'list_events':
+          return { events: [{ id: 'evt-01', title: 'Nexus Architecture Review', startTime: '2026-11-16T14:00:00Z', endTime: '2026-11-16T15:00:00Z' }] };
+        case 'get_event':
+          return { id: p.id || 'evt-01', title: 'Nexus Architecture Review', startTime: '2026-11-16T14:00:00Z', endTime: '2026-11-16T15:00:00Z' };
+        case 'create_event':
+          return { id: 'evt-' + Date.now(), title: p.title || 'New Event', created: true };
+        case 'delete_event':
+          return { deleted: true, eventId: p.id || p.eventId || 'evt-01' };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_outlook_calendar' };
+      }
+    }
+
+    if (pid === 'notion') {
+      switch (act) {
+        case 'search':
+          return { results: [{ id: 'page-notion-01', title: 'Engineering Roadmap', type: 'page', lastEditedTime: '2026-11-16T10:00:00Z' }] };
+        case 'get_page':
+          return { id: p.pageId || p.id || 'page-notion-01', title: 'Engineering Roadmap', content: 'Tasks and deliverables for Q4 2026' };
+        case 'create_page':
+          return { id: 'page-' + Date.now(), title: p.title || 'Untitled Page', created: true };
+        case 'update_page':
+          return { id: p.pageId || p.id || 'page-notion-01', updated: true };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_notion' };
+      }
+    }
+
+    if (pid === 'shopify') {
+      switch (act) {
+        case 'get_shop':
+          return { id: 'shop_001', name: 'Nexus Store', domain: 'nexus-store.myshopify.com', currency: 'USD', plan: 'Shopify Plus' };
+        case 'list_products':
+          return { products: [{ id: 'prod_01', title: 'Nexus AI Workstation', inventoryQuantity: 42, price: '1299.00' }] };
+        case 'update_inventory':
+          return { updated: true, inventoryItemId: p.inventoryItemId || 'inv_01', available: p.available || 50 };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_shopify' };
+      }
+    }
+
+    return { validated: true, providerId: pid, action: act };
+  }
+
   async function executeProviderRequest(request, optionsArg = {}) {
     if (!request || typeof request !== 'object') {
       return { status: 400, error: 'BAD_REQUEST', message: 'Invalid provider request payload' };
@@ -1801,6 +2304,19 @@
       };
     }
 
+    if (request.simulated === true || options.simulated === true) {
+      cleanupReservation();
+      recordLifecycleEvent(requestId, 'executed', { providerId, action });
+      const simulatedData = _getSimulatedConnectorResponse(providerId, action, params);
+      return {
+        status: 200,
+        success: true,
+        simulated: true,
+        message: 'Request validated successfully',
+        data: simulatedData
+      };
+    }
+
     // Step 0: Check MCP disabled status & validate MCP parameters
     if (isMcpProvider) {
       const conn = (appConnections && typeof appConnections === 'object')
@@ -1941,7 +2457,8 @@
         }
       }
       recordLifecycleEvent(requestId, 'executed', { providerId, action });
-      return { status: 200, success: true, message: 'Request validated successfully' };
+      const simulatedData = _getSimulatedConnectorResponse(providerId, action, params);
+      return { status: 200, success: true, message: 'Request validated successfully', data: simulatedData };
     }
 
     try {
@@ -3181,6 +3698,62 @@
     };
   }
 
+  const USER_CLIENT_CONFIG_KEY_SPEED_MODE = 'USER_CLIENT_CONFIG_KEY_SPEED_MODE';
+
+  /**
+   * Speed Mode vs Quality Mode Effort Router with Budget Guard
+   * Routes tasks to speed vs quality models and guards reasoning token budgets.
+   *
+   * @param {string} mode - 'speed', 'quality', or USER_CLIENT_CONFIG_KEY_SPEED_MODE
+   * @param {string} taskType - 'general', 'coding', or 'complex_reasoning'
+   * @param {Object|null} budgetGuard - Optional budget guard containing remainingBudget and minQualityBudget
+   * @returns {Object} Router decision payload
+   */
+  function resolveModelByEffortMode(mode, taskType = 'general', budgetGuard = null) {
+    const normMode = (typeof mode === 'string') ? mode.trim().toLowerCase() : '';
+    const isQuality = (normMode === 'quality');
+
+    if (isQuality) {
+      const minBudget = (budgetGuard && typeof budgetGuard.minQualityBudget === 'number')
+        ? budgetGuard.minQualityBudget
+        : 2000;
+      const hasRemainingBudget = (budgetGuard && budgetGuard.remainingBudget !== undefined);
+
+      if (hasRemainingBudget && budgetGuard.remainingBudget < minBudget) {
+        return {
+          mode: 'quality',
+          modelId: taskType === 'coding' ? 'deepseek-v4-pro' : 'claude-opus-5.5',
+          reasoningEffort: 'high',
+          maxReasoningTokens: 16384,
+          budgetApproved: false,
+          status: 'quality_mode_exceeded',
+          requiredBudget: minBudget,
+          remainingBudget: budgetGuard.remainingBudget
+        };
+      }
+
+      return {
+        mode: 'quality',
+        modelId: taskType === 'coding'
+          ? 'deepseek-v4-pro'
+          : (taskType === 'complex_reasoning' ? 'gpt-6-astra' : 'claude-opus-5.5'),
+        reasoningEffort: 'high',
+        maxReasoningTokens: 16384,
+        budgetApproved: true,
+        status: 'ready'
+      };
+    }
+
+    return {
+      mode: 'speed',
+      modelId: taskType === 'coding' ? 'deepseek-v4.1-flash' : 'gemini-3.8-flash',
+      reasoningEffort: 'low',
+      maxReasoningTokens: 1024,
+      budgetApproved: true,
+      status: 'ready'
+    };
+  }
+
   function recordModelTokenAndCostUsage(param1, param2, param3, param4) {
     let providerId = null;
     let modelId = null;
@@ -3341,10 +3914,11 @@
     { id: 'clue', name: 'Clue', category: 'Health', type: 'App', author: 'Clue', website: 'https://helloclue.com', desc: 'Explore your Clue cycle and reproductive health insights.' },
     { id: 'cronometer', name: 'Cronometer', category: 'Health', type: 'App', author: 'Cronometer', website: 'https://cronometer.com', desc: 'Explore your Cronometer nutrition and biometric data.' },
     { id: 'fitbit', name: 'Fitbit', category: 'Health', type: 'App', author: 'Google', website: 'https://fitbit.com', desc: 'Explore your Fitbit activity, sleep, and heart rate trends.' },
-    { id: 'oura', name: 'Oura', category: 'Health', type: 'App', author: 'Oura', website: 'https://ouraring.com', desc: 'Explore your Oura sleep, readiness, and activity scores.' },
-    { id: 'shopify', name: 'Shopify', beta: true, category: 'Finance', type: 'App', author: 'Shopify', website: 'https://shopify.com', desc: 'Streamline operations, unlock insights, and manage store orders.' },
-    { id: 'outlook_cal', name: 'Outlook Calendar', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Schedule, view, and manage your Outlook Calendar events.' },
-    { id: 'outlook_mail', name: 'Outlook Mail', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Write, search, and manage your Outlook emails.' },
+    { id: 'oura', name: 'Oura Ring', category: 'Health', type: 'App', author: 'Oura', website: 'https://ouraring.com', desc: 'Oura sleep, readiness, and biometric ring tracking', description: 'Oura sleep, readiness, and biometric ring tracking' },
+    { id: 'shopify', name: 'Shopify Admin', category: 'Productivity', type: 'App', author: 'Shopify', website: 'https://shopify.com', desc: 'Shopify ecommerce catalog and inventory management', description: 'Shopify ecommerce catalog and inventory management' },
+    { id: 'outlook_calendar', name: 'Outlook Calendar', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Microsoft Outlook calendar events', description: 'Microsoft Outlook calendar events' },
+    { id: 'outlook_cal', name: 'Outlook Calendar', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Microsoft Outlook calendar events', description: 'Microsoft Outlook calendar events' },
+    { id: 'outlook_mail', name: 'Outlook Mail', category: 'Productivity', type: 'MultiAccount', author: 'Microsoft', website: 'https://outlook.live.com', desc: 'Microsoft Outlook email management', description: 'Microsoft Outlook email management' },
     { id: 'gworkspace', name: 'Google Workspace', category: 'Productivity', type: 'MultiAccount', author: 'Google', website: 'https://workspace.google.com', desc: 'Access your files, search instantly across Drive, Docs, and Sheets.' },
     { id: 'youtube', name: 'YouTube', category: 'Productivity', type: 'MultiAccount', author: 'Google', website: 'https://youtube.com', desc: 'Manage your YouTube channel, view live subscriber stats, and publish Shorts from Clash Studio.' },
     { id: 'tailscale', name: 'Tailscale', category: 'Dev & AI', type: 'MCP', author: 'Tailscale', website: 'https://tailscale.com', desc: 'Connect your cloud computer or sandbox to your private Tailnet.' },
@@ -3391,11 +3965,17 @@
     { id: 'line', name: 'LINE', category: 'Productivity', type: 'App', author: 'LY Corp', website: 'https://line.me', desc: 'Connect to LINE Official Accounts for automated messaging.' },
     { id: 'coingecko', name: 'CoinGecko', category: 'Finance', type: 'MCP', author: 'CoinGecko', website: 'https://coingecko.com', desc: 'Access real-time crypto market data, prices, and trends.' },
     { id: 'clash_royale', name: 'Clash Royale Official API', category: 'Dev & AI', type: 'App', author: 'Supercell', website: 'https://developer.clashroyale.com', desc: 'Live player battle logs, Electro Giant meta win-rates, and clan analytics.' },
-    { id: 'notion', name: 'Notion', category: 'Productivity', type: 'App', author: 'Notion Labs', website: 'https://notion.so', desc: 'Search workspace content, update notes, and automate workflows in Nexus.' },
+    { id: 'notion', name: 'Notion', category: 'Productivity', type: 'App', author: 'Notion Labs', website: 'https://notion.so', desc: 'Notion workspace search and page automation', description: 'Notion workspace search and page automation' },
     { id: 'evernote', name: 'Evernote', beta: true, category: 'Productivity', type: 'App', author: 'Evernote', website: 'https://evernote.com', desc: 'Search, create, and organize your Evernote notes and tasks.' },
-    { id: 'google_health', name: 'Google Health', category: 'Health', type: 'App', author: 'Google', website: 'https://health.google', desc: 'Connect Google Health to bring in your sleep, steps, workouts, calories, and vitals.' },
-    { id: 'robinhood', name: 'Robinhood Trading', beta: true, category: 'Finance', type: 'App', author: 'Robinhood', website: 'https://robinhood.com', desc: 'Track portfolio and balances and place trades on Robinhood.' },
-    { id: 'coinbase', name: 'Coinbase Wallet', category: 'Finance', type: 'App', author: 'Coinbase', website: 'https://coinbase.com/wallet', desc: 'Access Coinbase Wallet for onchain actions and payments.' },
+    { id: 'google_health', name: 'Google Health', category: 'Health', type: 'App', author: 'Google', website: 'https://health.google', desc: 'Android Health Connect biometrics and health data', description: 'Android Health Connect biometrics and health data' },
+    { id: 'agent_telecom', name: 'Agent Telecom & Phone/Email', category: 'Telecom', type: 'App', author: 'EG-Nexus-OS', website: 'https://eg-nexus-os.internal/telecom', desc: 'Dedicated virtual phone numbers and email routing for agents', description: 'Dedicated virtual phone numbers and email routing for agents' },
+    { id: 'cloud_pc', name: 'Cloud PC & Sovereign Workstation', category: 'Compute', type: 'App', author: 'EG-Nexus-OS', website: 'https://eg-nexus-os.internal/cloud_pc', desc: 'Sovereign compute and virtual machine management', description: 'Sovereign compute and virtual machine management' },
+    { id: 'plaid_banking', name: 'Plaid Banking', category: 'Finance', type: 'App', author: 'Plaid', website: 'https://plaid.com', desc: 'Secure open banking and account link', description: 'Secure open banking and account link' },
+    { id: 'stripe_link', name: 'Stripe Link', category: 'Finance', type: 'App', author: 'Stripe', website: 'https://stripe.com', desc: 'Stripe OAuth and card authorizations', description: 'Stripe OAuth and card authorizations' },
+    { id: 'coinbase_wallet', name: 'Coinbase Wallet', category: 'Finance', type: 'App', author: 'Coinbase', website: 'https://coinbase.com/wallet', desc: 'Onchain crypto wallet and transactions', description: 'Onchain crypto wallet and transactions' },
+    { id: 'coinbase', name: 'Coinbase Wallet', category: 'Finance', type: 'App', author: 'Coinbase', website: 'https://coinbase.com/wallet', desc: 'Onchain crypto wallet and transactions', description: 'Onchain crypto wallet and transactions' },
+    { id: 'robinhood_trading', name: 'Robinhood Trading (Beta)', category: 'Finance', type: 'App', author: 'Robinhood', website: 'https://robinhood.com', desc: 'Stock and crypto portfolio tracking and trade orders', description: 'Stock and crypto portfolio tracking and trade orders' },
+    { id: 'robinhood', name: 'Robinhood Trading (Beta)', category: 'Finance', type: 'App', author: 'Robinhood', website: 'https://robinhood.com', desc: 'Stock and crypto portfolio tracking and trade orders', description: 'Stock and crypto portfolio tracking and trade orders' },
     { id: 'coros', name: 'COROS', category: 'Health', type: 'App', author: 'COROS', website: 'https://coros.com', desc: 'Analyze activity, sleep, and recovery from your COROS account.' },
     { id: 'canva', name: 'Canva', category: 'Creative', type: 'App', author: 'Canva', website: 'https://canva.com', desc: 'Discover, autofill, and export Canva designs in one place.' },
     { id: 'wordpress', name: 'WordPress', category: 'Creative', type: 'App', author: 'Automattic', website: 'https://wordpress.org', desc: 'Manage and publish posts, pages, media, and site settings on WordPress.' },
@@ -3426,6 +4006,8 @@
     { id: 'render', name: 'Render', category: 'Dev & AI', type: 'App', author: 'Render', website: 'https://render.com', desc: 'Manage Render services, deploys, logs, and infrastructure.' },
     { id: 'netlify', name: 'Netlify', category: 'Dev & AI', type: 'App', author: 'Netlify', website: 'https://netlify.com', desc: 'Deploy, manage, and monitor Netlify projects, extensions, and environments.' }
   ];
+
+  const PROVIDER_CATALOG = APPS_CATALOG;
 
   // Ensure all apps in catalog have their capability tier explicitly set
   APPS_CATALOG.forEach(app => {
@@ -3515,6 +4097,7 @@
     getProviderTier,
     getProviderTierBadge,
     APPS_CATALOG,
+    PROVIDER_CATALOG,
     GOOGLE_OAUTH_SCOPES,
     PROVIDER_ACTION_SCOPES,
     getGoogleScopes,
@@ -3557,6 +4140,9 @@
     createSyncLock,
     cleanMemoryState,
     resolveProviderModelId,
+    resolveModelByEffortMode,
+    USER_CLIENT_CONFIG_KEY_SPEED_MODE,
+    _getSimulatedConnectorResponse,
     recordModelTokenAndCostUsage,
     MODEL_REGISTRY,
     MODEL_METADATA_CATALOG,

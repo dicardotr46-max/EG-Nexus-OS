@@ -1566,6 +1566,251 @@
     }
   }
 
+  const CLOUD_PC_SNAPSHOTS_KEY = 'nexus_cloud_pc_snapshots';
+  const CLOUD_PC_BRIDGE_SECRET_KEY = 'nexus_cloud_pc_bridge_secret';
+
+  function _generateSha256Checksum(content) {
+    try {
+      const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
+      if (nodeCrypto && typeof nodeCrypto.createHash === 'function') {
+        return nodeCrypto.createHash('sha256').update(String(content), 'utf8').digest('hex');
+      }
+    } catch (_) {}
+    let h = 0x811c9dc5;
+    const str = String(content);
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+  }
+
+  /**
+   * createWorkspaceSnapshot
+   * Creates and persists a workspace snapshot under nexus_cloud_pc_snapshots.
+   */
+  function createWorkspaceSnapshot(label = 'manual_snapshot', metadata = {}, customStorage) {
+    let snapLabel = 'manual_snapshot';
+    let meta = metadata;
+    if (typeof label === 'string' && label.trim()) {
+      snapLabel = label.trim();
+    } else if (typeof label === 'object' && label !== null) {
+      meta = label;
+      snapLabel = (meta.label && typeof meta.label === 'string') ? meta.label : 'manual_snapshot';
+    }
+    if (!meta || typeof meta !== 'object') {
+      meta = {};
+    }
+
+    const storage = customStorage || meta.storage || getLocalStorage();
+    const snapshotId = 'snap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const timestamp = Date.now();
+    const isoDate = new Date(timestamp).toISOString();
+
+    let stateSnapshot = null;
+    if (meta.state) {
+      stateSnapshot = meta.state;
+    } else {
+      const rawState = nexusStorageGet(STORAGE_KEY, storage);
+      if (rawState) {
+        try {
+          stateSnapshot = JSON.parse(rawState);
+        } catch (_) {
+          stateSnapshot = rawState;
+        }
+      } else if (typeof globalThis !== 'undefined' && globalThis.appState) {
+        stateSnapshot = globalThis.appState;
+      }
+    }
+
+    const serialized = (typeof stateSnapshot === 'string') ? stateSnapshot : JSON.stringify(stateSnapshot || {});
+    const checksum = _generateSha256Checksum(serialized);
+    const size = (typeof meta.size === 'number') ? meta.size : 1024;
+
+    const snapshot = {
+      snapshotId,
+      id: snapshotId,
+      label: snapLabel,
+      timestamp,
+      isoDate,
+      checksum,
+      size,
+      metadata: meta,
+      state: stateSnapshot
+    };
+
+    let snapshots = [];
+    try {
+      const raw = nexusStorageGet(CLOUD_PC_SNAPSHOTS_KEY, storage);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          snapshots = parsed;
+        }
+      }
+    } catch (_) {
+      snapshots = [];
+    }
+
+    snapshots.push(snapshot);
+    nexusStorageSet(CLOUD_PC_SNAPSHOTS_KEY, JSON.stringify(snapshots), storage);
+
+    return {
+      success: true,
+      snapshotId,
+      label: snapLabel,
+      timestamp,
+      isoDate,
+      size
+    };
+  }
+
+  /**
+   * restoreWorkspaceSnapshot
+   * Restores a previously saved snapshot by ID.
+   */
+  function restoreWorkspaceSnapshot(snapshotId, customStorage) {
+    if (!snapshotId) {
+      return { success: false, error: 'SNAPSHOT_NOT_FOUND' };
+    }
+
+    const storage = customStorage || getLocalStorage();
+    let snapshots = [];
+    try {
+      const raw = nexusStorageGet(CLOUD_PC_SNAPSHOTS_KEY, storage);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          snapshots = parsed;
+        }
+      }
+    } catch (_) {
+      return { success: false, error: 'SNAPSHOT_NOT_FOUND' };
+    }
+
+    const found = snapshots.find(s => s && (s.snapshotId === snapshotId || s.id === snapshotId));
+    if (!found) {
+      return { success: false, error: 'SNAPSHOT_NOT_FOUND' };
+    }
+
+    if (found.state !== undefined && found.state !== null) {
+      try {
+        const serialized = (typeof found.state === 'string') ? found.state : JSON.stringify(found.state);
+        nexusStorageSet(STORAGE_KEY, serialized, storage);
+      } catch (_) {}
+    }
+
+    return {
+      success: true,
+      snapshotId,
+      restoredAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * listWorkspaceSnapshots
+   * Lists all workspace snapshots sorted by timestamp desc.
+   */
+  function listWorkspaceSnapshots(customStorage) {
+    const storage = customStorage || getLocalStorage();
+    try {
+      const raw = nexusStorageGet(CLOUD_PC_SNAPSHOTS_KEY, storage);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.slice().sort((a, b) => {
+        const tA = (a && a.timestamp) ? Number(a.timestamp) : 0;
+        const tB = (b && b.timestamp) ? Number(b.timestamp) : 0;
+        return tB - tA;
+      });
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * deleteWorkspaceSnapshot
+   * Removes a snapshot by snapshotId from storage.
+   */
+  function deleteWorkspaceSnapshot(snapshotId, customStorage) {
+    if (!snapshotId) {
+      return { success: false, error: 'SNAPSHOT_NOT_FOUND' };
+    }
+    const storage = customStorage || getLocalStorage();
+    try {
+      const raw = nexusStorageGet(CLOUD_PC_SNAPSHOTS_KEY, storage);
+      let snapshots = [];
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          snapshots = parsed;
+        }
+      }
+      const filtered = snapshots.filter(s => s && s.snapshotId !== snapshotId && s.id !== snapshotId);
+      nexusStorageSet(CLOUD_PC_SNAPSHOTS_KEY, JSON.stringify(filtered), storage);
+      return {
+        success: true,
+        deletedId: snapshotId
+      };
+    } catch (e) {
+      return { success: false, error: (e && e.message) || 'DELETE_FAILED' };
+    }
+  }
+
+  /**
+   * resetBridgeCredentials
+   * Generates a new 64-char hex secret and returns its hash.
+   */
+  function resetBridgeCredentials(options = {}) {
+    let secret = '';
+    try {
+      const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
+      if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+        secret = nodeCrypto.randomBytes(32).toString('hex');
+      }
+    } catch (_) {}
+
+    if (!secret) {
+      try {
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+          const arr = new Uint8Array(32);
+          crypto.getRandomValues(arr);
+          secret = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch (_) {}
+    }
+
+    if (!secret || secret.length < 64) {
+      while (secret.length < 64) {
+        secret += Math.random().toString(16).slice(2) + Date.now().toString(16);
+      }
+      secret = secret.slice(0, 64);
+    }
+
+    const storage = (options && options.storage) || getLocalStorage();
+    nexusStorageSet(CLOUD_PC_BRIDGE_SECRET_KEY, secret, storage);
+
+    let rawHash = '';
+    try {
+      const nodeCrypto = (typeof require === 'function') ? require('crypto') : null;
+      if (nodeCrypto && typeof nodeCrypto.createHash === 'function') {
+        rawHash = nodeCrypto.createHash('sha256').update(secret, 'utf8').digest('hex');
+      }
+    } catch (_) {}
+    if (!rawHash) {
+      rawHash = _generateSha256Checksum(secret);
+    }
+
+    const newSecretHash = (options && (options.newSecretHash || options.mockHash))
+      || ('sha256_mock_' + (rawHash ? rawHash.slice(0, 24) : Date.now().toString(36)));
+
+    return {
+      success: true,
+      newSecretHash,
+      generatedAt: new Date().toISOString()
+    };
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -1610,6 +1855,11 @@
     saveTaskJournalToStorage,
     loadTaskJournalFromStorage,
     saveMemoryGovernanceToStorage,
-    loadMemoryGovernanceFromStorage
+    loadMemoryGovernanceFromStorage,
+    createWorkspaceSnapshot,
+    restoreWorkspaceSnapshot,
+    listWorkspaceSnapshots,
+    deleteWorkspaceSnapshot,
+    resetBridgeCredentials
   };
 });

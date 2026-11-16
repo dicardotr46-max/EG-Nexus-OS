@@ -7,8 +7,8 @@ android {
         applicationId "com.eg.nexus"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 60303
-        versionName "6.3.3"
+        versionCode 60400
+        versionName "6.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir

@@ -2089,6 +2089,150 @@
     return null;
   }
 
+  /**
+   * TaskQueueManager
+   * Manages agent execution queue, prioritizes and tracks active/historical tasks.
+   */
+  class TaskQueueManager {
+    constructor() {
+      this.tasks = [];
+      this.activeTask = null;
+      this.history = [];
+    }
+
+    enqueueTask(taskPayload) {
+      const taskId = 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const prompt = (taskPayload && typeof taskPayload === 'object')
+        ? (taskPayload.prompt || '')
+        : (typeof taskPayload === 'string' ? taskPayload : '');
+      const agentId = (taskPayload && typeof taskPayload === 'object' && taskPayload.agentId)
+        ? taskPayload.agentId
+        : null;
+      const mode = (taskPayload && typeof taskPayload === 'object' && taskPayload.mode)
+        ? taskPayload.mode
+        : 'quality';
+      const priority = (taskPayload && typeof taskPayload === 'object' && typeof taskPayload.priority === 'number')
+        ? taskPayload.priority
+        : 1;
+
+      const queuePosition = this.tasks.length + 1;
+      const estimatedWaitMs = (this.tasks.length + 1) * 3500;
+
+      const item = {
+        taskId,
+        id: taskId,
+        prompt,
+        agentId,
+        mode,
+        priority,
+        status: 'queued',
+        queuePosition,
+        estimatedWaitMs,
+        createdAt: new Date().toISOString(),
+        payload: taskPayload
+      };
+
+      this.tasks.push(item);
+
+      if (!this.activeTask) {
+        this._processNext();
+      }
+
+      return {
+        taskId,
+        id: taskId,
+        status: 'queued',
+        queuePosition,
+        estimatedWaitMs
+      };
+    }
+
+    getTaskQueueInfo(taskId = null) {
+      return {
+        totalQueued: this.tasks.length,
+        activeTask: this.activeTask ? {
+          id: this.activeTask.taskId || this.activeTask.id,
+          prompt: this.activeTask.prompt,
+          startedAt: this.activeTask.startedAt
+        } : null,
+        queue: this.tasks.map((t, idx) => ({
+          id: t.taskId || t.id,
+          position: idx + 1,
+          waitMs: (idx + 1) * 3500,
+          prompt: t.prompt
+        })),
+        currentTask: taskId ? (this.tasks.find(t => (t.taskId || t.id) === taskId) || null) : null
+      };
+    }
+
+    dequeueTask(taskId) {
+      if (!taskId) return false;
+      const idx = this.tasks.findIndex(t => (t.taskId || t.id) === taskId);
+      if (idx !== -1) {
+        this.tasks.splice(idx, 1);
+        return true;
+      }
+      return false;
+    }
+
+    _processNext() {
+      if (this.activeTask || this.tasks.length === 0) return;
+      this.activeTask = this.tasks.shift();
+      this.activeTask.status = 'processing';
+      this.activeTask.startedAt = new Date().toISOString();
+    }
+
+    completeActiveTask(result = null) {
+      if (!this.activeTask) return;
+      this.activeTask.status = 'completed';
+      this.activeTask.completedAt = new Date().toISOString();
+      this.activeTask.result = result;
+      this.history.push(this.activeTask);
+      this.activeTask = null;
+      this._processNext();
+    }
+
+    clearQueue() {
+      this.tasks = [];
+      this.activeTask = null;
+    }
+  }
+
+  const taskQueueManager = new TaskQueueManager();
+
+  /**
+   * getWeeklyUsageQuota
+   * Computes weekly usage quota, remaining tokens, and reset cycle for tier limits.
+   */
+  function getWeeklyUsageQuota(options = {}) {
+    const opts = (options && typeof options === 'object') ? options : {};
+    const weeklyLimit = typeof opts.weeklyLimit === 'number' ? opts.weeklyLimit : 1000000;
+    const usedTokens = typeof opts.usedTokens === 'number'
+      ? opts.usedTokens
+      : (typeof opts.currentUsage === 'number' ? opts.currentUsage : (typeof options === 'number' ? options : 12450));
+    const tier = typeof opts.tier === 'string' ? opts.tier : 'Plus';
+
+    const remainingTokens = Math.max(0, weeklyLimit - usedTokens);
+    const remainingPct = weeklyLimit > 0
+      ? Math.max(0, Math.min(100, Math.round((remainingTokens / weeklyLimit) * 100)))
+      : 0;
+    const usedPct = 100 - remainingPct;
+    const day = new Date().getDay();
+    const resetDays = day === 0 ? 7 : (7 - day);
+
+    return {
+      weeklyLimit,
+      usedTokens,
+      remainingTokens,
+      remainingPct,
+      usedPct,
+      displayLeft: `${remainingPct}% left`,
+      resetDays,
+      resetMessage: `Reset in ${resetDays} days`,
+      tier
+    };
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -2141,6 +2285,10 @@
     loadTaskJournalFromStorage,
     saveMemoryGovernanceToStorage,
     loadMemoryGovernanceFromStorage,
-    estimateModelRequestTokens
+    estimateModelRequestTokens,
+    TaskQueueManager,
+    getTaskQueueManager: () => taskQueueManager,
+    taskQueueManager,
+    getWeeklyUsageQuota
   };
 });
