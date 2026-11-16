@@ -1,8 +1,8 @@
 {
   "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 35111,
-  "script_bytes": 1766261,
+  "lines": 35073,
+  "script_bytes": 1769816,
   "function_count": 849,
   "interactive_element_count": 58,
   "target_hits": {
@@ -744,10 +744,10 @@
     "zero_drift": true
   },
   "evidence_manifest": {
-    "gitHead": "6fd7f7b18ea441772376b434cddea65185f0f76d",
+    "gitHead": "6d5297ad946494acf1da26fe5f3e5b19363832f9",
     "packageLockHash": "fb2943e83c0f62f679a57058abefe6516e8a215f7ff33b3fcd73c9fc7120b098",
     "coverageSummaryHash": "c78fd241c4c33b4c64cfe598828c771e071227f627065248e846da9c66128026",
-    "jestResultsHash": "00307be499cc2b4ee8f53aba3960a3276ab96d4a260d3383e7242e0315434576",
-    "timestamp": "2026-11-16T00:16:09.599Z"
+    "jestResultsHash": "b5fb02aaf147c2235cdf1a1d897a208d9a2a425a22487cdcc3289e9268e52f00",
+    "timestamp": "2026-11-16T08:22:39.827Z"
   }
 }
