@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-11-16T22:25:51.635Z",
+  "targetFilesChecked": [
+    "index.html",
+    "src/core/state.js",
+    "src/core/persistence.js"
+  ],
+  "wiringChecks": {
+    "i18n_live_translation": {
+      "passed": true,
+      "details": {
+        "hasLiveLanguageFn": true,
+        "hasI18nDictionary": true,
+        "hasDataI18nAttrs": true,
+        "hasRtlDirSwitch": true
+      }
+    },
+    "appearance_theme_wiring": {
+      "passed": true,
+      "details": {
+        "hasThemeRootTokens": true,
+        "hasDynamicCssVars": true,
+        "hasThemeModeSwitch": true
+      }
+    },
+    "app_icon_wiring": {
+      "passed": true,
+      "details": {
+        "hasAppIconFn": true,
+        "hasAppFaviconUpdate": true
+      }
+    },
+    "effort_mode_routing": {
+      "passed": true,
+      "details": {
+        "hasEffortRouter": true,
+        "hasSpeedModeConfig": true,
+        "hasQualityModeConfig": true,
+        "hasModelSwitchingInChat": true
+      }
+    },
+    "skills_prompt_injection": {
+      "passed": true,
+      "details": {
+        "hasSkillsPromptInjection": true
+      }
+    },
+    "group_chat_execution": {
+      "passed": true,
+      "details": {
+        "hasGroupChatTurns": true
+      }
+    },
+    "computer_bridge_and_snapshots": {
+      "passed": true,
+      "details": {
+        "hasTermuxHealthCheck": true,
+        "hasSnapshotCreation": true,
+        "hasSnapshotRestore": true
+      }
+    }
+  },
+  "hollowCandidates": [],
+  "verdict": "ALL_CHECKS_PASSED",
+  "stats": {
+    "totalInteractiveFunctionsFound": 325,
+    "passedChecks": 7,
+    "totalChecks": 7
+  }
+}

@@ -1,7 +1,7 @@
 // ============================================================================
-// EG NEXUS OS v6.5.0 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
+// EG NEXUS OS v6.5.1 — STANDARD PWA SERVICE WORKER (OFFLINE-FIRST SHELL)
 // ============================================================================
-const CACHE_NAME = 'eg-nexus-os-v6.5.0-pwa-cache';
+const CACHE_NAME = 'eg-nexus-os-v6.5.1-pwa-cache';
 const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">⚡</text></svg>';
 const CORE_ASSETS = [
   './',

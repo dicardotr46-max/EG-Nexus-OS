@@ -83,9 +83,7 @@
   const NEXUS_APP_ICON_KEY = 'nexus_app_icon';
   const AGENT_GROUPS_STORAGE_KEY = 'nexus_agent_groups';
   const USER_SKILLS_STORAGE_KEY = 'nexus_user_skills';
-  const SUPPORTED_APP_LANGUAGES = Object.freeze([
-    'en', 'fa', 'zh_CN', 'zh_TW', 'ja', 'ko', 'de', 'es_ES', 'es_LA', 'ar', 'fr', 'id', 'it', 'pt'
-  ]);
+  const SUPPORTED_APP_LANGUAGES = Object.freeze(['en', 'fa', 'ar']);
   const SUPPORTED_THEME_MODES = Object.freeze(['system', 'light', 'dark']);
   const SUPPORTED_APP_ICONS = Object.freeze(['classic', 'oled_dark', 'cyberpunk', 'minimal']);
 

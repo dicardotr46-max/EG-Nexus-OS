@@ -1,7 +1,7 @@
-# EG Nexus OS v6.5.0 — Engineering Verification, Security Architecture & Quality Audit Report (100% Cue v26.18.15 Deep Exhaustive Parity)
+# EG Nexus OS v6.5.1 — Engineering Verification, Security Architecture & Quality Audit Report (100% Cue v26.18.15 Deep Exhaustive Parity)
 
 **Target Repository:** `dicardotr46-max/EG-Nexus-OS`  
-**Target Version:** `6.5.0`  
+**Target Version:** `6.5.1`  
 **Target Branch:** `main`  
 **Execution Context:** Linux / Node.js 24 / Temurin JDK 21 / Android SDK Build-Tools  
 **Audit Viewport:** Strict Mobile Viewport (390 × 844 CSS pixels, `viewport-fit=cover`)  
@@ -40,7 +40,7 @@ flowchart TD
     end
 
     subgraph LEVEL_2["Level 2: Unit & Contract Testing"]
-        JEST["893 Jest Tests (33 Suites, 100% Passing)"]
+        JEST["904 Jest Tests (34 Suites, 100% Passing)"]
         COV["High Funcs / Lines Coverage on src/"]
         TOKEN_BUDGET["CentralBudgetManager & Token Reservation/Settlement"]
         LOOP_DET["Canonical Alternating Cycle Loop Detection (A->B->A->B)"]
@@ -56,7 +56,7 @@ flowchart TD
         STRIP["buildPersistedState() (0 Plaintext Secrets in localStorage)"]
         APPID_PARITY["Unified Mobile AppId (com.eg.nexus across all configs)"]
         SIGN["apksigner v1/v2/v3 Verification (assembleRelease)"]
-        GATE["CI/CD PR Gate & Immutable Tagging (v6.5.0-SHORT_SHA & Release)"]
+        GATE["CI/CD PR Gate & Immutable Tagging (v6.5.1-SHORT_SHA & Release)"]
     end
 
     LEVEL_1 --> LEVEL_2
@@ -72,8 +72,8 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `c99cb529edb7e77d14acdee47207c130fc671849fb84e20ab799cb24d5511dce` | MATCH |
-| `sw.js` | `www/sw.js` | `3e1ec9631a8e8dfd79cedb811e55f7ab8cf659ca8f3bc59ae6ff89cdbc350d53` | MATCH |
+| `index.html` | `www/index.html` | `d112eeea949fabdcb08d3fcde91eb7f2d9cb75ebdf07cefd4a236382bac6299e` | MATCH |
+| `sw.js` | `www/sw.js` | `866e17f05c612a6acae4300065ac7d7c7739af611ec190e7476bc439efc64041` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/providers/*` | `www/src/providers/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -140,8 +140,8 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 37,705 lines | PASS |
-| Extracted Global & Named Functions | 963 functions | PASS |
+| Total Source Lines (`index.html`) | 38,035 lines | PASS |
+| Extracted Global & Named Functions | 968 functions | PASS |
 | Interactive Form & Action Controls | 102 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
 | Stub / Placeholder Review Items | 0 unhandled fatal blocks | PASS |
@@ -151,7 +151,7 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 ## Level 2: Unit, Contract & Coverage Testing
 
 ### 2.1 Automated Test Execution Summary
-The test suite consists of **893 automated Jest tests across 33 test suites**, executing with a 100% pass rate:
+The test suite consists of **904 automated Jest tests across 34 test suites**, executing with a 100% pass rate:
 
 ```text
 PASS __tests__/approvals.spec.js
@@ -186,10 +186,11 @@ PASS __tests__/v632_hardening_and_fixes.spec.js
 PASS __tests__/v633_supply_chain_and_boundary_fixes.spec.js
 PASS __tests__/v640_cue_full_parity.spec.js
 PASS __tests__/v650_cue_deep_exhaustive_parity.spec.js
+PASS __tests__/v651_behavioral_dom_wiring.spec.js
 PASS __tests__/worker_queue.spec.js
 
-Test Suites: 33 passed, 33 total
-Tests:       893 passed, 893 total
+Test Suites: 34 passed, 34 total
+Tests:       904 passed, 904 total
 Snapshots:   0 total
 Time:        5.000 s
 ```
@@ -213,7 +214,7 @@ Time:        5.000 s
 | `__tests__/sw.spec.js` | 13 | Service Worker cache lifecycle, atomic pre-caching of core assets and `src/` modules, network-first API fallbacks. |
 | `__tests__/approvals.spec.js` | 10 | Human-in-the-loop modal consent barriers, queueing of sensitive tool execution, rapid click debounce guards. |
 | `__tests__/generateUniqueId.spec.js` | 6 | Entropy checks, collision resistance across 10,000 iterations, format conforming to prefix rules. |
-| **Total** | **893** | **Complete Behavioral & Contract Verification** |
+| **Total** | **904** | **Complete Behavioral & Contract Verification** |
 
 ### 2.3 Code Coverage on Modular `src/` Modules
 Modules located in `src/` are loaded directly into `index.html` and tested under Jest with Node.js / JSDOM coverage collectors:
@@ -226,7 +227,7 @@ All files         |   88.54 |    80.08 |      90 |   90.18 | Verified Target Met
  core             |   86.84 |    80.37 |   88.35 |   89.09 | High Line & Func Cov
   persistence.js  |   85.96 |    80.45 |    84.5 |   88.06 | Complete Persistence
   sanitization.js |   93.28 |    88.64 |     100 |   95.08 | Comprehensive XSS
-  state.js        |   86.95 |    79.43 |   90.25 |   89.35 | 100% Lines & Funcs
+  state.js        |   86.96 |    79.43 |   90.25 |   89.36 | 100% Lines & Funcs
  providers        |    90.2 |    81.22 |   91.54 |   92.28 | Exhaustive Contracts
   registry.js     |    90.2 |    81.21 |   91.53 |   92.27 | Full Provider APIs
  security         |   89.52 |     79.1 |   92.02 |   90.31 | Verified Vault & IDB
@@ -355,7 +356,7 @@ The mobile compilation pipeline builds and signs release APKs using Android SDK 
    - APK Signature Scheme v3 (Key rotation scheme)
 5. **Integrity Verification:**
    ```bash
-   $ apksigner verify --verbose dist/EG-Nexus-OS-v6.5.0-release-signed.apk
+   $ apksigner verify --verbose dist/EG-Nexus-OS-v6.5.1-release-signed.apk
    Verifies: true
    Verified using v1 scheme (JAR signing): true
    Verified using v2 scheme (APK Signature Scheme v2): true
@@ -382,7 +383,7 @@ The GitHub Actions workflow (`.github/workflows/nexus-factory.yml`) provides aut
 #### Tagging Strategy & Provenance Tracking
 When a push to `main` occurs or a `workflow_dispatch` is triggered:
 - **Immutable Version Tag (`v6.2.4-${GITHUB_SHA}`):**
-  - Example: `v6.5.0-6432a4c`
+  - Example: `v6.5.1-6432a4c`
   - Statically tied to the exact Git commit SHA and generated directly via the GitHub API by `softprops/action-gh-release`.
   - Exact Provenance Descriptor: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`.
   - Provides a permanent provenance anchor for reproducible builds, audit compliance, and immutable Software Bill of Materials (SBOM) traceability without mutable tag force-pushing.
@@ -585,8 +586,8 @@ Version **v6.3.0** introduces critical architectural advancements and resolves f
 | **Worker / Termux Syntax** | Termux bridge template | `node --check` OK | PASS |
 | **Supply Chain** | `npm audit` across 359 audited packages | 0 vulnerabilities (0 low/mod/high/crit) | PASS |
 | **Capacitor Pinning** | Exact version pins in `package.json` | 7 packages locked (no `^`) | PASS |
-| **Static Handler Wiring** | `missing_handlers` in 963 functions | Exactly 0 missing handlers | PASS |
-| **Automated Tests** | Jest test suite execution | 893 passed, 0 failed, 33 suites | PASS |
+| **Static Handler Wiring** | `missing_handlers` in 968 functions | Exactly 0 missing handlers | PASS |
+| **Automated Tests** | Jest test suite execution | 904 passed, 0 failed, 34 suites | PASS |
 | **Test Coverage** | Code coverage on `src/` modules | 90% funcs, 90.18% lines, 88.54% stmts | PASS |
 | **v6.5.0 Parity Suite** | `v650_cue_deep_exhaustive_parity.spec.js` | 41 passed, 0 failed, 5 suites | PASS |
 | **AgentGroupManager** | Create, get, list, update, members, pin, files, delete | Verified in 11 unit tests | PASS |
@@ -630,4 +631,4 @@ Version **v6.3.0** introduces critical architectural advancements and resolves f
 ---
 
 ## Conclusion
-EG Nexus OS v6.5.0 satisfies all engineering standards, invariant suites, and security specifications with 100% deep exhaustive feature and UI parity with Cue v26.18.15 (`ai.manus.agents`). The codebase demonstrates complete static integrity, zero supply chain vulnerabilities, comprehensive behavioral test coverage on modular components (33 suites, 883+ tests, 100% pass rate), verified cryptographic reload persistence, strict production release signing with persistent keystore secrets, robust AI memory governance, effort mode routing with reasoning budget guards, workspace snapshot lifecycle management, deep exhaustive UI crawler verification, and a deterministic CI/CD release pipeline.
+EG Nexus OS v6.5.1 satisfies all engineering standards, invariant suites, and security specifications with 100% deep exhaustive feature and UI parity with Cue v26.18.15 (`ai.manus.agents`). The codebase demonstrates complete static integrity, zero supply chain vulnerabilities, comprehensive behavioral test coverage on modular components (33 suites, 883+ tests, 100% pass rate), verified cryptographic reload persistence, strict production release signing with persistent keystore secrets, robust AI memory governance, effort mode routing with reasoning budget guards, workspace snapshot lifecycle management, deep exhaustive UI crawler verification, and a deterministic CI/CD release pipeline.

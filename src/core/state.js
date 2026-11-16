@@ -70,6 +70,7 @@
   const NEXUS_APP_ICON_KEY = 'nexus_app_icon';
   const AGENT_GROUPS_STORAGE_KEY = 'nexus_agent_groups';
   const USER_SKILLS_STORAGE_KEY = 'nexus_user_skills';
+  const SUPPORTED_APP_LANGUAGES = Object.freeze(['en', 'fa', 'ar']);
 
   const DEFAULT_WORKOUT_STUDIO_TEMPLATE = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -2905,6 +2906,7 @@
   });
 
   const LanguageManager = Object.freeze({
+    SUPPORTED_APP_LANGUAGES,
     getPersistedLanguage,
     setPersistedLanguage
   });
@@ -2990,6 +2992,7 @@
     setPersistedThemeMode,
     getPersistedLanguage,
     setPersistedLanguage,
+    SUPPORTED_APP_LANGUAGES,
     getPersistedAppIcon,
     setPersistedAppIcon,
     calculateStorageCacheSize,

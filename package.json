@@ -1,7 +1,7 @@
 {
   "name": "eg-nexus-os",
-  "version": "6.5.0",
-  "description": "EG Nexus OS v6.5.0 — Sovereign, Local-First, Single-User Personal AI Operating System (Android APK & Offline-Capable PWA)",
+  "version": "6.5.1",
+  "description": "EG Nexus OS v6.5.1 — Sovereign, Local-First, Single-User Personal AI Operating System (Android APK & Offline-Capable PWA)",
   "private": true,
   "engines": {
     "node": ">=18.20.0"
@@ -13,7 +13,8 @@
     "test:mutation": "node scripts/verify-mutations.js",
     "test": "jest",
     "audit:sync": "node scripts/sync-audit-report.js",
-    "audit:cue-parity": "node scripts/cue-parity-crawler.js"
+    "audit:cue-parity": "node scripts/cue-parity-crawler.js",
+    "audit:functional-wiring": "node scripts/audit-functional-wiring.js"
   },
   "dependencies": {
     "@capacitor/android": "8.6.0",

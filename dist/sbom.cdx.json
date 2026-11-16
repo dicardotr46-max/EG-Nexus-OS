@@ -2,24 +2,24 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:53d125fb-2744-522f-9a11-189a9e33d2d7",
+  "serialNumber": "urn:uuid:8c17352e-a511-5c04-99f9-ec6abef50f5e",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-16T12:04:28.000Z",
+    "timestamp": "2026-11-16T14:07:19.000Z",
     "tools": [
       {
         "vendor": "EG-Nexus-OS",
         "name": "generate-cyclonedx-sbom",
-        "version": "6.5.0"
+        "version": "6.5.1"
       }
     ],
     "component": {
-      "bom-ref": "pkg:npm/eg-nexus-os@6.5.0",
+      "bom-ref": "pkg:npm/eg-nexus-os@6.5.1",
       "type": "application",
       "name": "eg-nexus-os",
-      "version": "6.5.0",
-      "description": "EG Nexus OS v6.5.0 — Sovereign, Local-First, Single-User Personal AI Operating System (Android APK & Offline-Capable PWA)",
-      "purl": "pkg:npm/eg-nexus-os@6.5.0"
+      "version": "6.5.1",
+      "description": "EG Nexus OS v6.5.1 — Sovereign, Local-First, Single-User Personal AI Operating System (Android APK & Offline-Capable PWA)",
+      "purl": "pkg:npm/eg-nexus-os@6.5.1"
     }
   },
   "components": [

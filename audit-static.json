@@ -1,9 +1,9 @@
 {
   "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 37705,
-  "script_bytes": 1896668,
-  "function_count": 963,
+  "lines": 38035,
+  "script_bytes": 1912453,
+  "function_count": 968,
   "interactive_element_count": 102,
   "target_hits": {
     "bottom_mode_bar": {
@@ -1169,10 +1169,10 @@
     }
   ],
   "test_summary": {
-    "passed_tests": 893,
-    "total_tests": 893,
-    "passed_suites": 33,
-    "total_suites": 33,
+    "passed_tests": 904,
+    "total_tests": 904,
+    "passed_suites": 34,
+    "total_suites": 34,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
@@ -1193,10 +1193,10 @@
     "zero_drift": true
   },
   "evidence_manifest": {
-    "gitHead": "5e398221175172e80a706c06c6bc70257a17d154",
-    "packageLockHash": "e0fe8a0195ed358c5f7a24ae5d9d640039b4e4da4d27d76a0999ac5f366e79df",
-    "coverageSummaryHash": "55147b8d2f92badddc72204f2b0cf5433421a2b2787fba129a13bfc3b0520fae",
-    "jestResultsHash": "5aad07de0fa4e69a0d0b1138bc95d24bbca925bd70e2ba39222ecfb61c3d140b",
-    "timestamp": "2026-11-16T14:05:11.271Z"
+    "gitHead": "bd0bcc922d83177b792a3d88e210f969ae5513db",
+    "packageLockHash": "64aa3fce2f21c911671845e7d01f8319b732e223f3c56b36497681dd4f62f542",
+    "coverageSummaryHash": "2a23c28ac9e537df0ce8d0b53b44d2a464ffbd03b879b63094ead87b589259ce",
+    "jestResultsHash": "fecbf813556b0a6bc7077fcbc471b9401c86a6fdd6e36ce670a3ddcb3cf708c4",
+    "timestamp": "2026-11-16T22:28:39.393Z"
   }
 }

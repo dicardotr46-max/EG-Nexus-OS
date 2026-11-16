@@ -1,9 +1,9 @@
-# 🚀 EG Nexus OS v6.5.0 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید (100% Cue v26.18.15 Parity)
+# 🚀 EG Nexus OS v6.5.1 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید (100% Cue v26.18.15 Parity)
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-893%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-904%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -58,7 +58,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-**EG Nexus OS v6.5.0** نسخه ارتقایافته، تثبیت‌شده و جامع سیستم‌عامل شخصی چندایجنت است که به **برابری عمیق و همه‌جانبه ۱۰۰٪ (100% Deep Exhaustive Parity)** با جدیدترین نسخه برنامه رسمی **Cue (v26.18.15 - ai.manus.agents)** دست یافته است. این نقطه عطف تاریخی با اتکا به **کراولر عمیق و هوشمند نسخه ۲.۰ (Deep Exhaustive Crawler v2.0)** محقق گردیده که با تزریق مستقیم ایونت‌های اشاره‌گر (Monkey pointer events) محدودیت‌ها و خطای امنیتی رابط کاربری MIUI/HyperOS شیائومی (`SecurityException: Injecting to another application requires INJECT_EVENTS permission`) را به طور کامل پشت سر گذاشته و از طریق پیمایش بازگشتی چندلایه (DFS با عمق ۴) تمامی صفحات، مودال‌ها، زیرجریان‌ها و پاپ‌آپ‌های پنهان Cue را شناسایی، کالبدشکافی و با کیفیت پروداکشن پیاده‌سازی نموده است.
+**EG Nexus OS v6.5.1** نسخه ارتقایافته، تثبیت‌شده و جامع سیستم‌عامل شخصی چندایجنت است که به **برابری عمیق و همه‌جانبه ۱۰۰٪ (100% Deep Exhaustive Parity)** با جدیدترین نسخه برنامه رسمی **Cue (v26.18.15 - ai.manus.agents)** دست یافته است. این نقطه عطف تاریخی با اتکا به **کراولر عمیق و هوشمند نسخه ۲.۰ (Deep Exhaustive Crawler v2.0)** محقق گردیده که با تزریق مستقیم ایونت‌های اشاره‌گر (Monkey pointer events) محدودیت‌ها و خطای امنیتی رابط کاربری MIUI/HyperOS شیائومی (`SecurityException: Injecting to another application requires INJECT_EVENTS permission`) را به طور کامل پشت سر گذاشته و از طریق پیمایش بازگشتی چندلایه (DFS با عمق ۴) تمامی صفحات، مودال‌ها، زیرجریان‌ها و پاپ‌آپ‌های پنهان Cue را شناسایی، کالبدشکافی و با کیفیت پروداکشن پیاده‌سازی نموده است.
 
 ---
 
@@ -181,7 +181,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-**EG Nexus OS v6.5.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به تمامی قابلیت‌های نسخه‌های v6.4.0 و v6.3.2 گردیده است.
+**EG Nexus OS v6.5.1** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به تمامی قابلیت‌های نسخه‌های v6.4.0 و v6.3.2 گردیده است.
 
 ---
 
@@ -321,7 +321,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.5.0 (تمام اکشن‌ها با SHA پین شده)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.5.1 (تمام اکشن‌ها با SHA پین شده)
 ├── __tests__/                      # مجموعه تست‌های جامع Jest (شامل سوئیت v630_ai_architecture_and_p0_fixes)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
@@ -354,17 +354,17 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها، مدیریت حالت، AgentExecutionGuard و MemoryGovernance
 │   ├── providers/                 # رجیستری ارتباط با مدل‌ها (ACTION_POLICY_MANIFEST و MODEL_REGISTRY)
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی، تاییدات و ژورنال 2PC StrongBox
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.5.0 و v6.4.0
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.5.1 و v6.4.0
 ├── CUE_PARITY_REPORT.md            # گزارش جامع کالبدشکافی عمیق و تحلیل شکاف با Cue 26.18.15
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.5.0)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.5.0)
-├── package.json                   # شناسه پکیج نسخه 6.5.0 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.5.0)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.5.1)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.5.1)
+├── package.json                   # شناسه پکیج نسخه 6.5.1 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.5.1)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.5.0
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.5.1
 ```
 
 ---
@@ -373,7 +373,7 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.5.0`) را انتخاب کنید.
+2. آخرین نسخه منتشرشده (`v6.5.1`) را انتخاب کنید.
 3. فایل **`EG-Nexus-OS-v6.5.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است (توصیفگر اصالت: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`).
 

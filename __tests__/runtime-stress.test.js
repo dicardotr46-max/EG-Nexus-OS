@@ -661,9 +661,9 @@ describe('EG-Nexus-OS Concurrency Stress & Runtime Resilience Tests', () => {
       const lock = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
 
       // Strict version parity
-      expect(['6.4.0', '6.5.0']).toContain(pkg.version);
-      expect(['6.4.0', '6.5.0']).toContain(lock.version);
-      expect(['6.4.0', '6.5.0']).toContain(lock.packages[''].version);
+      expect(['6.4.0', '6.5.0', '6.5.1']).toContain(pkg.version);
+      expect(['6.4.0', '6.5.0', '6.5.1']).toContain(lock.version);
+      expect(['6.4.0', '6.5.0', '6.5.1']).toContain(lock.packages[''].version);
       expect(lock.lockfileVersion).toBe(3);
 
       // Overrides verification (minimatch 11.0.8 resolution)

@@ -87,8 +87,8 @@ describe('EG-Nexus-OS v6.3.0 — AI Architecture & P0 Security Suite', () => {
 
       expect(gradle).toMatch(/applicationId\s+["']com\.eg\.nexus["']/);
       expect(gradle).toMatch(/namespace\s+["']com\.eg\.nexus["']/);
-      expect(gradle).toMatch(/versionCode\s+(60300|60301|60302|60303|60400|60500)/);
-      expect(gradle).toMatch(/versionName\s+["'](6\.3\.[0123]|6\.4\.0|6\.5\.0)["']/);
+      expect(gradle).toMatch(/versionCode\s+(60300|60301|60302|60303|60400|60500|60501)/);
+      expect(gradle).toMatch(/versionName\s+["'](6\.3\.[0123]|6\.4\.0|6\.5\.[01])["']/);
     });
 
     test('android/app/src/main/AndroidManifest.xml defines package="com.eg.nexus"', () => {
