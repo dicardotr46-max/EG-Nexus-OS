@@ -1,7 +1,7 @@
 {
   "name": "eg-nexus-os",
-  "version": "6.4.0",
-  "description": "EG Nexus OS v6.4.0 — Sovereign, Local-First, Single-User Personal AI Operating System (Android APK & Offline-Capable PWA)",
+  "version": "6.5.0",
+  "description": "EG Nexus OS v6.5.0 — Sovereign, Local-First, Single-User Personal AI Operating System (Android APK & Offline-Capable PWA)",
   "private": true,
   "engines": {
     "node": ">=18.20.0"

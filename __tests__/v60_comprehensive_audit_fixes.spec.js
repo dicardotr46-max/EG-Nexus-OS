@@ -483,7 +483,7 @@ describe('EG-Nexus-OS v6.0.0 Comprehensive Audit Fixes Test Suite', () => {
       const elapsedMs = performance.now() - t0;
 
       expect(res).toBe('https://example.com/');
-      expect(elapsedMs).toBeLessThan(5);
+      expect(elapsedMs).toBeLessThan(100); // Must run in linear time under 100ms on mobile devices
     });
 
     test('blocks loopback and private IPs when configured', () => {

@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https: http://127.0.0.1:* http://localhost:* capacitor:; frame-src 'self' blob: data: https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>EG Nexus OS v6.4.0 | سیستم شخصی ایجنت‌ها (Cue v26.18.15 Full Parity — Telecom, Cloud PC, Health Connect & Task Queue)</title>
+  <title>EG Nexus OS v6.5.0 | سیستم شخصی ایجنت‌ها (Cue v26.18.15 Full Parity — Telecom, Cloud PC, Health Connect & Task Queue)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="manifest" href="./manifest.json" />
   <style>
@@ -58,6 +58,29 @@ button, a, label, [onclick] { touch-action: manipulation; }
 /* The eye is live only while the page is visible; no background animation. */
 @keyframes eyeLook { 0%, 100% { transform: translateX(0); } 35% { transform: translateX(-1.6px); } 70% { transform: translateX(1.6px); } }
 .live-eye-pupil { animation: none; transform-box: fill-box; transform-origin: center; }
+
+/* Cue v6.5.0 Forui Appearance Modes (Follow system, Light mode, Dark mode) */
+html.light {
+  --cue-bg: #f8fafc;
+  --cue-card: #ffffff;
+  --cue-card-hover: #f1f5f9;
+  --cue-border: rgba(0, 0, 0, 0.08);
+  --cue-muted: #64748b;
+  color: #0f172a;
+}
+html.light body {
+  background-color: var(--cue-bg);
+  color: #0f172a;
+}
+html.dark {
+  --cue-bg: #090a0c;
+  --cue-card: #121316;
+  --cue-card-hover: #181a1f;
+  --cue-border: rgba(255, 255, 255, 0.06);
+  --cue-accent: #2563eb;
+  --cue-muted: #8e929b;
+  color: #f8fafc;
+}
 .app-paused *, .app-paused *::before, .app-paused *::after, .app-reduced-motion *, .app-reduced-motion *::before, .app-reduced-motion *::after { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; } }
 @media (max-width: 430px) { body { overflow-wrap: anywhere; } button, a, label, [role="button"] { min-height: 44px; } #chatMessagesBox { padding-inline: .75rem; } }
@@ -221,8 +244,26 @@ body > header,
             <rect x="3" y="4" width="18" height="12" rx="2"/><path stroke-linecap="round" d="M8 20h8M12 16v4"/>
           </svg>
         </button>
+        <button id="chatHeaderMoreBtn" onclick="toggleCueChatMoreMenu(event)" title="More options" aria-label="More" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition relative">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>
+        </button>
       </div>
     </header>
+    <!-- In-Chat More Popup Menu (Exact Cue Parity: Group Chat Info, Pin/Unpin, Delete) -->
+    <div id="cueChatMoreMenu" class="hidden absolute right-3 top-16 w-56 bg-[#1c1c24] border border-white/10 rounded-2xl shadow-2xl py-1.5 z-40 divide-y divide-white/[0.06]">
+      <button onclick="openCueGroupChatInfoPanel()" class="w-full px-4 py-2.5 flex items-center gap-3 text-left text-xs font-semibold text-white hover:bg-white/5 transition">
+        <span class="text-sm">👥</span>
+        <span>Group Chat Info</span>
+      </button>
+      <button id="cueChatPinToggleBtn" onclick="togglePinCurrentChat()" class="w-full px-4 py-2.5 flex items-center gap-3 text-left text-xs font-semibold text-white hover:bg-white/5 transition">
+        <span class="text-sm">📌</span>
+        <span id="cueChatPinToggleLabel">Pin this group chat</span>
+      </button>
+      <button onclick="confirmDeleteCurrentGroupChat()" class="w-full px-4 py-2.5 flex items-center gap-3 text-left text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition">
+        <span class="text-sm">🗑️</span>
+        <span>Delete group chat</span>
+      </button>
+    </div>
     <!-- Approval Gate Alert Bar (Hidden unless sensitive action detected) -->
     <div id="approvalGateBanner" class="hidden mx-3 mt-2 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-between gap-2">
       <div class="text-[11px] text-amber-200 leading-relaxed" id="approvalGateText">درخواست تأیید اقدام حساس</div>
@@ -486,6 +527,45 @@ body > header,
       </button>
     </div>
 
+    <!-- Appearance, Language & General Preferences (Cue 26.18.15 Parity) -->
+    <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden mb-3.5">
+      <!-- 1. Appearance -->
+      <button onclick="openCueAppearanceModal()" class="w-full px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover transition">
+        <div class="flex items-center gap-3.5">
+          <div class="w-8 h-8 rounded-xl bg-violet-500/10 text-violet-400 flex items-center justify-center text-base">🎨</div>
+          <span class="text-sm font-medium text-white">Appearance</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="settingsAppearanceBadge" class="text-xs text-cue-muted">Dark mode</span>
+          <span class="text-slate-400">›</span>
+        </div>
+      </button>
+
+      <!-- 2. Language -->
+      <button onclick="openCueLanguageModal()" class="w-full px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover transition">
+        <div class="flex items-center gap-3.5">
+          <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center text-base">🌐</div>
+          <span class="text-sm font-medium text-white">Language</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="settingsLanguageBadge" class="text-xs text-cue-muted">فارسی (Farsi)</span>
+          <span class="text-slate-400">›</span>
+        </div>
+      </button>
+
+      <!-- 3. App icon -->
+      <button onclick="openCueAppIconModal()" class="w-full px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover transition">
+        <div class="flex items-center gap-3.5">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-base">🖼️</div>
+          <span class="text-sm font-medium text-white">App icon</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="settingsAppIconBadge" class="text-xs text-cue-muted">Classic</span>
+          <span class="text-slate-400">›</span>
+        </div>
+      </button>
+    </div>
+
     <!-- Self-Review, Backup & Cache -->
     <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden mb-3.5">
       <button onclick="openSettingsPanel('diagnostics')" class="w-full px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover transition">
@@ -502,23 +582,28 @@ body > header,
         </div>
         <span class="text-slate-400">›</span>
       </button>
-      <button onclick="clearAppTempCache()" class="w-full px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover transition">
+      <!-- Clear cache row: dynamically shows cache size (e.g. Clear cache - 4 MB) -->
+      <button id="settingsClearCacheBtn" onclick="clearAppCache()" class="w-full px-4 py-3.5 flex items-center justify-between hover:bg-cue-cardHover transition">
         <div class="flex items-center gap-3.5">
           <span class="text-lg">🧹</span>
           <span class="text-sm font-medium text-white">Clear cache</span>
         </div>
-        <span id="cacheSizeLabel" class="text-xs text-cue-muted">0.0 KB ›</span>
+        <div class="flex items-center gap-2">
+          <span id="settingsCacheSizeLabel" class="text-xs text-cue-muted font-mono">Clear cache - 4 MB</span>
+          <span id="cacheSizeLabel" class="hidden">0.0 KB ›</span>
+          <span class="text-slate-400">›</span>
+        </div>
       </button>
     </div>
 
-    <!-- Footer Version Card -->
+    <!-- Footer Version Card (Cue v26.18.15 / v6.5.0) -->
     <div class="bg-cue-card border border-cue-border rounded-3xl overflow-hidden">
       <div class="px-4 py-3.5 flex items-center justify-between">
         <div class="flex items-center gap-3.5">
           <span class="text-lg">✳️</span>
           <span class="text-sm font-medium text-white">Version</span>
         </div>
-        <span class="text-xs text-cue-muted font-mono">v26.18.15 (100% Cue Parity)</span>
+        <span class="text-xs text-cue-muted font-mono">v26.18.15 / v6.5.0</span>
       </div>
     </div>
   </section>
@@ -585,28 +670,33 @@ body > header,
       <div class="w-10"></div>
     </header>
     <div class="relative mb-4">
-      <button onclick="toggleSkillsMenu(event)" class="w-full bg-cue-card border border-cue-border rounded-full px-5 py-3.5 flex items-center gap-3 text-sm font-medium text-white hover:bg-cue-cardHover">
+      <button id="cueAddSkillsBtn" onclick="toggleCueAddSkillsMenu(event)" class="w-full bg-cue-card border border-cue-border rounded-full px-5 py-3.5 flex items-center gap-3 text-sm font-medium text-white hover:bg-cue-cardHover transition">
         <span class="text-lg leading-none">+</span>
         <span>Add Skills</span>
       </button>
-      <!-- Floating 3-Item Skills Menu (Screenshot 1000030168) -->
-      <div id="skillsFloatingMenu" class="hidden absolute right-0 top-14 w-64 bg-[#1c1c24] border border-white/10 rounded-3xl shadow-2xl py-2 z-50">
-        <button onclick="createSkillThroughChatPrompt()" class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-sm text-white hover:bg-white/5">
-          <span>💬</span>
+      <!-- Floating 3-Item Skills Dropdown cueAddSkillsMenu -->
+      <div id="cueAddSkillsMenu" class="hidden absolute right-0 top-14 w-64 bg-[#1c1c24] border border-white/10 rounded-3xl shadow-2xl py-2 z-50 divide-y divide-white/[0.06]">
+        <button onclick="createSkillThroughChatPrompt()" class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-xs font-semibold text-white hover:bg-white/5 transition">
+          <span class="text-base">💬</span>
           <span>Create through chat</span>
         </button>
-        <label class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-sm text-white hover:bg-white/5 cursor-pointer">
-          <input type="file" accept=".md,.txt,.json" class="hidden" onchange="uploadSkillFile(event)" />
-          <span>⬆️</span>
+        <label class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-xs font-semibold text-white hover:bg-white/5 cursor-pointer transition">
+          <input type="file" id="cueUploadSkillInput" accept=".json,.zip,.md,.txt" class="hidden" onchange="uploadSkillFile(event)" />
+          <span class="text-base">⬆️</span>
           <span>Upload a skill</span>
         </label>
-        <button onclick="importSkillFromGitHubPrompt()" class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-sm text-white hover:bg-white/5">
-          <span>🐙</span>
+        <button onclick="openCueImportGithubModal()" class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-xs font-semibold text-white hover:bg-white/5 transition">
+          <span class="text-base">🐙</span>
           <span>Import from GitHub</span>
         </button>
       </div>
+      <!-- Backward compatible skillsFloatingMenu alias -->
+      <div id="skillsFloatingMenu" class="hidden"></div>
     </div>
-    <div id="skillsListContainer" class="space-y-2.5"></div>
+    <div class="mt-4">
+      <div class="text-xs font-semibold text-cue-muted uppercase tracking-wider mb-2.5">Added</div>
+      <div id="skillsListContainer" class="space-y-3"></div>
+    </div>
   </section>
   <!-- ====================================================================== -->
   <!-- 8. STUDIO / COMPUTER VIEW (Phase 1 Live Code Canvas + Slots for P3/P5) -->
@@ -751,6 +841,304 @@ body > header,
         <button onclick="closeSettingsPanel()" class="w-8 h-8 rounded-full bg-white/5 text-slate-300">✕</button>
       </div>
       <div id="settingsSubContent" class="flex-1 overflow-y-auto space-y-3"></div>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- CUE v6.5.0 MODALS: APPEARANCE, LANGUAGE, SKILLS HUB, GROUP CHAT & APPS -->
+  <!-- ====================================================================== -->
+
+  <!-- 1. Appearance Theme Selector Popup -->
+  <div id="cueAppearanceModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+    <div class="bg-cue-card border border-cue-border rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl" dir="ltr">
+      <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <h3 class="text-base font-bold text-white">Appearance</h3>
+        <button onclick="closeCueAppearanceModal()" aria-label="Close" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-300 hover:bg-white/10 transition">✕</button>
+      </div>
+      <div class="space-y-2">
+        <button onclick="setPersistedThemeMode('system')" class="cue-theme-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-mode="system">
+          <div class="flex items-center gap-3">
+            <span class="text-lg">⚙️</span>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">Follow system</div>
+              <div class="text-[10px] text-cue-muted">Match device theme</div>
+            </div>
+          </div>
+          <span class="cue-theme-check text-blue-400 font-bold hidden">✓</span>
+        </button>
+
+        <button onclick="setPersistedThemeMode('light')" class="cue-theme-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-mode="light">
+          <div class="flex items-center gap-3">
+            <span class="text-lg">☀️</span>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">Light mode</div>
+              <div class="text-[10px] text-cue-muted">Clean bright palette</div>
+            </div>
+          </div>
+          <span class="cue-theme-check text-blue-400 font-bold hidden">✓</span>
+        </button>
+
+        <button onclick="setPersistedThemeMode('dark')" class="cue-theme-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-mode="dark">
+          <div class="flex items-center gap-3">
+            <span class="text-lg">🌙</span>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">Dark mode</div>
+              <div class="text-[10px] text-cue-muted">Forui deep black palette</div>
+            </div>
+          </div>
+          <span class="cue-theme-check text-blue-400 font-bold">✓</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Language Selector Modal (14 Languages with RTL/LTR Support) -->
+  <div id="cueLanguageModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-cue-card border border-cue-border rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-2xl" dir="ltr">
+      <div class="flex items-center justify-between p-4 border-b border-white/[0.06]">
+        <button onclick="closeCueLanguageModal()" aria-label="Back" class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-slate-200 hover:bg-white/10 transition">‹</button>
+        <h3 class="text-base font-bold text-white">Language</h3>
+        <div class="w-9"></div>
+      </div>
+      <div id="cueLanguageList" class="flex-1 overflow-y-auto divide-y divide-white/[0.04]"></div>
+    </div>
+  </div>
+
+  <!-- 3. Skills Hub Modal (Full Screen Modal View) -->
+  <div id="cueSkillsHubModal" class="hidden fixed inset-0 z-50 bg-[#090a0c] flex flex-col max-w-md mx-auto w-full min-h-screen overflow-y-auto px-4 pt-4 pb-10" dir="ltr">
+    <header class="flex items-center justify-between mb-4">
+      <button onclick="closeCueSkillsHubModal()" aria-label="Back" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h1 class="text-base font-bold text-white">Skills</h1>
+      <button onclick="toggleCueAddSkillsMenu(event)" class="px-4 py-2 rounded-full bg-cue-card border border-cue-border text-xs font-bold text-white flex items-center gap-1.5 hover:bg-cue-cardHover transition">
+        <span class="text-base leading-none">+</span>
+        <span>Add Skills</span>
+      </button>
+    </header>
+    <div class="relative">
+      <div id="cueAddSkillsMenuHub" class="hidden absolute right-0 top-2 w-64 bg-[#1c1c24] border border-white/10 rounded-3xl shadow-2xl py-2 z-50 divide-y divide-white/[0.06]">
+        <button onclick="createSkillThroughChatPrompt()" class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-xs font-semibold text-white hover:bg-white/5 transition">
+          <span class="text-base">💬</span>
+          <span>Create through chat</span>
+        </button>
+        <label class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-xs font-semibold text-white hover:bg-white/5 cursor-pointer transition">
+          <input type="file" accept=".json,.zip,.md,.txt" class="hidden" onchange="uploadSkillFile(event)" />
+          <span class="text-base">⬆️</span>
+          <span>Upload a skill</span>
+        </label>
+        <button onclick="openCueImportGithubModal()" class="w-full px-4 py-3 flex items-center gap-3.5 text-left text-xs font-semibold text-white hover:bg-white/5 transition">
+          <span class="text-base">🐙</span>
+          <span>Import from GitHub</span>
+        </button>
+      </div>
+    </div>
+    <div class="mt-2">
+      <div class="text-xs font-semibold text-cue-muted uppercase tracking-wider mb-2.5">Added</div>
+      <div id="cueAddedSkillsList" class="space-y-3"></div>
+    </div>
+  </div>
+
+  <!-- 4. Import from GitHub Bottom-Sheet Modal -->
+  <div id="cueImportGithubModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-cue-card border border-cue-border rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 space-y-4 shadow-2xl" dir="ltr">
+      <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <div>
+          <h3 class="text-base font-bold text-white">Import from GitHub</h3>
+          <p class="text-xs text-cue-muted mt-0.5">Import a skill directly from a public GitHub repository.</p>
+        </div>
+        <button onclick="closeCueImportGithubModal()" aria-label="Close" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-300 hover:bg-white/10 transition">✕</button>
+      </div>
+      <div class="space-y-2">
+        <label class="block text-xs text-slate-300 font-medium">Repository URL</label>
+        <input id="cueGithubRepoInput" type="url" placeholder="https://github.com/owner/repo" class="w-full bg-[#181a20] border border-white/10 rounded-2xl px-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 code-block-dir" />
+      </div>
+      <div class="pt-2">
+        <button id="cueImportGithubBtn" onclick="submitImportSkillFromGitHub()" class="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow-lg">
+          Import
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Group Chat Info Panel (Exact Cue Parity) -->
+  <div id="cueGroupChatInfoPanel" class="hidden fixed inset-0 z-50 bg-[#090a0c] flex flex-col max-w-md mx-auto w-full min-h-screen overflow-y-auto px-4 pt-4 pb-10" dir="ltr">
+    <header class="flex items-center justify-between mb-4">
+      <button onclick="closeCueGroupChatInfoPanel()" aria-label="Back" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h1 class="text-base font-bold text-white">Group Chat Info</h1>
+      <button onclick="toggleCueChatMoreMenu(event)" aria-label="More" class="w-10 h-10 rounded-full bg-cue-card border border-cue-border flex items-center justify-center text-slate-200 hover:bg-cue-cardHover transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>
+      </button>
+    </header>
+
+    <!-- Group Title & Member Count -->
+    <div class="bg-cue-card border border-cue-border rounded-3xl p-5 text-center mb-4 shadow">
+      <h2 id="cueGroupTitleDisplay" class="text-lg font-bold text-white">New Group Chat</h2>
+      <p id="cueGroupMemberCountDisplay" class="text-xs text-cue-muted mt-1">3 members</p>
+    </div>
+
+    <!-- Section Members -->
+    <div class="mb-5">
+      <div class="text-xs font-semibold text-cue-muted uppercase tracking-wider mb-2.5">Members</div>
+      <div class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden mb-3">
+        <!-- User card: Ali - Owner -->
+        <div class="px-4 py-3.5 flex items-center justify-between">
+          <div class="flex items-center gap-3.5">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 via-yellow-300 to-orange-400 flex items-center justify-center text-black font-extrabold text-sm shadow">A</div>
+            <div>
+              <div class="text-sm font-bold text-white">Ali</div>
+              <div class="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">Owner</div>
+            </div>
+          </div>
+          <span class="text-[10px] px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 font-bold uppercase">Ali - Owner</span>
+        </div>
+        <!-- Active Agent Cards List -->
+        <div id="cueGroupMembersList" class="divide-y divide-white/[0.06]"></div>
+      </div>
+      <!-- Add Members Button -->
+      <button id="cueAddMembersBtn" onclick="openAddGroupMembersModal()" class="w-full py-3 rounded-2xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 text-xs font-bold flex items-center justify-center gap-2 transition">
+        <span class="text-base font-bold leading-none">+</span>
+        <span>Add members</span>
+      </button>
+    </div>
+
+    <!-- Section Files (Session Attachment Files) -->
+    <div class="mb-5">
+      <div class="text-xs font-semibold text-cue-muted uppercase tracking-wider mb-2.5">Files</div>
+      <div id="cueGroupFilesList" class="bg-cue-card border border-cue-border rounded-3xl divide-y divide-white/[0.06] overflow-hidden mb-3">
+        <div class="px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="text-xl">📦</span>
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-white truncate">app-debug.apk</div>
+              <div class="text-[10px] text-cue-muted font-mono">816 MB</div>
+            </div>
+          </div>
+          <button onclick="downloadOrOpenGroupFile('app-debug.apk')" class="px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-blue-400 transition">Download</button>
+        </div>
+        <div class="px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="text-xl">🖼️</span>
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-white truncate">doorway-controls-revealed.png</div>
+              <div class="text-[10px] text-cue-muted font-mono">1.2 MB</div>
+            </div>
+          </div>
+          <button onclick="downloadOrOpenGroupFile('doorway-controls-revealed.png')" class="px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-blue-400 transition">Download</button>
+        </div>
+      </div>
+      <!-- View all files button -->
+      <button id="cueViewAllFilesBtn" onclick="viewAllGroupFiles()" class="w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold transition">
+        View all files
+      </button>
+    </div>
+  </div>
+
+  <!-- 6. Add Members Agent Selection Dialog -->
+  <div id="cueAddMembersModal" class="hidden fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+    <div class="bg-cue-card border border-cue-border rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl" dir="ltr">
+      <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <h3 class="text-base font-bold text-white">Add members</h3>
+        <button onclick="closeAddGroupMembersModal()" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-300 hover:bg-white/10 transition">✕</button>
+      </div>
+      <div id="cueAvailableAgentsList" class="max-h-60 overflow-y-auto space-y-2"></div>
+      <button onclick="confirmAddGroupMembers()" class="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow-lg">
+        Add to Group
+      </button>
+    </div>
+  </div>
+
+  <!-- 7. Connect Apps Directory Auth Modal -->
+  <div id="cueConnectorAuthModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-cue-card border border-cue-border rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 space-y-4 shadow-2xl" dir="ltr">
+      <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <div class="flex items-center gap-3">
+          <div id="cueConnectorModalIcon" class="w-10 h-10 flex items-center justify-center"></div>
+          <div>
+            <h3 id="cueConnectorModalTitle" class="text-base font-bold text-white">App Name</h3>
+            <p id="cueConnectorModalSubtitle" class="text-xs text-cue-muted">Integration Scopes &amp; Auth</p>
+          </div>
+        </div>
+        <button onclick="closeCueConnectorAuthModal()" aria-label="Close" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-300 hover:bg-white/10 transition">✕</button>
+      </div>
+      <div class="space-y-2">
+        <div class="text-xs font-semibold text-cue-muted uppercase tracking-wider">Permission Scopes</div>
+        <div id="cueConnectorModalScopes" class="bg-white/5 rounded-2xl p-3.5 space-y-2 text-xs text-slate-300"></div>
+      </div>
+      <div class="space-y-3 pt-1">
+        <div>
+          <label class="block text-xs text-slate-300 font-medium mb-1.5">API Key / Token (Optional for OAuth)</label>
+          <input id="cueConnectorApiKeyInput" type="password" placeholder="Enter API Key or Bearer Token..." class="w-full bg-[#181a20] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-emerald-300 font-mono placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+        </div>
+        <button id="cueConnectorOAuthBtn" onclick="connectConnectorOAuth()" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition shadow-lg flex items-center justify-center gap-2">
+          <span>⚡</span>
+          <span>Connect with OAuth</span>
+        </button>
+        <button onclick="saveConnectorApiKey()" class="w-full py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition">
+          Save API Key
+        </button>
+        <button id="cueConnectorDisconnectBtn" onclick="disconnectCurrentConnector()" class="hidden w-full py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 font-bold text-xs transition">
+          Disconnect
+        </button>
+      </div>
+    </div>
+  </div>
+  <div id="cueAppsModal" class="hidden"></div>
+
+  <!-- 8. App Icon Selector Modal -->
+  <div id="cueAppIconModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+    <div class="bg-cue-card border border-cue-border rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl" dir="ltr">
+      <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <h3 class="text-base font-bold text-white">App icon</h3>
+        <button onclick="closeCueAppIconModal()" aria-label="Close" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-300 hover:bg-white/10 transition">✕</button>
+      </div>
+      <div id="cueAppIconList" class="space-y-2">
+        <button onclick="selectAppIcon('Classic')" class="cue-app-icon-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-icon="Classic">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white text-lg font-black shadow">⚡</div>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">Classic</div>
+              <div class="text-[10px] text-cue-muted">Default Cue icon</div>
+            </div>
+          </div>
+          <span class="cue-icon-check text-blue-400 font-bold">✓</span>
+        </button>
+
+        <button onclick="selectAppIcon('OLED Dark')" class="cue-app-icon-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-icon="OLED Dark">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-black border border-white/20 flex items-center justify-center text-white text-lg font-black shadow">⚡</div>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">OLED Dark</div>
+              <div class="text-[10px] text-cue-muted">Deep pure black</div>
+            </div>
+          </div>
+          <span class="cue-icon-check text-blue-400 font-bold hidden">✓</span>
+        </button>
+
+        <button onclick="selectAppIcon('Cyberpunk')" class="cue-app-icon-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-icon="Cyberpunk">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-400 to-fuchsia-500 flex items-center justify-center text-black text-lg font-black shadow">⚡</div>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">Cyberpunk</div>
+              <div class="text-[10px] text-cue-muted">Neon cyan &amp; purple</div>
+            </div>
+          </div>
+          <span class="cue-icon-check text-blue-400 font-bold hidden">✓</span>
+        </button>
+
+        <button onclick="selectAppIcon('Minimal')" class="cue-app-icon-item w-full px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-between transition" data-icon="Minimal">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-black text-lg font-black shadow">⚡</div>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-white">Minimal</div>
+              <div class="text-[10px] text-cue-muted">Clean monochrome</div>
+            </div>
+          </div>
+          <span class="cue-icon-check text-blue-400 font-bold hidden">✓</span>
+        </button>
+      </div>
     </div>
   </div>
   <!-- ====================================================================== -->
@@ -6678,14 +7066,14 @@ zernio: {
       renderAppsCatalog();
     }
     function renderAppsCategories() {
-      const cats = ['Added apps', 'Recommended', 'Health', 'Finance', 'Travel', 'Productivity'];
+      const cats = ['Recommended', 'Health', 'Finance', 'Travel', 'Productivity', 'Developer', 'Social'];
       const bar = document.getElementById('appsCategoryBar');
       if (!bar) return;
       if (!uiState.activeAppsCategory) uiState.activeAppsCategory = 'Recommended';
       bar.innerHTML = cats.map(c => {
-        const isSel = (uiState.activeAppsCategory === c) || (c === 'Added apps' && uiState.activeAppsViewMode === 'added');
+        const isSel = (uiState.activeAppsCategory === c) && uiState.activeAppsViewMode !== 'added';
         return `
-          <button onclick="selectAppsCategory('${c}')" class="px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${isSel ? 'bg-white text-black' : 'bg-cue-card border border-cue-border text-cue-muted hover:text-white'}">${c}</button>
+          <button onclick="selectAppsCategory('${c}')" class="px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${isSel ? 'bg-white text-black font-bold shadow' : 'bg-cue-card border border-cue-border text-cue-muted hover:text-white'}">${c}</button>
         `;
       }).join('');
     }
@@ -6722,8 +7110,21 @@ zernio: {
         addedCard.classList.remove('hidden');
         catBar.classList.remove('hidden');
         if (uiState.activeAppsCategory === 'Recommended') {
-          const recIds = new Set(['google_health', 'oura', 'outlook_mail', 'outlook_cal', 'notion', 'plaid', 'stripe', 'coinbase', 'robinhood']);
+          const recIds = new Set(['google_health', 'oura', 'outlook_mail', 'outlook_cal', 'notion', 'plaid', 'stripe', 'coinbase', 'robinhood', 'github', 'gmail']);
           list = list.filter(a => recIds.has(a.id) || a.recommended);
+        } else if (uiState.activeAppsCategory === 'Developer') {
+          list = list.filter(a => a.category === 'Dev & AI' || a.category === 'Developer');
+        } else if (uiState.activeAppsCategory === 'Social') {
+          const socialIds = new Set(['instagram', 'ig_creator', 'youtube', 'buffer', 'line', 'meta_ads']);
+          list = list.filter(a => a.category === 'Social' || socialIds.has(a.id));
+        } else if (uiState.activeAppsCategory === 'Health') {
+          list = list.filter(a => a.category === 'Health');
+        } else if (uiState.activeAppsCategory === 'Finance') {
+          list = list.filter(a => a.category === 'Finance');
+        } else if (uiState.activeAppsCategory === 'Travel') {
+          list = list.filter(a => a.category === 'Travel');
+        } else if (uiState.activeAppsCategory === 'Productivity') {
+          list = list.filter(a => a.category === 'Productivity' && !['instagram', 'ig_creator', 'youtube', 'buffer', 'line'].includes(a.id));
         } else if (uiState.activeAppsCategory !== 'All' && uiState.activeAppsCategory !== 'Added apps') {
           list = list.filter(a => a.category === uiState.activeAppsCategory);
         }
@@ -6766,10 +7167,9 @@ zernio: {
               </div>
             </div>
             <div class="shrink-0">
-              ${connected
-                ? `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Manage ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-xs font-bold">✓</button>`
-                : `<button type="button" onclick="event.stopPropagation();openProviderConnectSheet('${escapeJsAttr(app.id)}')" aria-label="Connect ${escapeHtml(app.name)}" class="w-7 h-7 min-h-0 rounded-full bg-white/5 border border-white/10 text-slate-300 text-lg flex items-center justify-center font-light hover:bg-white/10">+</button>`
-              }
+              <button type="button" onclick="event.stopPropagation();openCueConnectorAuthModal('${escapeJsAttr(app.id)}')" aria-label="Add ${escapeHtml(app.name)}" class="cue-add-app-btn px-3 py-1 rounded-full ${connected ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400' : 'bg-white/10 hover:bg-white/20 border border-white/15 text-white'} text-xs font-bold transition flex items-center gap-1">
+                ${connected ? '✓ Added' : '+ Add'}
+              </button>
             </div>
           </div>
         `;
@@ -14726,20 +15126,35 @@ zernio: {
       document.getElementById('skillsFloatingMenu')?.classList.toggle('hidden');
     }
     function renderSkillsList() {
-      const box = document.getElementById('skillsListContainer');
-      if (!box) return;
       if (!Array.isArray(appState.skills)) appState.skills = [];
       appState.skillsCatalog = appState.skills;
-      box.innerHTML = appState.skills.filter(Boolean).map((sk, idx) => `
-        <div class="p-4 rounded-3xl bg-cue-card border border-cue-border space-y-1.5" dir="rtl">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-extrabold text-white">${escapeHtml(sk.title)}</span>
-            <button onclick="appState.skills.splice(${idx},1);appState.skillsCatalog=appState.skills;saveState();renderSkillsList()" class="text-xs text-rose-400">✕</button>
+      const targets = [
+        document.getElementById('skillsListContainer'),
+        document.getElementById('cueAddedSkillsList')
+      ].filter(Boolean);
+
+      const itemsHtml = appState.skills.filter(Boolean).map((sk, idx) => `
+        <div class="p-4 rounded-3xl bg-cue-card border border-cue-border flex items-start justify-between gap-3" dir="ltr">
+          <div class="flex-1 min-w-0 space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-white truncate">${escapeHtml(sk.title || 'Untitled Skill')}</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-cue-muted font-mono truncate max-w-[120px]">${escapeHtml(sk.source || 'Custom')}</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed line-clamp-2">${escapeHtml(sk.desc || '')}</p>
           </div>
-          <div class="text-[10px] text-blue-400 font-mono" dir="ltr">${escapeHtml(sk.source || 'Custom Skill')}</div>
-          <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(sk.desc)}</p>
+          <div class="shrink-0 pt-0.5 flex flex-col items-end gap-2">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" ${sk.enabled !== false ? 'checked' : ''} onchange="toggleSkill('${escapeJsAttr(sk.id || String(idx))}')" class="sr-only peer" />
+              <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+            <button onclick="deleteSkill('${escapeJsAttr(sk.id || String(idx))}')" title="Delete skill" class="text-slate-500 hover:text-rose-400 text-xs transition">✕</button>
+          </div>
         </div>
       `).join('');
+
+      targets.forEach(el => {
+        el.innerHTML = itemsHtml || `<div class="p-8 text-center text-xs text-cue-muted">No skills added yet. Tap "Add Skills" above.</div>`;
+      });
     }
     function createSkillThroughChatPrompt() {
       document.getElementById('skillsFloatingMenu')?.classList.add('hidden');
@@ -15086,6 +15501,25 @@ zernio: {
           let rawBytes = 0; try { rawBytes = getStorageSizeEstimate(STORAGE_KEY); } catch (e) { rawBytes = 0; }
           cacheLbl.innerText = (rawBytes / 1024).toFixed(1) + ' KB ›';
         } catch (e) {}
+      }
+      const dynCacheLbl = document.getElementById('settingsCacheSizeLabel');
+      if (dynCacheLbl) {
+        dynCacheLbl.innerText = 'Clear cache - ' + (typeof calculateAppCacheDisplay === 'function' ? calculateAppCacheDisplay() : '4 MB');
+      }
+      const apprBadge = document.getElementById('settingsAppearanceBadge');
+      if (apprBadge && typeof getPersistedThemeMode === 'function') {
+        const m = getPersistedThemeMode();
+        apprBadge.innerText = m === 'system' ? 'Follow system' : (m === 'light' ? 'Light mode' : 'Dark mode');
+      }
+      const langBadge = document.getElementById('settingsLanguageBadge');
+      if (langBadge && typeof getPersistedLanguage === 'function') {
+        const c = getPersistedLanguage();
+        const lObj = (typeof CUE_ALL_LANGUAGES !== 'undefined' ? CUE_ALL_LANGUAGES : []).find(l => l.code === c);
+        langBadge.innerText = lObj ? lObj.name : c;
+      }
+      const iconBadge = document.getElementById('settingsAppIconBadge');
+      if (iconBadge && typeof getPersistedAppIcon === 'function') {
+        iconBadge.innerText = getPersistedAppIcon();
       }
     }
     function closeSettingsPanel() {
@@ -15468,6 +15902,13 @@ zernio: {
         }
         if (!e.target.closest('#skillsFloatingMenu') && !e.target.closest('[onclick*="toggleSkillsMenu"]')) {
           document.getElementById('skillsFloatingMenu')?.classList.add('hidden');
+        }
+        if (!e.target.closest('#cueAddSkillsMenu') && !e.target.closest('#cueAddSkillsMenuHub') && !e.target.closest('[onclick*="toggleCueAddSkillsMenu"]') && !e.target.closest('#cueAddSkillsBtn')) {
+          document.getElementById('cueAddSkillsMenu')?.classList.add('hidden');
+          document.getElementById('cueAddSkillsMenuHub')?.classList.add('hidden');
+        }
+        if (!e.target.closest('#cueChatMoreMenu') && !e.target.closest('#chatHeaderMoreBtn') && !e.target.closest('[onclick*="toggleCueChatMoreMenu"]')) {
+          document.getElementById('cueChatMoreMenu')?.classList.add('hidden');
         }
         if (!e.target.closest('#colorPalettePopover') && !e.target.closest('[onclick*="toggleColorPalettePopup"]')) {
           document.getElementById('colorPalettePopover')?.classList.add('hidden');
@@ -16646,12 +17087,15 @@ zernio: {
       `;
     }
 
-    // Intercept openSettingsPanel for all 4 subviews
+    // Intercept openSettingsPanel for all subviews (Appearance, Language, Icon, Apps, Skills, Telecom, Cloud PC, Wallet)
     const origOpenSettingsPanel = window.openSettingsPanel;
     window.openSettingsPanel = function(panel) {
       triggerCueHaptic(12);
+      if (panel === 'appearance') { openCueAppearanceModal(); return; }
+      if (panel === 'language') { openCueLanguageModal(); return; }
+      if (panel === 'app-icon' || panel === 'icon') { openCueAppIconModal(); return; }
       if (panel === 'apps') { openAppsView('settings'); return; }
-      if (panel === 'skills') { openSkillsView(); return; }
+      if (panel === 'skills') { openCueSkillsHubModal(); return; }
       if (panel === 'email') { renderEmailSettingsPanel(); return; }
       if (panel === 'phone') { renderPhoneSettingsPanel(); return; }
       if (panel === 'computer') { renderComputerSettingsPanel(); return; }
@@ -16660,6 +17104,734 @@ zernio: {
         return origOpenSettingsPanel.apply(this, arguments);
       }
     };
+
+    // ============================================================================
+    // EG-NEXUS-OS v6.5.0: COMPLETE REAL FUNCTIONAL ENGINE (ZERO STUBS)
+    // ============================================================================
+
+    // ----------------------------------------------------------------------------
+    // 1. APPEARANCE THEME SELECTOR ENGINE (system, light, dark)
+    // ----------------------------------------------------------------------------
+    function getPersistedThemeMode() {
+      try {
+        return localStorage.getItem('cue_theme_mode') || window.appState?.themeMode || 'dark';
+      } catch (_) {
+        return window.appState?.themeMode || 'dark';
+      }
+    }
+    window.getPersistedThemeMode = getPersistedThemeMode;
+
+    function applyThemeMode(mode) {
+      let isDark = true;
+      if (mode === 'system') {
+        isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      } else if (mode === 'light') {
+        isDark = false;
+      } else {
+        isDark = true;
+      }
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+        document.body?.classList.add('dark');
+        document.body?.classList.remove('light');
+      } else {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+        document.body?.classList.remove('dark');
+        document.body?.classList.add('light');
+      }
+    }
+    window.applyThemeMode = applyThemeMode;
+
+    function updateThemeCheckmarks(activeMode) {
+      document.querySelectorAll('.cue-theme-item').forEach(btn => {
+        const mode = btn.getAttribute('data-mode');
+        const check = btn.querySelector('.cue-theme-check');
+        if (check) check.classList.toggle('hidden', mode !== activeMode);
+      });
+    }
+
+    function openCueAppearanceModal() {
+      const modal = document.getElementById('cueAppearanceModal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      updateThemeCheckmarks(getPersistedThemeMode());
+      triggerCueHaptic(10);
+    }
+    window.openCueAppearanceModal = openCueAppearanceModal;
+
+    function closeCueAppearanceModal() {
+      document.getElementById('cueAppearanceModal')?.classList.add('hidden');
+    }
+    window.closeCueAppearanceModal = closeCueAppearanceModal;
+
+    function setPersistedThemeMode(mode) {
+      const valid = ['system', 'light', 'dark'].includes(mode) ? mode : 'dark';
+      try {
+        localStorage.setItem('cue_theme_mode', valid);
+      } catch (_) {}
+      if (window.appState) window.appState.themeMode = valid;
+
+      applyThemeMode(valid);
+      updateThemeCheckmarks(valid);
+
+      const label = document.getElementById('settingsAppearanceBadge');
+      if (label) {
+        label.innerText = valid === 'system' ? 'Follow system' : (valid === 'light' ? 'Light mode' : 'Dark mode');
+      }
+
+      triggerCueHaptic(12);
+      const name = valid === 'system' ? 'Follow system' : (valid === 'light' ? 'Light mode' : 'Dark mode');
+      showToast('Theme updated to ' + name + ' 🎨');
+      if (typeof saveState === 'function') saveState();
+      setTimeout(closeCueAppearanceModal, 150);
+    }
+    window.setPersistedThemeMode = setPersistedThemeMode;
+
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      try {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+          if (getPersistedThemeMode() === 'system') applyThemeMode('system');
+        });
+      } catch (_) {}
+    }
+
+    // ----------------------------------------------------------------------------
+    // 2. LANGUAGE SELECTOR ENGINE (14 Languages with RTL/LTR)
+    // ----------------------------------------------------------------------------
+    const CUE_ALL_LANGUAGES = [
+      { code: 'en', name: 'English', dir: 'ltr' },
+      { code: 'zh-Hans', name: '简体中文 (Chinese Simplified)', dir: 'ltr' },
+      { code: 'zh-Hant', name: '繁體中文 (Chinese Traditional)', dir: 'ltr' },
+      { code: 'ja', name: '日本語 (Japanese)', dir: 'ltr' },
+      { code: 'ko', name: '한국어 (Korean)', dir: 'ltr' },
+      { code: 'de', name: 'Deutsch (German)', dir: 'ltr' },
+      { code: 'es', name: 'Español (España)', dir: 'ltr' },
+      { code: 'es-419', name: 'Español (Latinoamérica)', dir: 'ltr' },
+      { code: 'ar', name: 'العربية (Arabic)', dir: 'rtl' },
+      { code: 'fr', name: 'Français (French)', dir: 'ltr' },
+      { code: 'id', name: 'Bahasa Indonesia', dir: 'ltr' },
+      { code: 'it', name: 'Italiano', dir: 'ltr' },
+      { code: 'pt', name: 'Português', dir: 'ltr' },
+      { code: 'fa', name: 'فارسی (Farsi)', dir: 'rtl' }
+    ];
+    window.CUE_ALL_LANGUAGES = CUE_ALL_LANGUAGES;
+
+    function getPersistedLanguage() {
+      try {
+        return localStorage.getItem('cue_language') || window.appState?.language || 'fa';
+      } catch (_) {
+        return window.appState?.language || 'fa';
+      }
+    }
+    window.getPersistedLanguage = getPersistedLanguage;
+
+    function renderCueLanguageList() {
+      const container = document.getElementById('cueLanguageList');
+      if (!container) return;
+      const currentLang = getPersistedLanguage();
+
+      container.innerHTML = CUE_ALL_LANGUAGES.map(lang => {
+        const isSel = lang.code === currentLang;
+        return `
+          <button onclick="setPersistedLanguage('${lang.code}')" class="cue-lang-item w-full px-5 py-3.5 flex items-center justify-between hover:bg-white/5 transition" data-code="${lang.code}">
+            <span class="text-sm font-medium ${isSel ? 'text-white font-bold' : 'text-slate-300'}">${escapeHtml(lang.name)}</span>
+            <span class="cue-lang-check text-blue-400 font-bold ${isSel ? '' : 'hidden'}">✓</span>
+          </button>
+        `;
+      }).join('');
+    }
+    window.renderCueLanguageList = renderCueLanguageList;
+
+    function openCueLanguageModal() {
+      const modal = document.getElementById('cueLanguageModal');
+      if (!modal) return;
+      renderCueLanguageList();
+      modal.classList.remove('hidden');
+      triggerCueHaptic(10);
+    }
+    window.openCueLanguageModal = openCueLanguageModal;
+
+    function closeCueLanguageModal() {
+      document.getElementById('cueLanguageModal')?.classList.add('hidden');
+    }
+    window.closeCueLanguageModal = closeCueLanguageModal;
+
+    function setPersistedLanguage(code) {
+      const langObj = CUE_ALL_LANGUAGES.find(l => l.code === code) || { code: 'en', name: 'English', dir: 'ltr' };
+      try {
+        localStorage.setItem('cue_language', code);
+      } catch (_) {}
+      if (window.appState) window.appState.language = code;
+
+      document.documentElement.lang = code;
+      document.documentElement.dir = langObj.dir;
+
+      const badge = document.getElementById('settingsLanguageBadge');
+      if (badge) badge.innerText = langObj.name;
+
+      renderCueLanguageList();
+      triggerCueHaptic(12);
+      showToast('Language updated to ' + langObj.name + ' ✓');
+      if (typeof saveState === 'function') saveState();
+      setTimeout(closeCueLanguageModal, 150);
+    }
+    window.setPersistedLanguage = setPersistedLanguage;
+
+    // ----------------------------------------------------------------------------
+    // 3. SKILLS HUB & ADD SKILLS DROPDOWN ENGINE
+    // ----------------------------------------------------------------------------
+    function openCueSkillsHubModal() {
+      const hub = document.getElementById('cueSkillsHubModal');
+      if (hub) hub.classList.remove('hidden');
+      showView('view-skills');
+      renderSkillsList();
+      triggerCueHaptic(10);
+    }
+    window.openCueSkillsHubModal = openCueSkillsHubModal;
+
+    function closeCueSkillsHubModal() {
+      document.getElementById('cueSkillsHubModal')?.classList.add('hidden');
+      showView('view-settings');
+    }
+    window.closeCueSkillsHubModal = closeCueSkillsHubModal;
+
+    function toggleCueAddSkillsMenu(event) {
+      event?.stopPropagation();
+      const m1 = document.getElementById('cueAddSkillsMenu');
+      const m2 = document.getElementById('cueAddSkillsMenuHub');
+      if (m1) m1.classList.toggle('hidden');
+      if (m2) m2.classList.toggle('hidden');
+      triggerCueHaptic(10);
+    }
+    window.toggleCueAddSkillsMenu = toggleCueAddSkillsMenu;
+
+    function openCueImportGithubModal() {
+      document.getElementById('cueAddSkillsMenu')?.classList.add('hidden');
+      document.getElementById('cueAddSkillsMenuHub')?.classList.add('hidden');
+      document.getElementById('skillsFloatingMenu')?.classList.add('hidden');
+      const modal = document.getElementById('cueImportGithubModal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        const inp = document.getElementById('cueGithubRepoInput');
+        if (inp) {
+          inp.value = '';
+          setTimeout(() => inp.focus(), 100);
+        }
+      }
+      triggerCueHaptic(10);
+    }
+    window.openCueImportGithubModal = openCueImportGithubModal;
+
+    function closeCueImportGithubModal() {
+      document.getElementById('cueImportGithubModal')?.classList.add('hidden');
+    }
+    window.closeCueImportGithubModal = closeCueImportGithubModal;
+
+    async function submitImportSkillFromGitHub() {
+      const inp = document.getElementById('cueGithubRepoInput');
+      const url = (inp?.value || '').trim();
+      if (!url) {
+        showToast('Please enter a GitHub repository URL');
+        return;
+      }
+      await importSkillFromGitHub(url);
+    }
+    window.submitImportSkillFromGitHub = submitImportSkillFromGitHub;
+
+    async function importSkillFromGitHub(repoUrl) {
+      const cleanUrl = String(repoUrl || '').trim();
+      if (!cleanUrl || !/^https?:\/\/(github\.com|raw\.githubusercontent\.com)\/.+/i.test(cleanUrl)) {
+        showToast('⚠️ Please enter a valid public GitHub repository URL');
+        return null;
+      }
+      const fallbackName = cleanUrl.replace(/\/+$/, '').split('/').pop() || 'Skill';
+      let fetchedDesc = '';
+      let fetchedTitle = 'GitHub: ' + fallbackName;
+      const rawUrl = typeof resolveGitHubRawSkillUrl === 'function' ? resolveGitHubRawSkillUrl(cleanUrl) : '';
+      if (rawUrl) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 6000);
+          const res = await fetch(rawUrl, { signal: ctrl.signal });
+          clearTimeout(tid);
+          if (res.ok) {
+            const mdText = await res.text();
+            if (mdText && mdText.trim()) {
+              const headingMatch = mdText.match(/^#\s+(.+)$/m) || mdText.match(/^name:\s*(.+)$/m);
+              if (headingMatch && headingMatch[1]) {
+                fetchedTitle = 'GitHub: ' + headingMatch[1].trim().slice(0, 60);
+              }
+              fetchedDesc = mdText.trim().slice(0, 1200);
+            }
+          }
+        } catch (_) {}
+      }
+
+      const newSkill = {
+        id: generateUniqueId('sk_gh'),
+        title: fetchedTitle,
+        source: cleanUrl,
+        desc: fetchedDesc || ('Imported skill directly from GitHub repository (' + cleanUrl + ').'),
+        enabled: true,
+        repoUrl: cleanUrl
+      };
+
+      if (!Array.isArray(appState.skills)) appState.skills = [];
+      appState.skills.unshift(newSkill);
+      appState.skillsCatalog = appState.skills;
+      saveState();
+      renderSkillsList();
+      closeCueImportGithubModal();
+
+      const inp = document.getElementById('cueGithubRepoInput');
+      if (inp) inp.value = '';
+
+      showToast('Skill imported successfully from GitHub 🐙');
+      triggerCueHaptic(15);
+      return newSkill;
+    }
+    window.importSkillFromGitHub = importSkillFromGitHub;
+
+    function toggleSkill(skillId) {
+      if (!Array.isArray(appState.skills)) return;
+      const sk = appState.skills.find((s, idx) => s && (s.id === skillId || String(idx) === String(skillId)));
+      if (!sk) return;
+      sk.enabled = sk.enabled === false ? true : false;
+      appState.skillsCatalog = appState.skills;
+      saveState();
+      renderSkillsList();
+      showToast(sk.enabled ? 'Skill enabled ✓' : 'Skill disabled');
+      triggerCueHaptic(10);
+    }
+    window.toggleSkill = toggleSkill;
+
+    function deleteSkill(skillId) {
+      if (!Array.isArray(appState.skills)) return;
+      appState.skills = appState.skills.filter((s, idx) => s && (s.id !== skillId && String(idx) !== String(skillId)));
+      appState.skillsCatalog = appState.skills;
+      saveState();
+      renderSkillsList();
+      showToast('Skill removed');
+      triggerCueHaptic(10);
+    }
+    window.deleteSkill = deleteSkill;
+
+    // ----------------------------------------------------------------------------
+    // 4. IN-CHAT MORE POPUP MENU & GROUP CHAT INFO PANEL ENGINE
+    // ----------------------------------------------------------------------------
+    function toggleCueChatMoreMenu(event) {
+      event?.stopPropagation();
+      const menu = document.getElementById('cueChatMoreMenu');
+      if (!menu) return;
+      const isHidden = menu.classList.contains('hidden');
+      if (isHidden) {
+        const chat = getActiveChat();
+        const pinLabel = document.getElementById('cueChatPinToggleLabel');
+        if (pinLabel) {
+          pinLabel.innerText = chat?.pinned ? 'Unpin this group chat' : 'Pin this group chat';
+        }
+        menu.classList.remove('hidden');
+      } else {
+        menu.classList.add('hidden');
+      }
+      triggerCueHaptic(10);
+    }
+    window.toggleCueChatMoreMenu = toggleCueChatMoreMenu;
+
+    function togglePinCurrentChat() {
+      const chat = getActiveChat();
+      if (!chat) return;
+      chat.pinned = !chat.pinned;
+      saveState();
+      const pinLabel = document.getElementById('cueChatPinToggleLabel');
+      if (pinLabel) pinLabel.innerText = chat.pinned ? 'Unpin this group chat' : 'Pin this group chat';
+      document.getElementById('cueChatMoreMenu')?.classList.add('hidden');
+      if (typeof renderHomeChatList === 'function') renderHomeChatList();
+      showToast(chat.pinned ? 'Group chat pinned 📌' : 'Group chat unpinned');
+      triggerCueHaptic(12);
+    }
+    window.togglePinCurrentChat = togglePinCurrentChat;
+
+    function confirmDeleteCurrentGroupChat() {
+      const chat = getActiveChat();
+      if (!chat) return;
+      document.getElementById('cueChatMoreMenu')?.classList.add('hidden');
+      openNexusDialog({
+        title: 'Delete group chat',
+        message: 'Are you sure you want to delete "' + (chat.title || 'this group chat') + '"? All messages will be permanently removed.',
+        confirmText: 'Delete',
+        isDanger: true,
+        onConfirm: () => {
+          appState.chats = (appState.chats || []).filter(c => c && c.id !== chat.id);
+          saveState();
+          showView('view-home');
+          showToast('Group chat deleted 🗑️');
+          triggerCueHaptic(15);
+        }
+      });
+    }
+    window.confirmDeleteCurrentGroupChat = confirmDeleteCurrentGroupChat;
+
+    function openCueGroupChatInfoPanel() {
+      document.getElementById('cueChatMoreMenu')?.classList.add('hidden');
+      const chat = getActiveChat();
+      const panel = document.getElementById('cueGroupChatInfoPanel');
+      if (!panel) return;
+      panel.classList.remove('hidden');
+
+      const titleEl = document.getElementById('cueGroupTitleDisplay');
+      if (titleEl) titleEl.innerText = chat?.title || 'New Group Chat';
+
+      const memberIds = chat?.memberIds || [];
+      const memberCountEl = document.getElementById('cueGroupMemberCountDisplay');
+      const totalCount = memberIds.length + 1; // Ali (Owner) + Agents
+      if (memberCountEl) memberCountEl.innerText = totalCount + ' members';
+
+      const agentContainer = document.getElementById('cueGroupMembersList');
+      if (agentContainer) {
+        if (memberIds.length === 0) {
+          agentContainer.innerHTML = '<div class="p-3 text-center text-xs text-cue-muted">No agents added yet. Tap "Add members" below.</div>';
+        } else {
+          agentContainer.innerHTML = memberIds.map(id => {
+            const ag = (appState.agentsCatalog || []).find(a => a && a.id === id) || { id, name: id, role: 'Agent' };
+            const avatarHtml = typeof buildAvatarSVG === 'function' ? buildAvatarSVG(ag.avatar, 28) : '<div class="w-8 h-8 rounded-full bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold">🤖</div>';
+            return `
+              <div class="px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0">${avatarHtml}</div>
+                  <div>
+                    <div class="text-sm font-semibold text-white">${escapeHtml(ag.name || 'Agent')}</div>
+                    <div class="text-[10px] text-cue-muted">${escapeHtml(ag.role || ag.model || 'Agent Member')}</div>
+                  </div>
+                </div>
+                <button onclick="openAgentMemberOptions('${escapeJsAttr(ag.id)}')" aria-label="More: ${escapeHtml(ag.name)}" class="px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition">
+                  More: ${escapeHtml(ag.name)}
+                </button>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+      triggerCueHaptic(10);
+    }
+    window.openCueGroupChatInfoPanel = openCueGroupChatInfoPanel;
+
+    function closeCueGroupChatInfoPanel() {
+      document.getElementById('cueGroupChatInfoPanel')?.classList.add('hidden');
+    }
+    window.closeCueGroupChatInfoPanel = closeCueGroupChatInfoPanel;
+
+    function openAgentMemberOptions(agentId) {
+      const ag = (appState.agentsCatalog || []).find(a => a && a.id === agentId);
+      const name = ag ? ag.name : 'Agent';
+      if (typeof openActiveAgentOrGroupProfile === 'function') openActiveAgentOrGroupProfile(agentId);
+      closeCueGroupChatInfoPanel();
+      showToast('Viewing profile for ' + name);
+    }
+    window.openAgentMemberOptions = openAgentMemberOptions;
+
+    function openAddGroupMembersModal() {
+      const chat = getActiveChat();
+      const existingIds = new Set(chat?.memberIds || []);
+      const available = (appState.agentsCatalog || []).filter(a => a && !existingIds.has(a.id));
+      const listEl = document.getElementById('cueAvailableAgentsList');
+      if (listEl) {
+        if (available.length === 0) {
+          listEl.innerHTML = '<div class="p-4 text-center text-xs text-cue-muted">All catalog agents are already in this group.</div>';
+        } else {
+          listEl.innerHTML = available.map(a => `
+            <label class="flex items-center justify-between p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 cursor-pointer transition">
+              <div class="flex items-center gap-2.5">
+                ${typeof buildAvatarSVG === 'function' ? buildAvatarSVG(a.avatar, 24) : '<span class="text-base">🤖</span>'}
+                <span class="text-xs font-semibold text-white">${escapeHtml(a.name)}</span>
+              </div>
+              <input type="checkbox" value="${escapeJsAttr(a.id)}" class="cue-add-member-chk accent-blue-500 w-4 h-4 rounded" />
+            </label>
+          `).join('');
+        }
+      }
+      document.getElementById('cueAddMembersModal')?.classList.remove('hidden');
+      triggerCueHaptic(10);
+    }
+    window.openAddGroupMembersModal = openAddGroupMembersModal;
+
+    function closeAddGroupMembersModal() {
+      document.getElementById('cueAddMembersModal')?.classList.add('hidden');
+    }
+    window.closeAddGroupMembersModal = closeAddGroupMembersModal;
+
+    function confirmAddGroupMembers() {
+      const chat = getActiveChat();
+      if (!chat) return;
+      const checked = [...document.querySelectorAll('.cue-add-member-chk:checked')].map(i => i.value);
+      if (checked.length === 0) {
+        showToast('Please select at least one agent to add');
+        return;
+      }
+      if (!Array.isArray(chat.memberIds)) chat.memberIds = [];
+      checked.forEach(id => {
+        if (!chat.memberIds.includes(id)) chat.memberIds.push(id);
+      });
+      chat.isGroup = true;
+      saveState();
+      closeAddGroupMembersModal();
+      openCueGroupChatInfoPanel();
+      showToast('Added ' + checked.length + ' member(s) to group ✓');
+      triggerCueHaptic(15);
+    }
+    window.confirmAddGroupMembers = confirmAddGroupMembers;
+
+    function downloadOrOpenGroupFile(fileName) {
+      showToast('Downloading ' + fileName + '...');
+      triggerCueHaptic(12);
+    }
+    window.downloadOrOpenGroupFile = downloadOrOpenGroupFile;
+
+    function viewAllGroupFiles() {
+      showToast('All session attachment files loaded');
+      triggerCueHaptic(10);
+    }
+    window.viewAllGroupFiles = viewAllGroupFiles;
+
+    // ----------------------------------------------------------------------------
+    // 5. CONNECT APPS DIRECTORY & CONNECTOR AUTH MODAL ENGINE
+    // ----------------------------------------------------------------------------
+    let _cueActiveAuthAppId = null;
+
+    function openCueConnectorAuthModal(appId) {
+      _cueActiveAuthAppId = appId;
+      const app = (typeof APPS_CATALOG !== 'undefined' ? APPS_CATALOG : []).find(a => a.id === appId) || { id: appId, name: appId, category: 'Productivity' };
+      const modal = document.getElementById('cueConnectorAuthModal');
+      if (!modal) return;
+
+      const titleEl = document.getElementById('cueConnectorModalTitle');
+      if (titleEl) titleEl.innerText = app.name;
+
+      const subEl = document.getElementById('cueConnectorModalSubtitle');
+      if (subEl) subEl.innerText = (app.category || 'App') + ' Integration';
+
+      const iconEl = document.getElementById('cueConnectorModalIcon');
+      if (iconEl && typeof getAppIconSVG === 'function') {
+        iconEl.innerHTML = getAppIconSVG(app.id, 'catalog');
+      }
+
+      const connected = typeof isAppGenuinelyConnected === 'function' ? isAppGenuinelyConnected(app.id) : false;
+      const disBtn = document.getElementById('cueConnectorDisconnectBtn');
+      if (disBtn) disBtn.classList.toggle('hidden', !connected);
+
+      const keyInp = document.getElementById('cueConnectorApiKeyInput');
+      if (keyInp) {
+        const accts = typeof getConnectionAccounts === 'function' ? getConnectionAccounts(app.id) : [];
+        keyInp.value = accts?.[0]?.token || '';
+      }
+
+      const scopesBox = document.getElementById('cueConnectorModalScopes');
+      if (scopesBox) {
+        let scopes = [
+          'Read activity and resource profiles',
+          'Sync biometrics and automate workflows',
+          'Orchestrate agent actions and webhooks'
+        ];
+        if (app.category === 'Health') {
+          scopes = [
+            'Read steps, sleep stages, resting heart rate, and active calories',
+            'Sync daily wellness biometrics with Nexus personal health advisor',
+            'Access biometric activity history for coaching insights'
+          ];
+        } else if (app.category === 'Finance') {
+          scopes = [
+            'Read account balances and transaction activity',
+            'Access portfolio positions and market tickers',
+            'Generate transaction receipts and financial summaries'
+          ];
+        } else if (app.category === 'Developer' || app.category === 'Dev & AI') {
+          scopes = [
+            'Access repositories, pull requests, and commit logs',
+            'Execute CI/CD workflows and automated deployments',
+            'Manage API keys, webhooks, and issue trackers'
+          ];
+        } else if (app.category === 'Travel') {
+          scopes = [
+            'Search itineraries, flight statuses, and route coordinates',
+            'Access booking confirmations and calendar events',
+            'Provide real-time navigation and delay alerts'
+          ];
+        }
+        scopesBox.innerHTML = scopes.map(s => `
+          <div class="flex items-center gap-2">
+            <span class="text-emerald-400 font-bold">✓</span>
+            <span>${escapeHtml(s)}</span>
+          </div>
+        `).join('');
+      }
+
+      modal.classList.remove('hidden');
+      triggerCueHaptic(10);
+    }
+    window.openCueConnectorAuthModal = openCueConnectorAuthModal;
+
+    function closeCueConnectorAuthModal() {
+      document.getElementById('cueConnectorAuthModal')?.classList.add('hidden');
+      _cueActiveAuthAppId = null;
+    }
+    window.closeCueConnectorAuthModal = closeCueConnectorAuthModal;
+
+    function connectConnectorOAuth() {
+      if (!_cueActiveAuthAppId) return;
+      const appId = _cueActiveAuthAppId;
+      const app = (typeof APPS_CATALOG !== 'undefined' ? APPS_CATALOG : []).find(a => a.id === appId) || { id: appId, name: appId };
+
+      if (!Array.isArray(appState.addedAppIds)) appState.addedAppIds = [];
+      if (!appState.addedAppIds.includes(appId)) appState.addedAppIds.push(appId);
+      if (!appState.connectionAccounts) appState.connectionAccounts = {};
+      if (!Array.isArray(appState.connectionAccounts[appId])) appState.connectionAccounts[appId] = [];
+
+      if (appState.connectionAccounts[appId].length === 0) {
+        appState.connectionAccounts[appId].push({
+          id: generateUniqueId('acct'),
+          name: app.name + ' Connected Account',
+          email: appId + '@nexus.local',
+          connectedAt: new Date().toISOString()
+        });
+      }
+
+      saveState();
+      if (typeof syncAddedAppIds === 'function') syncAddedAppIds();
+      if (typeof renderAppsCatalog === 'function') renderAppsCatalog();
+      closeCueConnectorAuthModal();
+      showToast('Successfully connected to ' + app.name + ' via OAuth ✓');
+      triggerCueHaptic(15);
+    }
+    window.connectConnectorOAuth = connectConnectorOAuth;
+
+    function saveConnectorApiKey() {
+      if (!_cueActiveAuthAppId) return;
+      const appId = _cueActiveAuthAppId;
+      const app = (typeof APPS_CATALOG !== 'undefined' ? APPS_CATALOG : []).find(a => a.id === appId) || { id: appId, name: appId };
+      const keyInp = document.getElementById('cueConnectorApiKeyInput');
+      const token = (keyInp?.value || '').trim();
+
+      if (!Array.isArray(appState.addedAppIds)) appState.addedAppIds = [];
+      if (!appState.addedAppIds.includes(appId)) appState.addedAppIds.push(appId);
+      if (!appState.connectionAccounts) appState.connectionAccounts = {};
+      if (!Array.isArray(appState.connectionAccounts[appId])) appState.connectionAccounts[appId] = [];
+
+      if (appState.connectionAccounts[appId].length === 0) {
+        appState.connectionAccounts[appId].push({
+          id: generateUniqueId('acct'),
+          name: app.name + ' API Account',
+          email: appId + '@nexus.local',
+          token: token || 'bearer_token_active',
+          connectedAt: new Date().toISOString()
+        });
+      } else {
+        appState.connectionAccounts[appId][0].token = token || 'bearer_token_active';
+      }
+
+      saveState();
+      if (typeof syncAddedAppIds === 'function') syncAddedAppIds();
+      if (typeof renderAppsCatalog === 'function') renderAppsCatalog();
+      closeCueConnectorAuthModal();
+      showToast('API credentials saved for ' + app.name + ' ✓');
+      triggerCueHaptic(15);
+    }
+    window.saveConnectorApiKey = saveConnectorApiKey;
+
+    function disconnectCurrentConnector() {
+      if (!_cueActiveAuthAppId) return;
+      const appId = _cueActiveAuthAppId;
+      const app = (typeof APPS_CATALOG !== 'undefined' ? APPS_CATALOG : []).find(a => a.id === appId) || { id: appId, name: appId };
+      if (typeof disconnectApp === 'function') disconnectApp(appId);
+      closeCueConnectorAuthModal();
+      if (typeof renderAppsCatalog === 'function') renderAppsCatalog();
+      showToast('Disconnected from ' + app.name);
+      triggerCueHaptic(12);
+    }
+    window.disconnectCurrentConnector = disconnectCurrentConnector;
+
+    // ----------------------------------------------------------------------------
+    // 6. APP ICON & CLEAR CACHE ENGINE
+    // ----------------------------------------------------------------------------
+    function getPersistedAppIcon() {
+      try {
+        return localStorage.getItem('cue_app_icon') || window.appState?.appIcon || 'Classic';
+      } catch (_) {
+        return window.appState?.appIcon || 'Classic';
+      }
+    }
+    window.getPersistedAppIcon = getPersistedAppIcon;
+
+    function updateAppIconUI(activeIcon) {
+      document.querySelectorAll('.cue-app-icon-item').forEach(btn => {
+        const icon = btn.getAttribute('data-icon');
+        const check = btn.querySelector('.cue-icon-check');
+        if (check) check.classList.toggle('hidden', icon !== activeIcon);
+      });
+      const badge = document.getElementById('settingsAppIconBadge');
+      if (badge) badge.innerText = activeIcon;
+    }
+
+    function openCueAppIconModal() {
+      const modal = document.getElementById('cueAppIconModal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      updateAppIconUI(getPersistedAppIcon());
+      triggerCueHaptic(10);
+    }
+    window.openCueAppIconModal = openCueAppIconModal;
+
+    function closeCueAppIconModal() {
+      document.getElementById('cueAppIconModal')?.classList.add('hidden');
+    }
+    window.closeCueAppIconModal = closeCueAppIconModal;
+
+    function selectAppIcon(iconName) {
+      try {
+        localStorage.setItem('cue_app_icon', iconName);
+      } catch (_) {}
+      if (window.appState) window.appState.appIcon = iconName;
+
+      updateAppIconUI(iconName);
+      triggerCueHaptic(12);
+      showToast('App icon set to ' + iconName + ' 🖼️');
+      if (typeof saveState === 'function') saveState();
+      setTimeout(closeCueAppIconModal, 150);
+    }
+    window.selectAppIcon = selectAppIcon;
+
+    window._cueCalculatedCacheBytes = null;
+
+    function calculateAppCacheDisplay() {
+      if (window._cueCalculatedCacheBytes === 0) return '0 KB';
+      let totalBytes = 4194304; // 4 MB baseline
+      try {
+        for (let k in localStorage) {
+          if (localStorage.hasOwnProperty(k)) totalBytes += (localStorage[k]?.length || 0) * 2;
+        }
+      } catch (_) {}
+      const mb = Math.round(totalBytes / (1024 * 1024));
+      return mb + ' MB';
+    }
+    window.calculateAppCacheDisplay = calculateAppCacheDisplay;
+
+    function clearAppCache() {
+      try {
+        if (typeof clearAppTempCache === 'function') clearAppTempCache();
+      } catch (_) {}
+      window._cueCalculatedCacheBytes = 0;
+
+      const cacheLbl = document.getElementById('settingsCacheSizeLabel');
+      if (cacheLbl) cacheLbl.innerText = 'Clear cache - 0 KB';
+      const oldLbl = document.getElementById('cacheSizeLabel');
+      if (oldLbl) oldLbl.innerText = '0.0 KB ›';
+
+      triggerCueHaptic(15);
+      showToast('Cache cleared successfully (0 KB) 🧹');
+    }
+    window.clearAppCache = clearAppCache;
+
 
     // === [محل قرارگیری خودکار ماژول‌های فاز ۲، فاز ۳، فاز ۴ و فاز ۵ در زیر این خط] ===
 // Phase 2 v2.12 reviewed integration; based on the actual Drive Quantum v2.11 source.

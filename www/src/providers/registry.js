@@ -391,6 +391,51 @@
       type: 'App',
       website: 'https://shopify.com',
       authType: 'api_token'
+    },
+    agent_groups: {
+      id: 'agent_groups',
+      name: 'Agent Groups & Multi-Agent Orchestrator',
+      tier: 'Contract-tested',
+      category: 'Productivity',
+      type: 'App',
+      website: 'https://eg-nexus-os.internal/agent_groups',
+      authType: 'api_token'
+    },
+    skill_hub: {
+      id: 'skill_hub',
+      name: 'Skills Hub',
+      tier: 'Contract-tested',
+      category: 'Developer',
+      type: 'App',
+      website: 'https://eg-nexus-os.internal/skills',
+      authType: 'api_token'
+    },
+    skill_service: {
+      id: 'skill_service',
+      name: 'Skills Hub',
+      tier: 'Contract-tested',
+      category: 'Developer',
+      type: 'App',
+      website: 'https://eg-nexus-os.internal/skills',
+      authType: 'api_token'
+    },
+    google_maps: {
+      id: 'google_maps',
+      name: 'Google Maps',
+      tier: 'Beta',
+      category: 'Travel',
+      type: 'App',
+      website: 'https://maps.google.com',
+      authType: 'api_key'
+    },
+    slack: {
+      id: 'slack',
+      name: 'Slack',
+      tier: 'Contract-tested',
+      category: 'Social',
+      type: 'App',
+      website: 'https://slack.com',
+      authType: 'api_token'
     }
   };
 
@@ -682,6 +727,43 @@
       list_products: 'shopify.read',
       update_inventory: 'shopify.write',
       update_product: 'shopify.write'
+    },
+    agent_groups: {
+      list_groups: 'group.read',
+      get_group: 'group.read',
+      create_group: 'group.manage',
+      update_group: 'group.manage',
+      delete_group: 'group.manage',
+      add_member: 'group.manage',
+      remove_member: 'group.manage',
+      set_pinned: 'group.manage'
+    },
+    skill_hub: {
+      list_skills: 'skill.read',
+      toggle_skill: 'skill.manage',
+      import_from_github: 'skill.manage',
+      upload_skill: 'skill.manage',
+      delete_skill: 'skill.manage'
+    },
+    skill_service: {
+      list_skills: 'skill.read',
+      toggle_skill: 'skill.manage',
+      import_from_github: 'skill.manage',
+      upload_skill: 'skill.manage',
+      delete_skill: 'skill.manage'
+    },
+    google_maps: {
+      geocode: 'maps.read',
+      reverse_geocode: 'maps.read',
+      directions: 'maps.read',
+      search_places: 'maps.read',
+      place_details: 'maps.read'
+    },
+    slack: {
+      send_message: 'chat:write',
+      read_messages: 'channels:history',
+      list_channels: 'channels:read',
+      get_channel: 'channels:read'
     }
   };
 
@@ -704,6 +786,7 @@
     if (pid === 'plaid') pid = 'plaid_banking';
     if (pid === 'coinbase') pid = 'coinbase_wallet';
     if (pid === 'robinhood') pid = 'robinhood_trading';
+    if (pid === 'skill_service') pid = 'skill_hub';
     const pKey = Object.keys(PROVIDER_ACTION_SCOPES).find(k => k.toLowerCase() === pid);
     if (!pKey) return null;
     const p = PROVIDER_ACTION_SCOPES[pKey];
@@ -1080,6 +1163,8 @@
       if (canonicalScope === 'compute.read' && canonicalRequired === 'compute.control' && act === 'get_status') return true;
       if (canonicalScope === 'finance.manage' && canonicalRequired === 'finance.read') return true;
       if (canonicalScope === 'health.write' && canonicalRequired === 'health.read') return true;
+      if (canonicalScope === 'group.manage' && canonicalRequired === 'group.read') return true;
+      if (canonicalScope === 'skill.manage' && canonicalRequired === 'skill.read') return true;
       return false;
     });
   }
@@ -1571,6 +1656,43 @@
       update_inventory: 'mutating',
       update_product: 'mutating'
     }),
+    agent_groups: Object.freeze({
+      list_groups: 'read_only',
+      get_group: 'read_only',
+      create_group: 'mutating',
+      update_group: 'mutating',
+      delete_group: 'high_risk',
+      add_member: 'mutating',
+      remove_member: 'mutating',
+      set_pinned: 'mutating'
+    }),
+    skill_hub: Object.freeze({
+      list_skills: 'read_only',
+      toggle_skill: 'mutating',
+      import_from_github: 'mutating',
+      upload_skill: 'mutating',
+      delete_skill: 'high_risk'
+    }),
+    skill_service: Object.freeze({
+      list_skills: 'read_only',
+      toggle_skill: 'mutating',
+      import_from_github: 'mutating',
+      upload_skill: 'mutating',
+      delete_skill: 'high_risk'
+    }),
+    google_maps: Object.freeze({
+      geocode: 'read_only',
+      reverse_geocode: 'read_only',
+      directions: 'read_only',
+      search_places: 'read_only',
+      place_details: 'read_only'
+    }),
+    slack: Object.freeze({
+      send_message: 'mutating',
+      read_messages: 'read_only',
+      list_channels: 'read_only',
+      get_channel: 'read_only'
+    }),
     mcp: Object.freeze(Object.defineProperties({
       ...STANDARD_MCP_ACTIONS
     }, {
@@ -1692,6 +1814,7 @@
       else if (pid === 'drive') providerManifest = ACTION_POLICY_MANIFEST.google_drive;
       else if (pid === 'cloudflare_worker') providerManifest = ACTION_POLICY_MANIFEST.cloudflare;
       else if (pid === 'clash') providerManifest = ACTION_POLICY_MANIFEST.clash_royale;
+      else if (pid === 'skill_service') providerManifest = ACTION_POLICY_MANIFEST.skill_hub;
       else {
         const catItem = APPS_CATALOG.find(app => (app.id || '').toLowerCase() === pid);
         if (catItem && catItem.type === 'MCP') providerManifest = ACTION_POLICY_MANIFEST[pid] || ACTION_POLICY_MANIFEST.mcp;
@@ -2116,6 +2239,78 @@
           return { updated: true, inventoryItemId: p.inventoryItemId || 'inv_01', available: p.available || 50 };
         default:
           return { success: true, providerId: pid, action: act, data: 'simulated_shopify' };
+      }
+    }
+
+    if (pid === 'agent_groups') {
+      switch (act) {
+        case 'list_groups':
+          return { groups: [{ groupId: 'grp_001', name: 'New Group Chat', memberCount: 5, isPinned: true }] };
+        case 'get_group':
+          return { groupId: p.groupId || params.groupId || 'grp_001', name: 'New Group Chat', members: [{ id: 'user_0', name: 'Ali', role: 'Owner' }, { id: 'agent_smart', name: 'smart', role: 'member' }], files: [{ name: 'app-debug.apk', size: '816 MB' }] };
+        case 'create_group':
+          return { success: true, groupId: 'grp_' + Date.now(), name: p.name || params.name || 'New Group Chat' };
+        case 'update_group':
+          return { success: true, groupId: p.groupId || params.groupId, updated: true };
+        case 'delete_group':
+          return { success: true, groupId: p.groupId || params.groupId, deleted: true };
+        case 'add_member':
+          return { success: true, groupId: p.groupId || params.groupId, memberId: p.agentId || params.agentId || 'agent-new', added: true };
+        case 'remove_member':
+          return { success: true, groupId: p.groupId || params.groupId, memberId: p.agentId || params.agentId, removed: true };
+        case 'set_pinned':
+          return { success: true, groupId: p.groupId || params.groupId, isPinned: (p.isPinned !== undefined ? p.isPinned : (params.isPinned !== undefined ? params.isPinned : true)) };
+        default:
+          return { success: true, providerId: 'agent_groups', action: act || action };
+      }
+    }
+
+    if (pid === 'skill_hub' || pid === 'skill_service') {
+      switch (act) {
+        case 'list_skills':
+          return { skills: [{ id: 'epistemic-judge', name: 'epistemic-truth-and-quality-judge', enabled: true }] };
+        case 'toggle_skill':
+          return { success: true, skillId: p.skillId || params.skillId, enabled: (p.enabled !== undefined ? p.enabled : (params.enabled !== undefined ? params.enabled : true)) };
+        case 'import_from_github':
+          return { success: true, skillId: 'skill_gh_' + Date.now(), repoUrl: p.repoUrl || params.repoUrl, imported: true };
+        case 'upload_skill':
+          return { success: true, skillId: 'skill_up_' + Date.now(), name: p.name || params.name || 'Uploaded Skill', uploaded: true };
+        case 'delete_skill':
+          return { success: true, skillId: p.skillId || params.skillId, deleted: true };
+        default:
+          return { success: true, providerId: 'skill_hub', action: act || action };
+      }
+    }
+
+    if (pid === 'google_maps') {
+      switch (act) {
+        case 'geocode':
+          return { results: [{ address: p.address || params.address || 'San Francisco, CA', lat: 37.7749, lng: -122.4194 }] };
+        case 'reverse_geocode':
+          return { results: [{ address: '1 Market St, San Francisco, CA' }] };
+        case 'directions':
+          return { routes: [{ summary: 'US-101 N', distanceMeters: 14200, durationSeconds: 1200 }] };
+        case 'search_places':
+          return { places: [{ name: 'Cafe Trieste', rating: 4.6, address: 'North Beach' }] };
+        case 'place_details':
+          return { placeId: p.placeId || params.placeId || 'pl_01', name: 'Cafe Trieste', rating: 4.6 };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_google_maps' };
+      }
+    }
+
+    if (pid === 'slack') {
+      switch (act) {
+        case 'list_channels':
+          return { channels: [{ id: 'C12345', name: 'general' }, { id: 'C67890', name: 'random' }] };
+        case 'send_message':
+          return { ok: true, channel: p.channel || params.channel || 'C12345', ts: String(Date.now()) };
+        case 'read_messages':
+          return { messages: [{ text: 'Hello from Slack', user: 'U12345', ts: String(Date.now()) }] };
+        case 'get_channel':
+          return { channel: { id: p.channelId || params.channelId || 'C12345', name: 'general' } };
+        default:
+          return { success: true, providerId: pid, action: act, data: 'simulated_slack' };
       }
     }
 
@@ -4004,10 +4199,117 @@
     { id: 'anthropic', name: 'Anthropic', category: 'Dev & AI', type: 'App', author: 'Anthropic', website: 'https://anthropic.com', desc: 'Access reliable AI assistant services with safe and intelligent conversations.' },
     { id: 'google_gemini', name: 'Google Gemini', category: 'Dev & AI', type: 'App', author: 'Google', website: 'https://gemini.google.com', desc: 'Process multimodal content including text, images, and code seamlessly.' },
     { id: 'render', name: 'Render', category: 'Dev & AI', type: 'App', author: 'Render', website: 'https://render.com', desc: 'Manage Render services, deploys, logs, and infrastructure.' },
-    { id: 'netlify', name: 'Netlify', category: 'Dev & AI', type: 'App', author: 'Netlify', website: 'https://netlify.com', desc: 'Deploy, manage, and monitor Netlify projects, extensions, and environments.' }
+    { id: 'netlify', name: 'Netlify', category: 'Dev & AI', type: 'App', author: 'Netlify', website: 'https://netlify.com', desc: 'Deploy, manage, and monitor Netlify projects, extensions, and environments.' },
+    {
+      id: 'agent_groups',
+      name: 'Agent Groups & Multi-Agent Orchestrator',
+      category: 'Productivity',
+      type: 'App',
+      author: 'EG-Nexus-OS',
+      website: 'https://eg-nexus-os.internal/agent_groups',
+      desc: 'Group chat and multi-agent collaborative workflows',
+      description: 'Group chat and multi-agent collaborative workflows',
+      recommended: true
+    },
+    {
+      id: 'skill_hub',
+      name: 'Skills Hub',
+      category: 'Developer',
+      type: 'App',
+      author: 'EG-Nexus-OS',
+      website: 'https://eg-nexus-os.internal/skills',
+      desc: 'Browse, import from GitHub, and manage autonomous agent skills',
+      description: 'Browse, import from GitHub, and manage autonomous agent skills',
+      recommended: true
+    },
+    {
+      id: 'slack',
+      name: 'Slack',
+      category: 'Social',
+      type: 'App',
+      author: 'Slack',
+      website: 'https://slack.com',
+      desc: 'Team communication, channel messages, and social workspace collaboration.',
+      description: 'Team communication, channel messages, and social workspace collaboration.'
+    },
+    {
+      id: 'telegram',
+      name: 'Telegram Bot API',
+      category: 'Social',
+      type: 'App',
+      author: 'Telegram',
+      website: 'https://telegram.org',
+      desc: 'Direct messaging, bot automation, group notifications, and media delivery.',
+      description: 'Direct messaging, bot automation, group notifications, and media delivery.'
+    }
   ];
 
   const PROVIDER_CATALOG = APPS_CATALOG;
+
+  // Cue Official Categories Taxonomy (7 official categories)
+  const CUE_CATEGORIES = Object.freeze([
+    'Recommended',
+    'Health',
+    'Finance',
+    'Travel',
+    'Productivity',
+    'Developer',
+    'Social'
+  ]);
+
+  const CATEGORY_TAXONOMY = Object.freeze({
+    'Recommended': 'Recommended',
+    'Health': 'Health',
+    'Finance': 'Finance',
+    'Travel': 'Travel',
+    'Productivity': 'Productivity',
+    'Developer': 'Developer',
+    'Social': 'Social',
+    'Dev & AI': 'Developer',
+    'Creative': 'Productivity',
+    'Telecom': 'Productivity',
+    'Compute': 'Developer'
+  });
+
+  function normalizeCueCategory(rawCategory) {
+    if (!rawCategory || typeof rawCategory !== 'string') return 'Productivity';
+    const trimmed = rawCategory.trim();
+    if (CUE_CATEGORIES.includes(trimmed)) return trimmed;
+    if (CATEGORY_TAXONOMY[trimmed]) return CATEGORY_TAXONOMY[trimmed];
+    const lower = trimmed.toLowerCase();
+    for (const cat of CUE_CATEGORIES) {
+      if (cat.toLowerCase() === lower) return cat;
+    }
+    if (lower.includes('dev') || lower.includes('ai') || lower.includes('code')) return 'Developer';
+    if (lower.includes('social') || lower.includes('chat') || lower.includes('message')) return 'Social';
+    if (lower.includes('travel') || lower.includes('map')) return 'Travel';
+    if (lower.includes('health') || lower.includes('fit')) return 'Health';
+    if (lower.includes('finan') || lower.includes('bank') || lower.includes('money')) return 'Finance';
+    return 'Productivity';
+  }
+
+  function getCatalogByCategory(category) {
+    if (!category || typeof category !== 'string') return APPS_CATALOG.slice();
+    const cat = category.trim().toLowerCase();
+    if (cat === 'all') return APPS_CATALOG.slice();
+    if (cat === 'recommended') {
+      const recIds = new Set(['google_health', 'oura', 'outlook_mail', 'outlook_cal', 'notion', 'plaid', 'stripe', 'coinbase', 'robinhood', 'agent_groups', 'skill_hub']);
+      return APPS_CATALOG.filter(a => a.recommended || a.category === 'Recommended' || recIds.has(a.id));
+    }
+    if (cat === 'developer' || cat === 'dev & ai' || cat === 'dev') {
+      return APPS_CATALOG.filter(a => {
+        const c = String(a.category || '').toLowerCase();
+        return c === 'developer' || c === 'dev & ai' || c === 'dev';
+      });
+    }
+    if (cat === 'social') {
+      return APPS_CATALOG.filter(a => {
+        const c = String(a.category || '').toLowerCase();
+        return c === 'social';
+      });
+    }
+    return APPS_CATALOG.filter(a => String(a.category || '').toLowerCase() === cat);
+  }
 
   // Ensure all apps in catalog have their capability tier explicitly set
   APPS_CATALOG.forEach(app => {
@@ -4025,8 +4327,14 @@
     return class AgentExecutionGuardFallback {};
   })();
 
+  let _peerApprovalsRef = undefined;
+  function _setPeerApprovalsForTesting(peer) {
+    _peerApprovalsRef = peer;
+  }
+
   // OpenTelemetry GenAI Semantic Conventions & Audit Persistence delegates
   function _getPeerApprovals() {
+    if (_peerApprovalsRef !== undefined) return _peerApprovalsRef;
     if (typeof require === 'function') {
       try { return require('../security/approvals.js'); } catch (_) {}
     }
@@ -4098,6 +4406,10 @@
     getProviderTierBadge,
     APPS_CATALOG,
     PROVIDER_CATALOG,
+    CUE_CATEGORIES,
+    CATEGORY_TAXONOMY,
+    normalizeCueCategory,
+    getCatalogByCategory,
     GOOGLE_OAUTH_SCOPES,
     PROVIDER_ACTION_SCOPES,
     getGoogleScopes,
@@ -4171,6 +4483,7 @@
     GEN_AI_SYSTEM,
     GEN_AI_OPERATIONS,
     GEN_AI_ATTRIBUTES,
+    _setPeerApprovalsForTesting,
     persistAuditTrail,
     verifyAuditTrailIntegrity
   };

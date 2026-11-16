@@ -78,6 +78,16 @@
   const STORAGE_KEY = STORAGE_KEYS.current;
   const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
   const SESSION_SECRETS_KEY = STORAGE_KEY + '_session_secrets';
+  const NEXUS_THEME_MODE_KEY = 'nexus_theme_mode';
+  const NEXUS_APP_LANGUAGE_KEY = 'nexus_app_language';
+  const NEXUS_APP_ICON_KEY = 'nexus_app_icon';
+  const AGENT_GROUPS_STORAGE_KEY = 'nexus_agent_groups';
+  const USER_SKILLS_STORAGE_KEY = 'nexus_user_skills';
+  const SUPPORTED_APP_LANGUAGES = Object.freeze([
+    'en', 'fa', 'zh_CN', 'zh_TW', 'ja', 'ko', 'de', 'es_ES', 'es_LA', 'ar', 'fr', 'id', 'it', 'pt'
+  ]);
+  const SUPPORTED_THEME_MODES = Object.freeze(['system', 'light', 'dark']);
+  const SUPPORTED_APP_ICONS = Object.freeze(['classic', 'oled_dark', 'cyberpunk', 'minimal']);
 
   function createMemoryStorage() {
     const mem = new Map();
@@ -508,6 +518,17 @@
       title: (typeof sk.title === 'string' && sk.title.trim()) ? sk.title.trim() : 'Skill ' + (idx + 1),
       source: (typeof sk.source === 'string' && sk.source.trim()) ? sk.source.trim() : 'Custom Skill',
       desc: String(sk.desc ?? '')
+    }));
+    src.agentGroups = validObjs(src.agentGroups, base.agentGroups || []).map((g, idx) => ({
+      ...g,
+      groupId: (typeof g.groupId === 'string' && g.groupId.trim()) ? g.groupId.trim() : (typeof g.id === 'string' && g.id.trim() ? g.id.trim() : genId('grp_' + idx)),
+      id: (typeof g.id === 'string' && g.id.trim()) ? g.id.trim() : (typeof g.groupId === 'string' && g.groupId.trim() ? g.groupId.trim() : genId('grp_' + idx)),
+      name: (typeof g.name === 'string' && g.name.trim()) ? g.name.trim() : 'Group ' + (idx + 1),
+      agentIds: Array.isArray(g.agentIds) ? g.agentIds.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()) : [],
+      memberCount: Array.isArray(g.agentIds) ? g.agentIds.length : 0,
+      isPinned: Boolean(g.isPinned),
+      createdAt: (typeof g.createdAt === 'string' && g.createdAt.trim()) ? g.createdAt : new Date().toISOString(),
+      files: Array.isArray(g.files) ? g.files : []
     }));
     const agentsRepaired = assertUniq(src.agentsCatalog, 'agent');
     const chatsRepaired = assertUniq(src.chats, 'chat');
@@ -1811,11 +1832,286 @@
     };
   }
 
+  function _getStorageByteLength(val) {
+    if (val === null || val === undefined) return 0;
+    const str = String(val);
+    try {
+      if (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function') {
+        return Buffer.byteLength(str, 'utf8');
+      }
+    } catch (_) {}
+    try {
+      if (typeof Blob !== 'undefined') {
+        return new Blob([str]).size;
+      }
+    } catch (_) {}
+    return str.length;
+  }
+
+  function _formatStorageBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) {
+      const kb = bytes / 1024;
+      return (kb % 1 === 0 ? kb.toFixed(0) : kb.toFixed(1)) + ' KB';
+    }
+    const mb = bytes / (1024 * 1024);
+    return (mb % 1 === 0 ? mb.toFixed(0) : mb.toFixed(1)) + ' MB';
+  }
+
+  function getPersistedThemeMode(storage) {
+    try {
+      const mode = nexusStorageGet(NEXUS_THEME_MODE_KEY, storage);
+      if (mode && SUPPORTED_THEME_MODES.includes(mode)) {
+        return mode;
+      }
+      return 'dark';
+    } catch (_) {
+      return 'dark';
+    }
+  }
+
+  function setPersistedThemeMode(mode, storage) {
+    if (!mode || !SUPPORTED_THEME_MODES.includes(mode)) {
+      return false;
+    }
+    try {
+      return Boolean(nexusStorageSet(NEXUS_THEME_MODE_KEY, mode, storage));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getPersistedLanguage(storage) {
+    try {
+      const lang = nexusStorageGet(NEXUS_APP_LANGUAGE_KEY, storage);
+      if (lang && typeof lang === 'string') {
+        const trimmed = lang.trim();
+        if (SUPPORTED_APP_LANGUAGES.includes(trimmed) || /^[a-zA-Z]{2,3}([_-][a-zA-Z0-9]{2,4})?$/.test(trimmed)) {
+          return trimmed;
+        }
+      }
+      return 'en';
+    } catch (_) {
+      return 'en';
+    }
+  }
+
+  function setPersistedLanguage(langCode, storage) {
+    if (!langCode || typeof langCode !== 'string') {
+      return false;
+    }
+    const trimmed = langCode.trim();
+    if (!SUPPORTED_APP_LANGUAGES.includes(trimmed)) {
+      if (!/^[a-zA-Z]{2,3}([_-][a-zA-Z0-9]{2,4})?$/.test(trimmed)) {
+        return false;
+      }
+    }
+    try {
+      return Boolean(nexusStorageSet(NEXUS_APP_LANGUAGE_KEY, trimmed, storage));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getPersistedAppIcon(storage) {
+    try {
+      const icon = nexusStorageGet(NEXUS_APP_ICON_KEY, storage);
+      if (icon && SUPPORTED_APP_ICONS.includes(icon)) {
+        return icon;
+      }
+      return 'classic';
+    } catch (_) {
+      return 'classic';
+    }
+  }
+
+  function setPersistedAppIcon(iconId, storage) {
+    if (!iconId || !SUPPORTED_APP_ICONS.includes(iconId)) {
+      return false;
+    }
+    try {
+      return Boolean(nexusStorageSet(NEXUS_APP_ICON_KEY, iconId, storage));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function calculateStorageCacheSize(storage) {
+    const s = storage || getLocalStorage();
+    let totalBytes = 0;
+    try {
+      if (s) {
+        if (typeof s.length === 'number' && typeof s.key === 'function') {
+          for (let i = 0; i < s.length; i++) {
+            const k = s.key(i);
+            if (k !== null && k !== undefined) {
+              const v = (typeof s.getItem === 'function') ? s.getItem(k) : s[k];
+              totalBytes += _getStorageByteLength(k) + _getStorageByteLength(v);
+            }
+          }
+        } else if (s instanceof Map) {
+          for (const [k, v] of s.entries()) {
+            totalBytes += _getStorageByteLength(k) + _getStorageByteLength(v);
+          }
+        } else if (typeof s === 'object') {
+          for (const k of Object.keys(s)) {
+            if (typeof s[k] !== 'function') {
+              const v = (typeof s.getItem === 'function') ? s.getItem(k) : s[k];
+              totalBytes += _getStorageByteLength(k) + _getStorageByteLength(v);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    const formatted = _formatStorageBytes(totalBytes);
+    return {
+      bytes: totalBytes,
+      formatted,
+      toString() {
+        return formatted;
+      }
+    };
+  }
+
+  function clearAppCache(storage, options = {}) {
+    const s = storage || getLocalStorage();
+    const beforeResult = calculateStorageCacheSize(s);
+    const beforeBytes = beforeResult.bytes;
+    let customFreed = 0;
+
+    try {
+      if (s) {
+        const preservedKeys = new Set([
+          STORAGE_KEY,
+          LEGACY_STORAGE_KEY,
+          SESSION_SECRETS_KEY,
+          NEXUS_THEME_MODE_KEY,
+          NEXUS_APP_LANGUAGE_KEY,
+          NEXUS_APP_ICON_KEY,
+          AGENT_GROUPS_STORAGE_KEY,
+          USER_SKILLS_STORAGE_KEY,
+          CLOUD_PC_BRIDGE_SECRET_KEY,
+          'eg_nexus_memory_governance'
+        ]);
+
+        const keysToRemove = [];
+        const keys = [];
+
+        if (typeof s.length === 'number' && typeof s.key === 'function') {
+          for (let i = 0; i < s.length; i++) {
+            const k = s.key(i);
+            if (k) keys.push(k);
+          }
+        } else if (s instanceof Map) {
+          for (const k of s.keys()) keys.push(k);
+        } else if (typeof s === 'object') {
+          for (const k of Object.keys(s)) {
+            if (typeof s[k] !== 'function') keys.push(k);
+          }
+        }
+
+        for (const k of keys) {
+          if (preservedKeys.has(k)) continue;
+          const lower = String(k).toLowerCase();
+          if (/(api[_-]?key|secret|profile|group|user_skill|permanent|auth|credential|bridge)/i.test(lower)) {
+            continue;
+          }
+          if (/(cache|preview|draft|buffer|ephemeral|temp|tmp|asset|thumb)/i.test(lower)) {
+            keysToRemove.push(k);
+          }
+        }
+
+        for (const k of keysToRemove) {
+          const val = (typeof s.getItem === 'function') ? s.getItem(k) : s[k];
+          customFreed += _getStorageByteLength(k) + _getStorageByteLength(val);
+          if (typeof s.removeItem === 'function') {
+            s.removeItem(k);
+          } else if (s instanceof Map) {
+            s.delete(k);
+          } else {
+            delete s[k];
+          }
+        }
+
+        const masterRaw = nexusStorageGet(STORAGE_KEY, s);
+        if (masterRaw) {
+          try {
+            const parsed = JSON.parse(masterRaw);
+            let modified = false;
+
+            if (Array.isArray(parsed.chats)) {
+              parsed.chats.forEach(c => {
+                if (c && typeof c.draftText === 'string' && c.draftText.length > 0) {
+                  c.draftText = '';
+                  modified = true;
+                }
+              });
+            }
+
+            if (parsed.previewAssets || parsed.cachedPreviews || parsed.ephemeralCache) {
+              delete parsed.previewAssets;
+              delete parsed.cachedPreviews;
+              delete parsed.ephemeralCache;
+              modified = true;
+            }
+
+            if (modified) {
+              const nextRaw = JSON.stringify(parsed);
+              nexusStorageSet(STORAGE_KEY, nextRaw, s);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
+    const afterResult = calculateStorageCacheSize(s);
+    const calculatedFreed = Math.max(0, beforeBytes - afterResult.bytes);
+    const freedBytes = Math.max(calculatedFreed, customFreed);
+
+    return {
+      success: true,
+      freedBytes
+    };
+  }
+
+  const AppearanceManager = Object.freeze({
+    getPersistedThemeMode,
+    setPersistedThemeMode,
+    SUPPORTED_THEME_MODES
+  });
+
+  const LanguageManager = Object.freeze({
+    getPersistedLanguage,
+    setPersistedLanguage,
+    SUPPORTED_APP_LANGUAGES
+  });
+
+  const AppIconManager = Object.freeze({
+    getPersistedAppIcon,
+    setPersistedAppIcon,
+    SUPPORTED_APP_ICONS
+  });
+
+  const CacheManager = Object.freeze({
+    calculateStorageCacheSize,
+    clearAppCache
+  });
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     SESSION_SECRETS_KEY,
+    NEXUS_THEME_MODE_KEY,
+    NEXUS_APP_LANGUAGE_KEY,
+    NEXUS_APP_ICON_KEY,
+    AGENT_GROUPS_STORAGE_KEY,
+    USER_SKILLS_STORAGE_KEY,
+    SUPPORTED_APP_LANGUAGES,
+    SUPPORTED_THEME_MODES,
+    SUPPORTED_APP_ICONS,
     API_KEY_NAMES,
     DEFAULT_MIN_TOKEN_RESERVATION,
     nexusStorageGet,
@@ -1860,6 +2156,18 @@
     restoreWorkspaceSnapshot,
     listWorkspaceSnapshots,
     deleteWorkspaceSnapshot,
-    resetBridgeCredentials
+    resetBridgeCredentials,
+    getPersistedThemeMode,
+    setPersistedThemeMode,
+    getPersistedLanguage,
+    setPersistedLanguage,
+    getPersistedAppIcon,
+    setPersistedAppIcon,
+    calculateStorageCacheSize,
+    clearAppCache,
+    AppearanceManager,
+    LanguageManager,
+    AppIconManager,
+    CacheManager
   };
 });

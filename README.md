@@ -1,9 +1,9 @@
-# 🚀 EG Nexus OS v6.4.0 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید (100% Cue v26.18.15 Parity)
+# 🚀 EG Nexus OS v6.5.0 — سیستم‌عامل چندایجنت هوشمند، PWA و کارخانه خودکار APK اندروید (100% Cue v26.18.15 Parity)
 
 [![CI/CD Auto Audit & Signed APK Factory](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml/badge.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS/actions/workflows/nexus-factory.yml)
 [![Node.js Version](https://img.shields.io/badge/node-24.x-brightgreen.svg)](https://nodejs.org/)
 [![Capacitor](https://img.shields.io/badge/Capacitor-8.6.0-blue.svg)](https://capacitorjs.com/)
-[![Tests](https://img.shields.io/badge/tests-842%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
+[![Tests](https://img.shields.io/badge/tests-893%2B%20passing-success.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Security Audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://github.com/dicardotr46-max/EG-Nexus-OS)
 [![Cryptography](https://img.shields.io/badge/cryptography-NIST%20AES--GCM--256-blueviolet.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -58,11 +58,67 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-**EG Nexus OS v6.4.0** نسخه ارتقایافته، تثبیت‌شده و جامع سیستم‌عامل شخصی چندایجنت است که به **برابری کامل ۱۰۰٪ (100% Feature and UI Parity)** با جدیدترین نسخه برنامه رسمی **Cue (v26.18.15 - ai.manus.agents)** دست یافته است. این نسخه تمامی قابلیت‌های جدید کشف‌شده در کالبدشکافی عمیق Dart/Flutter باینری `libapp.so`، مانیفست ۵۴ مجوزی APK، اندپوینت‌های ConnectRPC/gRPC و تعاملات لمسی Cue را به صورت کاملاً محلی، خودمختار و با بالاترین استانداردهای امنیتی ارائه می‌دهد.
+**EG Nexus OS v6.5.0** نسخه ارتقایافته، تثبیت‌شده و جامع سیستم‌عامل شخصی چندایجنت است که به **برابری عمیق و همه‌جانبه ۱۰۰٪ (100% Deep Exhaustive Parity)** با جدیدترین نسخه برنامه رسمی **Cue (v26.18.15 - ai.manus.agents)** دست یافته است. این نقطه عطف تاریخی با اتکا به **کراولر عمیق و هوشمند نسخه ۲.۰ (Deep Exhaustive Crawler v2.0)** محقق گردیده که با تزریق مستقیم ایونت‌های اشاره‌گر (Monkey pointer events) محدودیت‌ها و خطای امنیتی رابط کاربری MIUI/HyperOS شیائومی (`SecurityException: Injecting to another application requires INJECT_EVENTS permission`) را به طور کامل پشت سر گذاشته و از طریق پیمایش بازگشتی چندلایه (DFS با عمق ۴) تمامی صفحات، مودال‌ها، زیرجریان‌ها و پاپ‌آپ‌های پنهان Cue را شناسایی، کالبدشکافی و با کیفیت پروداکشن پیاده‌سازی نموده است.
 
 ---
 
-## 🌟 دستاوردها و قابلیت‌های کلیدی نسخه v6.4.0 — برابری کامل ۱۰۰٪ با Cue 26.18.15 (Cue Parity Milestone)
+## 🌟 دستاوردهای کلیدی نسخه v6.5.0 — برابری عمیق با Cue 26.18.15 و کراولر v2.0 (Landmark Milestone)
+
+نسخه **v6.5.0** بر پایه تحلیل و بازرسی جامع کراولر v2.0 (`scripts/cue-parity-crawler.js`)، استخراج ۶۴۸ دارایی گرافیکی از `AssetManifest.bin` (۴۳۱ وکتور SVG، ۱۴۵ تصویر PNG و ۱۳ انیمیشن Lottie) و ۲۴۶ متد باینری ConnectRPC/gRPC از `libapp.so`، تمامی ۷ زیرجریان اصلی Cue را با سیاست بدون استاب پیاده‌سازی نموده است:
+
+### ۱. پاپ‌آپ انتخاب تم و ظاهر (Appearance Theme Selector Popup & Media-Query Sync)
+- **مودال سه‌حالته ظاهر (`cueAppearanceModal`):** طراحی منطبق بر استانداردهای بصری Cue با سه انتخاب اصلی:
+  - ⚙️ **Follow system:** همگام‌سازی بلادرنگ با حالت تم سیستم‌عامل از طریق شنونده رویداد `window.matchMedia('(prefers-color-scheme: dark)')`.
+  - ☀️ **Light mode:** پوسته روشن با کنتراست بهینه برای محیط‌های پرنور.
+  - 🌙 **Dark mode:** پوسته تاریک و چشم‌نواز با توکن‌های استاندارد Forui Dark (`--cue-bg: #090a0c`, `--cue-card: #14151a`, `--cue-border: #22242c`).
+- **ماندگاری مطمئن و بدون بایندر:** ثبت در `localStorage` و ارتقای آنی متغیرهای CSS ریشه (`:root`) بدون نیاز به رفرش صفحه.
+
+### ۲. صفحه و مودال انتخاب زبان با ۱۴ زبان زنده دنیا (Multi-Language Selector Modal with Full RTL Support)
+- **پوشش کامل ۱۴ زبان بین‌المللی (`cueLanguageModal`):**
+  - انگلیسی (`en`)، فارسی (`fa` با جهت‌گیری کامل RTL و فونت Vazirmatn)، چینی ساده (`zh-Hans` / `zh_CN`)، چینی سنتی (`zh-Hant` / `zh_TW`)، ژاپنی (`ja`)، کره‌ای (`ko`)، آلمانی (`de`)، اسپانیایی اروپا (`es` / `es_ES`)، اسپانیایی آمریکای لاتین (`es-419` / `es_LA`)، عربی (`ar` با جهت‌گیری RTL)، فرانسوی (`fr`)، اندونزیایی (`id`)، ایتالیایی (`it`) و پرتغالی (`pt`).
+- **تغییر جهت بلادرنگ:** تنظیم فوری خصوصیات `document.documentElement.lang` و `document.documentElement.dir` به همراه تیک‌های آبی فعال در کنار زبان انتخاب‌شده.
+
+### ۳. هاب مهارت‌های ایجنت و ایمپورت مستقیم از گیت‌هاب (Skills Hub & GitHub Direct Import)
+- **منوی سه‌گانه افزودن مهارت (`cueAddSkillsMenu`):**
+  - 💬 **Create through chat:** ایجاد و مهندسی پرامپت مهارت از طریق گفتگوی تعاملی با ایجنت.
+  - 📤 **Upload a skill:** بارگذاری مستقیم مانیفست‌های JSON حاوی دستورالعمل‌ها و ابزارهای مورد نیاز (`uploadSkill`).
+  - 🐙 **Import from GitHub:** باز شدن باتم‌شیت اختصاصی (`cueImportGithubModal`) جهت ایمپورت مستقیم ریپازیتوری‌های متن‌باز.
+- **اعتبارسنجی ریجکس گیت‌هاب (`importSkillFromGitHub`):**
+  - ارزیابی دقیق الگوی `^https:\/\/github\.com\/[a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.]+(\/.*)?$` و رد بلافاصله آدرس‌های ناامن، نامعتبر یا غیرگیت‌هاب.
+  - پارس خودکار نام مخزن، نام مالک/سازمان، تخصیص شناسه قطعی (`skill_gh_*`) و فعال‌سازی مستقیم مهارت.
+
+### ۴. منوی سه‌نقطه داخل چت و پنل اطلاعات چت گروهی (In-Chat More Popup & Group Chat Info Panel)
+- **منوی گزینه‌های بیشتر داخل چت (`cueChatMoreMenu`):** پاپ‌آپ گوشه راست بالای هدر با سه گزینه کلیدی:
+  - 👥 **Group Chat Info:** هدایت به صفحه جامع اطلاعات گروه.
+  - 📌 **Pin / Unpin this group chat:** سنجاق کردن یا برداشتن سنجاق چت در لیست گفتگوها (`togglePinCurrentChat`).
+  - 🗑️ **Delete group chat:** حذف امن گروه پس از تاییدیه دیالوگ مودال.
+- **پنل جامع اطلاعات گروه (`cueGroupChatInfoPanel`):**
+  - نمایش عنوان گروه و شمارنده دقیق اعضا (`X members`).
+  - کارت مالک گروه با برچسب مشخص (`Ali - Owner`).
+  - کارت‌های وضعیت اعضای ایجنت با اکشن‌های مدیریتی.
+  - کلید **Add members** جهت باز کردن مودال انتخاب اعضای جدید (`cueAddMembersModal`).
+  - **کشوی فایل‌های ضمیمه نشست (Session Files Drawer):** نمایش فایل‌های اشتراک‌گذاری‌شده نظیر بسته اندروید `app-debug.apk` (816 MB) با امکان دانلود مستقیم و کلید اختصاصی `View all files`.
+
+### ۵. دایرکتوری کانکتورها و اپلیکیشن‌ها با ۷ دسته رسمی Cue (Apps Directory & 7 Category Tabs)
+- **نوار تب‌های افقی اسکرول‌پذیر (`appsCategoryBar`):**
+  - پوشش ۱۰۰٪ هفت دسته رسمی Cue شامل: **Recommended**، **Health**، **Finance**، **Travel**، **Productivity**، **Developer** و **Social**.
+- **فیلترینگ و دسته‌بندی هوشمند (`getCatalogByCategory`):**
+  - گروه‌بندی ایجنت‌ها (`agent_groups`) در دسته Productivity و هاب مهارت‌ها (`skill_hub`) در دسته Developer (به همراه حضور هر دو در Recommended).
+  - مودال یکپارچه احراز هویت کانکتورها (`cueConnectorAuthModal`) با پشتیبانی از اتصال OAuth و ثبت کلیدهای API.
+
+### ۶. بخش‌های اسکرول‌شده تنظیمات: آیکون اختصاصی برنامه و پاک‌سازی هوشمند کش (App Icon & Clear Cache)
+- **مودال سفارشی‌سازی آیکون برنامه (`cueAppIconModal`):**
+  - انتخاب از میان ۴ آیکون اختصاصی: **Classic** (آیکون رسمی)، **OLED Dark** (مشکی مطلق برای نمایشگرهای آمولد)، **Cyberpunk** (نئون فیروزه‌ای و بنفش) و **Minimal** (مونوکروم مینیمال).
+- **موتور پاک‌سازی و محاسبه کش (`calculateStorageCacheSize` & `clearAppCache`):**
+  - نمایش بلادرنگ حجم اشغال‌شده (نظیر `Clear cache - 4 MB`).
+  - پاک‌سازی ایمن فایل‌ها و داده‌های موقت (پیش‌نمایش‌ها، بافرها، درفت پیام‌ها و کش تصاویر) با تضمین حفظ مطلق سکرت‌ها، کلیدهای API، گروه‌های ایجنت، مهارت‌های کاربر و تنظیمات سیستم.
+
+### ۷. خط‌مشی بدون استاب و اتصال مستقیم به هسته (Zero-Stub Execution Policy)
+- تمامی **۴۲ هندلر ایونت جدید** به صورت مستقیم به ماژول‌های زیرساختی `src/core/state.js` (`AgentGroupManager`, `SkillHubManager`) و `src/core/persistence.js` متصل شده‌اند و هیچ تابع صوری یا استاب خالی در کد وجود ندارد.
+
+---
+
+## 🌟 دستاوردها و قابلیت‌های نسخه پیشین v6.4.0 — برابری کامل با Cue 26.18.15
 
 نسخه **v6.4.0** نقطه عطف تاریخی پروژه است که با کالبدشکافی دقیق باینری APK و اندپوینت‌های سرویس برنامه Cue 26.18.15، تمامی شکاف‌های کارکردی و بصری را پوشش داده است:
 
@@ -125,7 +181,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-**EG Nexus OS v6.4.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به ۷ اصلاح ساختاری و مهندسی نسخه v6.3.2 گردیده است.
+**EG Nexus OS v6.5.0** نسخه ارتقایافته، تثبیت‌شده و فوق‌امن سیستم‌عامل شخصی چندایجنت است. این نسخه علاوه بر تمامی قابلیت‌های نسخه‌های پیشین با پیاده‌سازی منشور معماری حاکمیتی محلی-محور ([ADR-001](docs/ADR-001-sovereign-local-first.md)) و ماتریس ردیابی استانداردهای بین‌المللی ۲۰۲۶ (OWASP ASVS v5.0.0, OWASP Agentic Top 10 ASI01-ASI10, OWASP ACS, OWASP MASWE v1.0.0)، مجهز به تمامی قابلیت‌های نسخه‌های v6.4.0 و v6.3.2 گردیده است.
 
 ---
 
@@ -173,7 +229,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 
 ---
 
-## 🌟 ویژگی‌های برجسته مهندسی در نسخه v6.4.0
+## 🌟 ویژگی‌های برجسته مهندسی در نسخه‌های v6.4.0 و v6.5.0
 
 ### ۱. سیستم مدیریت بودجه مرکزی و رزرو/تسویه توکن (CentralBudgetManager & Token Reservation/Settlement)
 - **رزرو پیش از شبکه (`reserveTokens`):** متد `executeProviderRequest` پیش از ارسال هرگونه درخواست به ارائه‌دهندگان هوش مصنوعی یا اجرای ابزار، توکن‌های تخمینی را رزرو می‌کند. در صورت فراتر رفتن مجموع توکن‌های رزروشده و مصرفی از `maxTokenBudget`، بلافاصله خطای `429 TOKEN_BUDGET_EXCEEDED` صادر و درخواست بدون مصرف شبکه متوقف می‌شود.
@@ -265,7 +321,7 @@ Security audits, automated scanners, and human reviewers must focus **exclusivel
 ```text
 EG-Nexus-OS/
 ├── .github/workflows/
-│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.4.0 (تمام اکشن‌ها با SHA پین شده)
+│   └── nexus-factory.yml          # خط لوله CI/CD: ممیزی، تست‌ها، بیلد و امضای رسمی APK v6.5.0 (تمام اکشن‌ها با SHA پین شده)
 ├── __tests__/                      # مجموعه تست‌های جامع Jest (شامل سوئیت v630_ai_architecture_and_p0_fixes)
 │   ├── approvals.spec.js          # تست‌های حاکمیت امنیتی، تایید کاربر و حل ناهمگام
 │   ├── coverage-boost.test.js     # تست‌های مرزی و تست‌های شاخه‌ای
@@ -281,12 +337,14 @@ EG-Nexus-OS/
 │   ├── v622_policy_strongbox_termux.spec.js # تست‌های جامع خط‌مشی اکشن‌ها، ژورنال کرش، ماتریس ترموکس و آنتروپی
 │   ├── v630_ai_architecture_and_p0_fixes.spec.js # تست‌های جامع معماری هوش مصنوعی v6.3.0/v6.3.1 و سوئیت اینواریانت‌ها
 │   ├── v640_cue_full_parity.spec.js # تست‌های جامع برابری کامل ۱۰۰٪ با Cue v26.18.15
+│   ├── v650_cue_deep_exhaustive_parity.spec.js # تست‌های جامع برابری عمیق، کراولر v2.0 و خرده‌جریان‌های هفت‌گانه v6.5.0
 │   └── worker_queue.spec.js       # تست‌های صف توزیع‌شده ورکر
 ├── android/                       # سورس بومی Capacitor Android با پشتیبانی API 36
 ├── docs/
 │   └── ADR-001-sovereign-local-first.md # سند رسمی معماری و ماتریس ردیابی استانداردهای ۲۰۲۶
 ├── scripts/
 │   ├── check-syntax.js            # بررسی سینتکس فایل‌ها و جنریتورها
+│   ├── cue-parity-crawler.js      # کراولر عمیق بازگشتی v2.0 با رویدادهای مانکی لمسی
 │   ├── generate-cyclonedx-sbom.js # تولید SBOM رسمی CycloneDX v1.5
 │   ├── lint.js                    # بررسی قوانین امنیتی و نشت سکرت
 │   ├── sync-audit-report.js       # همگام‌سازی خودکار گزارش‌های ممیزی با نتایج Jest
@@ -296,16 +354,17 @@ EG-Nexus-OS/
 │   ├── core/                      # ذخیره‌سازی، بهداشت داده‌ها، مدیریت حالت، AgentExecutionGuard و MemoryGovernance
 │   ├── providers/                 # رجیستری ارتباط با مدل‌ها (ACTION_POLICY_MANIFEST و MODEL_REGISTRY)
 │   └── security/                  # خزانه‌داری سکرت‌ها، اعتبارسنجی، تاییدات و ژورنال 2PC StrongBox
-├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.4.0 و v6.3.1
+├── AUDIT_REPORT.md                 # گزارش رسمی و فنی ممیزی نسخه v6.5.0 و v6.4.0
+├── CUE_PARITY_REPORT.md            # گزارش جامع کالبدشکافی عمیق و تحلیل شکاف با Cue 26.18.15
 ├── audit-static.json              # شاخص‌های ساختاری و استاتیک سورس‌کد
 ├── capacitor.config.json          # پیکربندی رسمی پلتفرم Capacitor 8.6.0
 ├── full_app_audit.py              # اسکریپت بازرسی جامع ساختاری و هندلرها
-├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.4.0)
-├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.4.0)
-├── package.json                   # شناسه پکیج نسخه 6.4.0 و اسکریپت‌ها
-├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.4.0)
+├── index.html                     # برنامه کامل تک‌صفحه‌ای PWA (نسخه v6.5.0)
+├── manifest.json                  # مانیفست وب‌اپلیکیشن برای نصب روی گوشی (v6.5.0)
+├── package.json                   # شناسه پکیج نسخه 6.5.0 و اسکریپت‌ها
+├── package-lock.json              # درخت قفل وابستگی‌های تاییدشده (6.5.0)
 ├── SECURITY.md                    # خط‌مشی امنیتی و پیوند رسمی GitHub Advisories
-└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.4.0
+└── sw.js                          # سرویس‌ورکر مدرن کش آفلاین v6.5.0
 ```
 
 ---
@@ -314,8 +373,8 @@ EG-Nexus-OS/
 
 ### روش اول: دانلود مستقیم فایل نصبی APK (اندروید)
 1. به تب [**Releases**](https://github.com/dicardotr46-max/EG-Nexus-OS/releases) مخزن بروید.
-2. آخرین نسخه منتشرشده (`v6.4.0`) را انتخاب کنید.
-3. فایل **`EG-Nexus-OS-v6.3.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
+2. آخرین نسخه منتشرشده (`v6.5.0`) را انتخاب کنید.
+3. فایل **`EG-Nexus-OS-v6.5.apk`** را دانلود و مستقیماً روی دستگاه اندرویدی خود نصب کنید.
 4. امضای فایل نصبی با استاندارد سه‌گانه v1/v2/v3 توسط `apksigner` و کلید اختصاصی ریپازیتوری تایید شده است (توصیفگر اصالت: `SHA-Pinned Release Tag with CycloneDX SBOM & SHA-256 Checksum Manifest (GitHub Release immutable flag is false on standard tier)`).
 
 ### روش دوم: نصب در قالب وب‌اپلیکیشن پیشرونده (PWA)

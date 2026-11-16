@@ -65,6 +65,11 @@
   const STORAGE_KEYS = Object.freeze({ current: 'eg_nexus_os_v5_master_state', legacy: 'eg_nexus_os_state_v5.1' });
   const STORAGE_KEY = STORAGE_KEYS.current;
   const LEGACY_STORAGE_KEY = STORAGE_KEYS.legacy;
+  const NEXUS_THEME_MODE_KEY = 'nexus_theme_mode';
+  const NEXUS_APP_LANGUAGE_KEY = 'nexus_app_language';
+  const NEXUS_APP_ICON_KEY = 'nexus_app_icon';
+  const AGENT_GROUPS_STORAGE_KEY = 'nexus_agent_groups';
+  const USER_SKILLS_STORAGE_KEY = 'nexus_user_skills';
 
   const DEFAULT_WORKOUT_STUDIO_TEMPLATE = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -116,18 +121,25 @@
       activeAgentProfileId: null,
       addedAppIds: [],
       appConnections: {},
+      agentGroups: [],
       skills: [
         {
           id: 'sk_workout_60fps',
+          name: '🏋️ استاندارد ممیزی ۶۰ فریم حرکات ورزشی اندروید',
           title: '🏋️ استاندارد ممیزی ۶۰ فریم حرکات ورزشی اندروید',
           source: 'System Built-in',
-          desc: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.'
+          desc: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.',
+          description: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.',
+          enabled: true
         },
         {
           id: 'sk_clash_viral',
+          name: '👑 فرمول شورتس وایرال کلش رویال (۵ پلتفرم)',
           title: '👑 فرمول شورتس وایرال کلش رویال (۵ پلتفرم)',
           source: 'System Built-in',
-          desc: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.'
+          desc: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.',
+          description: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.',
+          enabled: true
         }
       ],
       brainNodes: [],
@@ -2233,12 +2245,691 @@
     };
   }
 
+  let _persistenceModuleRef = undefined;
+  function _setPersistenceModuleForTesting(mod) {
+    _persistenceModuleRef = mod;
+  }
+
+  function _getPersistenceModule() {
+    if (_persistenceModuleRef !== undefined) return _persistenceModuleRef;
+    if (typeof require === 'function') {
+      try {
+        const p = require('./persistence.js');
+        if (p) return p;
+      } catch (_) {}
+    }
+    if (typeof globalThis !== 'undefined' && globalThis.NexusPersistence) return globalThis.NexusPersistence;
+    if (typeof window !== 'undefined' && window.NexusPersistence) return window.NexusPersistence;
+    if (typeof globalThis !== 'undefined' && globalThis._nexusCorePersistence) return globalThis._nexusCorePersistence;
+    if (typeof window !== 'undefined' && window._nexusCorePersistence) return window._nexusCorePersistence;
+    if (typeof globalThis !== 'undefined' && globalThis.NexusCore && globalThis.NexusCore.persistence) return globalThis.NexusCore.persistence;
+    return null;
+  }
+
+  /**
+   * AgentGroupManager
+   * Manages multi-agent group collaboration, members, roles, file attachments, and persistence.
+   */
+  class AgentGroupManager {
+    constructor(options = {}) {
+      if (options && typeof options.getItem === 'function') {
+        this.storage = options;
+      } else {
+        this.storage = (options && options.storage) || null;
+      }
+      this.groups = new Map();
+      this._loadFromStorage();
+    }
+
+    _getStorage() {
+      if (this.storage) return this.storage;
+      const p = _getPersistenceModule();
+      if (p && typeof p.getLocalStorage === 'function') {
+        try {
+          const s = p.getLocalStorage();
+          if (s) return s;
+        } catch (_) {}
+      }
+      if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+      if (typeof globalThis !== 'undefined' && globalThis.localStorage) return globalThis.localStorage;
+      if (typeof localStorage !== 'undefined') return localStorage;
+      return null;
+    }
+
+    _loadFromStorage() {
+      const s = this._getStorage();
+      if (s) {
+        try {
+          const raw = (typeof s.getItem === 'function') ? s.getItem(AGENT_GROUPS_STORAGE_KEY) : s[AGENT_GROUPS_STORAGE_KEY];
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach(g => {
+                if (g && (g.groupId || g.id)) {
+                  const id = g.groupId || g.id;
+                  this.groups.set(id, {
+                    groupId: id,
+                    id,
+                    name: g.name || 'Unnamed Group',
+                    agentIds: Array.isArray(g.agentIds) ? [...g.agentIds] : [],
+                    memberCount: Array.isArray(g.agentIds) ? g.agentIds.length : (Number(g.memberCount) || 0),
+                    isPinned: Boolean(g.isPinned),
+                    createdAt: g.createdAt || new Date().toISOString(),
+                    files: Array.isArray(g.files) ? [...g.files] : [],
+                    ...g
+                  });
+                }
+              });
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (this.groups.size === 0 && !this.storage) {
+        try {
+          const state = (typeof appState !== 'undefined' && appState)
+            ? appState
+            : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+          if (state && Array.isArray(state.agentGroups)) {
+            state.agentGroups.forEach(g => {
+              if (g && (g.groupId || g.id)) {
+                const id = g.groupId || g.id;
+                this.groups.set(id, {
+                  groupId: id,
+                  id,
+                  name: g.name || 'Unnamed Group',
+                  agentIds: Array.isArray(g.agentIds) ? [...g.agentIds] : [],
+                  memberCount: Array.isArray(g.agentIds) ? g.agentIds.length : 0,
+                  isPinned: Boolean(g.isPinned),
+                  createdAt: g.createdAt || new Date().toISOString(),
+                  files: Array.isArray(g.files) ? [...g.files] : [],
+                  ...g
+                });
+              }
+            });
+          }
+        } catch (_) {}
+      }
+    }
+
+    _saveToStorage() {
+      const list = this.listGroups();
+      if (!this.storage) {
+        try {
+          const state = (typeof appState !== 'undefined' && appState)
+            ? appState
+            : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+          if (state) {
+            state.agentGroups = list;
+          }
+        } catch (_) {}
+      }
+
+      const s = this._getStorage();
+      if (!s) return false;
+      try {
+        const serialized = JSON.stringify(list);
+        if (typeof s.setItem === 'function') {
+          s.setItem(AGENT_GROUPS_STORAGE_KEY, serialized);
+        } else {
+          s[AGENT_GROUPS_STORAGE_KEY] = serialized;
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    createGroup(name, agentIds = [], metadata = {}) {
+      const meta = (metadata && typeof metadata === 'object') ? metadata : {};
+      const groupId = meta.groupId || meta.id || secureRandomId('group');
+      const validAgentIds = Array.isArray(agentIds) ? Array.from(new Set(agentIds)) : [];
+      const nowIso = new Date().toISOString();
+
+      const group = {
+        groupId,
+        id: groupId,
+        name: (typeof name === 'string' && name.trim()) ? name.trim() : (meta.name || 'Unnamed Group'),
+        agentIds: validAgentIds,
+        memberCount: validAgentIds.length,
+        isPinned: Boolean(meta.isPinned),
+        createdAt: meta.createdAt || nowIso,
+        files: Array.isArray(meta.files) ? [...meta.files] : [],
+        ...meta,
+        groupId,
+        id: groupId,
+        agentIds: validAgentIds,
+        memberCount: validAgentIds.length,
+        isPinned: Boolean(meta.isPinned),
+        files: Array.isArray(meta.files) ? [...meta.files] : []
+      };
+      group.name = (typeof name === 'string' && name.trim()) ? name.trim() : (group.name || 'Unnamed Group');
+
+      this.groups.set(groupId, group);
+      this._saveToStorage();
+      return group;
+    }
+
+    getGroup(groupId) {
+      if (!groupId) return null;
+      return this.groups.get(groupId) || null;
+    }
+
+    listGroups() {
+      return Array.from(this.groups.values());
+    }
+
+    updateGroup(groupId, updates = {}) {
+      const group = this.getGroup(groupId);
+      if (!group) return null;
+      if (updates && typeof updates === 'object') {
+        Object.assign(group, updates);
+        if (updates.agentIds !== undefined) {
+          group.agentIds = Array.isArray(updates.agentIds) ? Array.from(new Set(updates.agentIds)) : [];
+          group.memberCount = group.agentIds.length;
+        }
+        if (updates.files !== undefined) {
+          group.files = Array.isArray(updates.files) ? updates.files : [];
+        }
+        group.groupId = groupId;
+        group.id = groupId;
+      }
+      this._saveToStorage();
+      return group;
+    }
+
+    deleteGroup(groupId) {
+      if (!groupId || !this.groups.has(groupId)) return false;
+      const res = this.groups.delete(groupId);
+      this._saveToStorage();
+      return res;
+    }
+
+    addMember(groupId, agentId, role = 'member') {
+      const group = this.getGroup(groupId);
+      if (!group || !agentId) return false;
+      if (!Array.isArray(group.agentIds)) group.agentIds = [];
+      if (!group.agentIds.includes(agentId)) {
+        group.agentIds.push(agentId);
+      }
+      group.memberCount = group.agentIds.length;
+      if (role) {
+        if (!group.roles || typeof group.roles !== 'object') group.roles = {};
+        group.roles[agentId] = role;
+      }
+      this._saveToStorage();
+      return true;
+    }
+
+    removeMember(groupId, agentId) {
+      const group = this.getGroup(groupId);
+      if (!group || !agentId) return false;
+      if (!Array.isArray(group.agentIds)) group.agentIds = [];
+      group.agentIds = group.agentIds.filter(id => id !== agentId);
+      group.memberCount = group.agentIds.length;
+      if (group.roles && group.roles[agentId]) {
+        delete group.roles[agentId];
+      }
+      this._saveToStorage();
+      return true;
+    }
+
+    togglePin(groupId) {
+      const group = this.getGroup(groupId);
+      if (!group) return false;
+      group.isPinned = !Boolean(group.isPinned);
+      this._saveToStorage();
+      return group.isPinned;
+    }
+
+    getGroupFiles(groupId) {
+      const group = this.getGroup(groupId);
+      if (!group || !Array.isArray(group.files)) return [];
+      return group.files;
+    }
+
+    addFileToGroup(groupId, fileInfo) {
+      const group = this.getGroup(groupId);
+      if (!group) return null;
+      if (!Array.isArray(group.files)) group.files = [];
+      const file = {
+        name: (fileInfo && fileInfo.name) ? String(fileInfo.name) : 'unnamed_file',
+        size: (fileInfo && Number.isFinite(Number(fileInfo.size))) ? Number(fileInfo.size) : 0,
+        type: (fileInfo && fileInfo.type) ? String(fileInfo.type) : 'application/octet-stream',
+        timestamp: (fileInfo && fileInfo.timestamp) ? fileInfo.timestamp : new Date().toISOString(),
+        url: (fileInfo && fileInfo.url) ? String(fileInfo.url) : '',
+        ...(fileInfo || {})
+      };
+      file.name = (fileInfo && fileInfo.name) ? String(fileInfo.name) : file.name;
+      file.size = (fileInfo && Number.isFinite(Number(fileInfo.size))) ? Number(fileInfo.size) : file.size;
+      file.type = (fileInfo && fileInfo.type) ? String(fileInfo.type) : file.type;
+      file.timestamp = (fileInfo && fileInfo.timestamp) ? fileInfo.timestamp : file.timestamp;
+      file.url = (fileInfo && fileInfo.url) ? String(fileInfo.url) : file.url;
+
+      group.files.push(file);
+      this._saveToStorage();
+      return file;
+    }
+  }
+
+  let _agentGroupManagerInstance = null;
+  function getAgentGroupManager(options) {
+    let opts = options;
+    if (options && typeof options.getItem === 'function') {
+      opts = { storage: options };
+    }
+    if (!_agentGroupManagerInstance || (opts && opts.reset)) {
+      _agentGroupManagerInstance = new AgentGroupManager(opts);
+    }
+    return _agentGroupManagerInstance;
+  }
+
+  const DEFAULT_BUILTIN_SKILLS = Object.freeze([
+    {
+      id: 'sk_workout_60fps',
+      name: '🏋️ استاندارد ممیزی ۶۰ فریم حرکات ورزشی اندروید',
+      title: '🏋️ استاندارد ممیزی ۶۰ فریم حرکات ورزشی اندروید',
+      source: 'System Built-in',
+      desc: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.',
+      description: 'بررسی زوایای مفصل (اسکوات، شنا، لانج، فیس‌پول)، رندر SVG برداری بدون افت فریم در WebView و جداسازی منطق تایمر.',
+      enabled: true
+    },
+    {
+      id: 'sk_clash_viral',
+      name: '👑 فرمول شورتس وایرال کلش رویال (۵ پلتفرم)',
+      title: '👑 فرمول شورتس وایرال کلش رویال (۵ پلتفرم)',
+      source: 'System Built-in',
+      desc: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.',
+      description: 'هوک ۳ ثانیه‌ای، زوم روی لحظه ضدحمله الکترو جاینت، زیرنویس کلمه‌به‌کلمه و پایان لوپ برای YouTube Shorts و TikTok.',
+      enabled: true
+    }
+  ]);
+
+  /**
+   * SkillHubManager
+   * Manages builtin and user-imported skills, GitHub repos, uploaded payloads, and active state.
+   */
+  class SkillHubManager {
+    constructor(options = {}) {
+      if (options && typeof options.getItem === 'function') {
+        this.storage = options;
+      } else {
+        this.storage = (options && options.storage) || null;
+      }
+      this.userSkills = new Map();
+      this.builtinSkills = DEFAULT_BUILTIN_SKILLS.map(s => ({ ...s }));
+      this._loadFromStorage();
+    }
+
+    _getStorage() {
+      if (this.storage) return this.storage;
+      const p = _getPersistenceModule();
+      if (p && typeof p.getLocalStorage === 'function') {
+        try {
+          const s = p.getLocalStorage();
+          if (s) return s;
+        } catch (_) {}
+      }
+      if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+      if (typeof globalThis !== 'undefined' && globalThis.localStorage) return globalThis.localStorage;
+      if (typeof localStorage !== 'undefined') return localStorage;
+      return null;
+    }
+
+    _loadFromStorage() {
+      const s = this._getStorage();
+      if (s) {
+        try {
+          const raw = (typeof s.getItem === 'function') ? s.getItem(USER_SKILLS_STORAGE_KEY) : s[USER_SKILLS_STORAGE_KEY];
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach(sk => {
+                if (sk && (sk.id || sk.name)) {
+                  const id = sk.id || secureRandomId('skill');
+                  this.userSkills.set(id, {
+                    ...sk,
+                    id,
+                    name: sk.name || sk.title || 'Custom Skill',
+                    title: sk.title || sk.name || 'Custom Skill',
+                    description: sk.description || sk.desc || '',
+                    desc: sk.desc || sk.description || '',
+                    enabled: sk.enabled !== false
+                  });
+                }
+              });
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (!this.storage) {
+        try {
+          const state = (typeof appState !== 'undefined' && appState)
+            ? appState
+            : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+          if (state && Array.isArray(state.skills)) {
+            state.skills.forEach(sk => {
+              if (sk && sk.id) {
+                if (sk.source !== 'System Built-in' && !this.userSkills.has(sk.id)) {
+                  this.userSkills.set(sk.id, {
+                    ...sk,
+                    name: sk.name || sk.title || 'Custom Skill',
+                    title: sk.title || sk.name || 'Custom Skill',
+                    description: sk.description || sk.desc || '',
+                    desc: sk.desc || sk.description || '',
+                    enabled: sk.enabled !== false
+                  });
+                }
+              }
+            });
+          }
+        } catch (_) {}
+      }
+    }
+
+    _saveToStorage() {
+      const userList = Array.from(this.userSkills.values());
+      const allSkills = this.listSkills('all');
+      if (!this.storage) {
+        try {
+          const state = (typeof appState !== 'undefined' && appState)
+            ? appState
+            : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+          if (state) {
+            state.skills = allSkills;
+            state.skillsCatalog = allSkills;
+          }
+        } catch (_) {}
+      }
+
+      const s = this._getStorage();
+      if (!s) return false;
+      try {
+        const serialized = JSON.stringify(userList);
+        if (typeof s.setItem === 'function') {
+          s.setItem(USER_SKILLS_STORAGE_KEY, serialized);
+        } else {
+          s[USER_SKILLS_STORAGE_KEY] = serialized;
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    listSkills(filter = 'all') {
+      const map = new Map();
+      this.builtinSkills.forEach(b => {
+        map.set(b.id, { ...b });
+      });
+
+      try {
+        const state = (typeof appState !== 'undefined' && appState)
+          ? appState
+          : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+        if (state && Array.isArray(state.skills)) {
+          state.skills.forEach(sk => {
+            if (sk && sk.id && sk.source === 'System Built-in') {
+              if (!map.has(sk.id)) {
+                map.set(sk.id, { ...sk });
+              }
+            }
+          });
+        }
+      } catch (_) {}
+
+      this.userSkills.forEach((sk, id) => {
+        map.set(id, { ...sk });
+      });
+
+      const all = Array.from(map.values());
+      if (!filter || filter === 'all') {
+        return all;
+      }
+
+      const f = String(filter).toLowerCase().trim();
+      if (f === 'builtin') {
+        return all.filter(s => s.source === 'System Built-in' || s.isBuiltin === true);
+      }
+      if (f === 'user' || f === 'custom') {
+        return all.filter(s => s.source !== 'System Built-in' && !s.isBuiltin);
+      }
+      if (f === 'github') {
+        return all.filter(s => s.source === 'github');
+      }
+      if (f === 'enabled') {
+        return all.filter(s => s.enabled !== false);
+      }
+      return all;
+    }
+
+    toggleSkill(skillId, enabled) {
+      if (!skillId) return null;
+      let target = this.userSkills.get(skillId);
+      if (!target) {
+        const builtin = this.builtinSkills.find(s => s.id === skillId);
+        if (builtin) {
+          target = { ...builtin };
+          this.userSkills.set(skillId, target);
+        }
+      }
+      if (!target) {
+        try {
+          const state = (typeof appState !== 'undefined' && appState)
+            ? appState
+            : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+          if (state && Array.isArray(state.skills)) {
+            const found = state.skills.find(s => s && s.id === skillId);
+            if (found) {
+              target = { ...found };
+              this.userSkills.set(skillId, target);
+            }
+          }
+        } catch (_) {}
+      }
+      if (!target) return null;
+
+      if (typeof enabled === 'boolean') {
+        target.enabled = enabled;
+      } else {
+        target.enabled = !Boolean(target.enabled);
+      }
+      this._saveToStorage();
+      return target;
+    }
+
+    importSkillFromGitHub(repoUrl) {
+      if (!repoUrl || typeof repoUrl !== 'string') {
+        throw new Error('Invalid GitHub repository URL');
+      }
+      const trimmed = repoUrl.trim();
+      const match = trimmed.match(/^https:\/\/github\.com\/([a-zA-Z0-9_\-\.]+)\/([a-zA-Z0-9_\-\.]+)(\/.*)?$/);
+      if (!match) {
+        throw new Error('Invalid GitHub repository URL');
+      }
+      const owner = match[1];
+      const repo = match[2].replace(/\.git$/, '');
+      const id = ('skill_gh_' + owner + '_' + repo).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+
+      const skill = {
+        id,
+        name: repo,
+        title: repo,
+        description: `Imported from GitHub: ${owner}/${repo}`,
+        desc: `Imported from GitHub: ${owner}/${repo}`,
+        author: owner,
+        repoUrl: trimmed,
+        enabled: true,
+        source: 'github',
+        createdAt: new Date().toISOString()
+      };
+
+      this.userSkills.set(id, skill);
+      this._saveToStorage();
+      return skill;
+    }
+
+    uploadSkill(skillPayload) {
+      if (!skillPayload || typeof skillPayload !== 'object') {
+        throw new Error('Invalid skill payload');
+      }
+      const name = String(skillPayload.name || skillPayload.title || 'Custom Skill').trim();
+      const id = skillPayload.id || secureRandomId('skill');
+      const desc = String(skillPayload.description || skillPayload.desc || '');
+
+      const skill = {
+        id,
+        name,
+        title: name,
+        description: desc,
+        desc,
+        instructions: typeof skillPayload.instructions === 'string' ? skillPayload.instructions : '',
+        tools: Array.isArray(skillPayload.tools) ? skillPayload.tools : [],
+        author: skillPayload.author || 'User',
+        enabled: skillPayload.enabled !== false,
+        source: skillPayload.source || 'upload',
+        createdAt: skillPayload.createdAt || new Date().toISOString(),
+        ...(skillPayload || {}),
+        id,
+        name,
+        title: name,
+        description: desc,
+        desc,
+        enabled: skillPayload.enabled !== false,
+        source: skillPayload.source || 'upload'
+      };
+
+      this.userSkills.set(id, skill);
+      this._saveToStorage();
+      return skill;
+    }
+
+    deleteSkill(skillId) {
+      if (!skillId) return false;
+      let deleted = false;
+      if (this.userSkills.has(skillId)) {
+        this.userSkills.delete(skillId);
+        deleted = true;
+      }
+      try {
+        const state = (typeof appState !== 'undefined' && appState)
+          ? appState
+          : (typeof globalThis !== 'undefined' && globalThis.appState ? globalThis.appState : null);
+        if (state && Array.isArray(state.skills)) {
+          const prevLen = state.skills.length;
+          state.skills = state.skills.filter(s => s && s.id !== skillId);
+          if (state.skills.length !== prevLen) deleted = true;
+        }
+      } catch (_) {}
+
+      if (deleted) {
+        this._saveToStorage();
+        return true;
+      }
+      return false;
+    }
+  }
+
+  let _skillHubManagerInstance = null;
+  function getSkillHubManager(options) {
+    let opts = options;
+    if (options && typeof options.getItem === 'function') {
+      opts = { storage: options };
+    }
+    if (!_skillHubManagerInstance || (opts && opts.reset)) {
+      _skillHubManagerInstance = new SkillHubManager(opts);
+    }
+    return _skillHubManagerInstance;
+  }
+
+  function getPersistedThemeMode(storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.getPersistedThemeMode === 'function')
+      ? p.getPersistedThemeMode(storage)
+      : 'dark';
+  }
+
+  function setPersistedThemeMode(mode, storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.setPersistedThemeMode === 'function')
+      ? p.setPersistedThemeMode(mode, storage)
+      : false;
+  }
+
+  function getPersistedLanguage(storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.getPersistedLanguage === 'function')
+      ? p.getPersistedLanguage(storage)
+      : 'en';
+  }
+
+  function setPersistedLanguage(langCode, storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.setPersistedLanguage === 'function')
+      ? p.setPersistedLanguage(langCode, storage)
+      : false;
+  }
+
+  function getPersistedAppIcon(storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.getPersistedAppIcon === 'function')
+      ? p.getPersistedAppIcon(storage)
+      : 'classic';
+  }
+
+  function setPersistedAppIcon(iconId, storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.setPersistedAppIcon === 'function')
+      ? p.setPersistedAppIcon(iconId, storage)
+      : false;
+  }
+
+  function calculateStorageCacheSize(storage) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.calculateStorageCacheSize === 'function')
+      ? p.calculateStorageCacheSize(storage)
+      : { bytes: 0, formatted: '0 B', toString: () => '0 B' };
+  }
+
+  function clearAppCache(storage, options) {
+    const p = _getPersistenceModule();
+    return (p && typeof p.clearAppCache === 'function')
+      ? p.clearAppCache(storage, options)
+      : { success: true, freedBytes: 0 };
+  }
+
+  const AppearanceManager = Object.freeze({
+    getPersistedThemeMode,
+    setPersistedThemeMode
+  });
+
+  const LanguageManager = Object.freeze({
+    getPersistedLanguage,
+    setPersistedLanguage
+  });
+
+  const AppIconManager = Object.freeze({
+    getPersistedAppIcon,
+    setPersistedAppIcon
+  });
+
+  const CacheManager = Object.freeze({
+    calculateStorageCacheSize,
+    clearAppCache
+  });
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     DEFAULT_WORKOUT_STUDIO_TEMPLATE,
     DEFAULT_MIN_TOKEN_RESERVATION,
+    NEXUS_THEME_MODE_KEY,
+    NEXUS_APP_LANGUAGE_KEY,
+    NEXUS_APP_ICON_KEY,
+    AGENT_GROUPS_STORAGE_KEY,
+    USER_SKILLS_STORAGE_KEY,
     createInitialAppState,
     createInitialUiState,
     createProtectedStateProxy,
@@ -2289,6 +2980,23 @@
     TaskQueueManager,
     getTaskQueueManager: () => taskQueueManager,
     taskQueueManager,
-    getWeeklyUsageQuota
+    getWeeklyUsageQuota,
+    _setPersistenceModuleForTesting,
+    AgentGroupManager,
+    getAgentGroupManager,
+    SkillHubManager,
+    getSkillHubManager,
+    getPersistedThemeMode,
+    setPersistedThemeMode,
+    getPersistedLanguage,
+    setPersistedLanguage,
+    getPersistedAppIcon,
+    setPersistedAppIcon,
+    calculateStorageCacheSize,
+    clearAppCache,
+    AppearanceManager,
+    LanguageManager,
+    AppIconManager,
+    CacheManager
   };
 });

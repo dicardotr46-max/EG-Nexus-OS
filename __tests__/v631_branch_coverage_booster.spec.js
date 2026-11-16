@@ -1491,4 +1491,366 @@ describe('EG-Nexus-OS v6.3.1 Branch Coverage Booster', () => {
     });
   });
 
+  describe('7. v6.5.0 Cue Deep Exhaustive Parity Full Coverage Booster', () => {
+    test('persistence.js _formatStorageBytes, app icons, theme, and languages error branches', () => {
+      // _formatStorageBytes
+      expect(persistence.calculateStorageCacheSize(null).formatted).toBe('0 B');
+
+      // Throwing storage mock
+      const throwingStorage = {
+        getItem: () => { throw new Error('QuotaExceeded'); },
+        setItem: () => { throw new Error('QuotaExceeded'); },
+        removeItem: () => { throw new Error('QuotaExceeded'); },
+        key: () => { throw new Error('QuotaExceeded'); },
+        get length() { throw new Error('QuotaExceeded'); }
+      };
+
+      // Theme
+      expect(persistence.getPersistedThemeMode(throwingStorage)).toBe('dark');
+      expect(persistence.setPersistedThemeMode('light', throwingStorage)).toBe(false);
+
+      // Language
+      expect(persistence.getPersistedLanguage(throwingStorage)).toBe('en');
+      expect(persistence.setPersistedLanguage('fa', throwingStorage)).toBe(false);
+
+      // App Icon
+      expect(persistence.getPersistedAppIcon(throwingStorage)).toBe('classic');
+      expect(persistence.setPersistedAppIcon('cyberpunk', throwingStorage)).toBe(false);
+
+      // calculateStorageCacheSize with throwing storage
+      const errSize = persistence.calculateStorageCacheSize(throwingStorage);
+      expect(errSize.bytes).toBe(0);
+
+      // clearAppCache with throwing storage
+      const errClear = persistence.clearAppCache(throwingStorage);
+      expect(errClear.success).toBe(true);
+
+      // sanitizeLoadedState with agentGroups
+      const sanitized = persistence.sanitizeLoadedState({
+        agentGroups: [{ id: 'g1', name: 'Valid Group', agentIds: ['a1'] }, null, 'invalid']
+      });
+      expect(Array.isArray(sanitized.agentGroups)).toBe(true);
+      expect(sanitized.agentGroups.length).toBe(1);
+
+      const sanitizedEmpty = persistence.sanitizeLoadedState({ agentGroups: 'not-array' });
+      expect(Array.isArray(sanitizedEmpty.agentGroups)).toBe(true);
+    });
+
+    test('state.js SkillHubManager and AgentGroupManager deep branch coverage', () => {
+      const mockStore = {
+        data: {},
+        getItem(k) { return this.data[k] || null; },
+        setItem(k, v) { this.data[k] = String(v); },
+        removeItem(k) { delete this.data[k]; }
+      };
+
+      // Pass storage directly as options object
+      const hubMgr = state.getSkillHubManager(mockStore);
+      expect(hubMgr).toBeDefined();
+
+      // toggleSkill for builtin skill
+      const toggledBuiltin = hubMgr.toggleSkill('epistemic-judge');
+      if (toggledBuiltin) {
+        expect(typeof toggledBuiltin.enabled).toBe('boolean');
+      }
+
+      // toggleSkill with state.skills
+      const st = state.getState ? state.getState() : (state.appState || {});
+      if (!Array.isArray(st.skills)) st.skills = [];
+      st.skills.push({ id: 'dyn_skill_1', name: 'Dynamic Skill', enabled: true });
+      const toggledDyn = hubMgr.toggleSkill('dyn_skill_1', false);
+      expect(toggledDyn).toBeDefined();
+      expect(toggledDyn.enabled).toBe(false);
+
+      // deleteSkill with dynamic skill
+      expect(hubMgr.deleteSkill('dyn_skill_1')).toBe(true);
+
+      // importSkillFromGitHub with .git suffix and subpath
+      const ghSkill = hubMgr.importSkillFromGitHub('https://github.com/torvalds/linux.git/tree/master');
+      expect(ghSkill.name).toBe('linux');
+      expect(ghSkill.source).toBe('github');
+
+      // AgentGroupManager with custom groupId and metadata
+      const grpMgr = new state.AgentGroupManager({ storage: mockStore });
+      const customGrp = grpMgr.createGroup('Engineering Team', ['agent_coder', 'agent_reviewer'], {
+        groupId: 'grp_custom_99',
+        category: 'Development'
+      });
+      expect(customGrp.groupId).toBe('grp_custom_99');
+      expect(customGrp.memberCount).toBe(2);
+
+      // updateGroup updating agentIds and recalculating memberCount
+      const updatedGrp = grpMgr.updateGroup('grp_custom_99', {
+        agentIds: ['agent_coder']
+      });
+      expect(updatedGrp.memberCount).toBe(1);
+
+      // addMember with role
+      expect(grpMgr.addMember('grp_custom_99', 'agent_qa', 'Tester')).toBe(true);
+      const afterAdd = grpMgr.getGroup('grp_custom_99');
+      expect(afterAdd.memberCount).toBe(2);
+      expect(afterAdd.roles.agent_qa).toBe('Tester');
+
+      // removeMember cleans up roles
+      expect(grpMgr.removeMember('grp_custom_99', 'agent_qa')).toBe(true);
+      const afterRemove = grpMgr.getGroup('grp_custom_99');
+      expect(afterRemove.roles.agent_qa).toBeUndefined();
+
+      // addFileToGroup with full file info
+      const attached = grpMgr.addFileToGroup('grp_custom_99', {
+        name: 'app-debug.apk',
+        size: '816 MB',
+        type: 'application/vnd.android.package-archive',
+        url: 'https://storage.local/app-debug.apk'
+      });
+      expect(attached.name).toBe('app-debug.apk');
+      expect(grpMgr.getGroupFiles('grp_custom_99').length).toBe(1);
+    });
+
+    test('registry.js spans, audit trail, and all simulated provider responses', () => {
+      // createGenAISpan, persistAuditTrail, verifyAuditTrailIntegrity
+      const span = registry.createGenAISpan('agent_run', { model: 'gemini-3.8-flash' });
+      expect(span).toBeDefined();
+      if (typeof span.setAttributes === 'function') {
+        span.setAttributes({ completed: true });
+        expect(span.toJSON().name).toBe('agent_run');
+      }
+
+      expect(registry.persistAuditTrail(null)).toBe(true);
+      expect(registry.verifyAuditTrailIntegrity(null)).toBe(true);
+
+      // Google Maps simulated responses
+      const revGeo = registry._getSimulatedConnectorResponse('google_maps', 'reverse_geocode', {});
+      expect(Array.isArray(revGeo.results)).toBe(true);
+
+      const dirs = registry._getSimulatedConnectorResponse('google_maps', 'directions', {});
+      expect(Array.isArray(dirs.routes)).toBe(true);
+
+      const places = registry._getSimulatedConnectorResponse('google_maps', 'search_places', {});
+      expect(Array.isArray(places.places)).toBe(true);
+
+      const details = registry._getSimulatedConnectorResponse('google_maps', 'place_details', {});
+      expect(details.placeId).toBeDefined();
+
+      const defaultMaps = registry._getSimulatedConnectorResponse('google_maps', 'other_action', {});
+      expect(defaultMaps.success).toBe(true);
+
+      // Slack simulated responses
+      const channels = registry._getSimulatedConnectorResponse('slack', 'list_channels', {});
+      expect(Array.isArray(channels.channels)).toBe(true);
+
+      const msgs = registry._getSimulatedConnectorResponse('slack', 'read_messages', {});
+      expect(Array.isArray(msgs.messages)).toBe(true);
+
+      const getChan = registry._getSimulatedConnectorResponse('slack', 'get_channel', {});
+      expect(getChan.channel).toBeDefined();
+
+      const defaultSlack = registry._getSimulatedConnectorResponse('slack', 'other_action', {});
+      expect(defaultSlack.success).toBe(true);
+
+      // Provider scope canonical hierarchy
+      expect(registry.validateProviderScope('agent_telecom', 'bind_agent_phone', ['telecom.manage'])).toBe(true);
+      expect(registry.validateProviderScope('cloud_pc', 'get_status', ['compute.control'])).toBe(true);
+      expect(registry.validateProviderScope('google_health', 'read_steps', ['health.write'])).toBe(true);
+      expect(registry.validateProviderScope('plaid_banking', 'list_accounts', ['finance.manage'])).toBe(true);
+      expect(registry.validateProviderScope('agent_groups', 'list_groups', ['group.manage'])).toBe(true);
+      expect(registry.validateProviderScope('skill_hub', 'list_skills', ['skill.manage'])).toBe(true);
+
+      // Wildcard rejection
+      expect(registry.validateProviderScope('agent_groups', 'list_groups', ['*'])).toBe(false);
+      expect(registry.validateProviderScope('agent_groups', 'list_groups', ['all'])).toBe(false);
+      expect(registry.validateProviderScope('agent_groups', 'list_groups', ['admin'])).toBe(false);
+    });
+
+    test('state.js and secrets.js edge-case branch booster', async () => {
+      // 1. state.js: listSkills with extra System Built-in in state.skills
+      const st = state.getState ? state.getState() : (state.appState || {});
+      if (!Array.isArray(st.skills)) st.skills = [];
+      st.skills.push({ id: 'extra_builtin_skill', name: 'Extra Builtin', source: 'System Built-in' });
+      const mgr = new state.SkillHubManager({ storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
+      const allListed = mgr.listSkills('all');
+      expect(allListed.some(s => s.id === 'extra_builtin_skill')).toBe(true);
+
+      // 2. state.js: SkillHubManager and AgentGroupManager _saveToStorage throwing error
+      const throwStore = {
+        getItem: () => null,
+        setItem: () => { throw new Error('DiskFull'); },
+        removeItem: () => {}
+      };
+      const grpThrowMgr = new state.AgentGroupManager({ storage: throwStore });
+      expect(grpThrowMgr.createGroup('Throw Test')).toBeDefined();
+
+      const skillThrowMgr = new state.SkillHubManager({ storage: throwStore });
+      expect(skillThrowMgr.uploadSkill({ name: 'Throw Skill' })).toBeDefined();
+
+      // 3. state.js: SkillHubManager without storage and with plain object storage
+      const noStoreMgr = new state.SkillHubManager();
+      expect(noStoreMgr.uploadSkill({ name: 'NoStore Skill' })).toBeDefined();
+
+      const plainObjStore = {};
+      const plainObjGrpMgr = new state.AgentGroupManager({ storage: plainObjStore });
+      expect(plainObjGrpMgr.createGroup('Plain Group')).toBeDefined();
+      expect(typeof plainObjStore[state.AGENT_GROUPS_STORAGE_KEY]).toBe('string');
+
+      const plainObjSkillMgr = new state.SkillHubManager({ storage: plainObjStore });
+      expect(plainObjSkillMgr.uploadSkill({ name: 'Plain Skill' })).toBeDefined();
+      expect(typeof plainObjStore[state.USER_SKILLS_STORAGE_KEY]).toBe('string');
+
+      // 4. state.js: test all fallback branches when persistence module is null
+      if (typeof state._setPersistenceModuleForTesting === 'function') {
+        state._setPersistenceModuleForTesting(null);
+        try {
+          expect(state.getPersistedThemeMode(null)).toBe('dark');
+          expect(state.setPersistedThemeMode('light', null)).toBe(false);
+          expect(state.getPersistedLanguage(null)).toBe('en');
+          expect(state.setPersistedLanguage('fa', null)).toBe(false);
+          expect(state.getPersistedAppIcon(null)).toBe('classic');
+          expect(state.setPersistedAppIcon('cyberpunk', null)).toBe(false);
+          const nullCacheSize = state.calculateStorageCacheSize(null);
+          expect(nullCacheSize.formatted).toBe('0 B');
+          expect(nullCacheSize.toString()).toBe('0 B');
+          expect(state.clearAppCache(null)).toEqual({ success: true, freedBytes: 0 });
+        } finally {
+          state._setPersistenceModuleForTesting(undefined);
+        }
+      }
+
+      // 5. persistence.js byte unit formatting branches & individual cache clear branches
+      const kbExact = persistence.calculateStorageCacheSize({ a: 'x'.repeat(1023) });
+      expect(kbExact.formatted).toMatch(/KB/);
+      expect(kbExact.toString()).toBe(kbExact.formatted);
+
+      const kbFract = persistence.calculateStorageCacheSize({ a: 'x'.repeat(1500) });
+      expect(kbFract.formatted).toMatch(/KB/);
+
+      const mbExact = persistence.calculateStorageCacheSize({ a: 'x'.repeat(1024 * 1024 - 1) });
+      expect(mbExact.formatted).toMatch(/MB/);
+
+      const mbFract = persistence.calculateStorageCacheSize({ a: 'x'.repeat(Math.floor(1.5 * 1024 * 1024)) });
+      expect(mbFract.formatted).toMatch(/MB/);
+
+      // Separate cache clearance branches for previewAssets, cachedPreviews, and ephemeralCache
+      const storeWithPreview = {
+        [persistence.STORAGE_KEY]: JSON.stringify({ previewAssets: { p: 1 } })
+      };
+      expect(persistence.clearAppCache(storeWithPreview).success).toBe(true);
+
+      const storeWithCached = {
+        [persistence.STORAGE_KEY]: JSON.stringify({ cachedPreviews: { c: 2 } })
+      };
+      expect(persistence.clearAppCache(storeWithCached).success).toBe(true);
+
+      const storeWithEphemeral = {
+        [persistence.STORAGE_KEY]: JSON.stringify({ ephemeralCache: { e: 3 } })
+      };
+      expect(persistence.clearAppCache(storeWithEphemeral).success).toBe(true);
+
+      // 6. state.js: AgentGroupManager and SkillHubManager loading from state when no storage
+      const appSt = state.getState ? state.getState() : (state.appState || {});
+      appSt.agentGroups = [{ groupId: 'ag_load_1', name: 'Loaded Group', agentIds: ['a1'] }];
+      appSt.skills = [
+        { id: 'sk_custom_title', title: 'Only Title', desc: 'Only Desc', enabled: true },
+        { id: 'sk_custom_name', name: 'Only Name', description: 'Only Description', enabled: false }
+      ];
+      const noStoreGrpMgr = new state.AgentGroupManager();
+      expect(noStoreGrpMgr.getGroup('ag_load_1')).toBeDefined();
+      noStoreGrpMgr.createGroup('Sync To appState Group');
+      expect(appSt.agentGroups.some(g => g.name === 'Sync To appState Group')).toBe(true);
+
+      const noStoreSkillMgr = new state.SkillHubManager();
+      expect(noStoreSkillMgr.listSkills('user').length).toBeGreaterThan(0);
+      expect(noStoreSkillMgr._getStorage()).toBeDefined();
+
+      // SkillHubManager with options having getItem directly
+      const itemStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+      const itemHubMgr = new state.SkillHubManager(itemStorage);
+      expect(itemHubMgr.storage).toBe(itemStorage);
+
+      // Persistence getLocalStorage throwing error
+      state._setPersistenceModuleForTesting({
+        getLocalStorage: () => { throw new Error('storage error'); }
+      });
+      try {
+        const throwHubMgr = new state.SkillHubManager();
+        expect(throwHubMgr._getStorage()).toBeNull();
+        const throwGrpMgr = new state.AgentGroupManager();
+        expect(throwGrpMgr._getStorage()).toBeNull();
+      } finally {
+        state._setPersistenceModuleForTesting(undefined);
+      }
+
+      // 7. registry.js: peer approvals null fallback branches
+      if (typeof registry._setPeerApprovalsForTesting === 'function') {
+        registry._setPeerApprovalsForTesting(null);
+        try {
+          const fallbackSpan = registry.createGenAISpan('agent_fallback');
+          expect(fallbackSpan).toBeDefined();
+          expect(registry.persistAuditTrail(null)).toBe(true);
+          expect(registry.verifyAuditTrailIntegrity(null)).toBe(true);
+        } finally {
+          registry._setPeerApprovalsForTesting(undefined);
+        }
+      }
+
+      // 8. secrets.js: degraded persistence, webcrypto, and invalid backend fail-closed branches
+      const degradedVault = new secrets.SecretVault();
+      degradedVault._degradedPersistence = true;
+      await expect(degradedVault.decrypt('1234', '5678')).rejects.toThrow(/degraded persistence/);
+
+      const uninitVault = new secrets.SecretVault();
+      expect(() => uninitVault.read(null)).toThrow(/VAULT_NOT_INITIALIZED/);
+
+      const invalidBackendVault = new secrets.SecretVault();
+      invalidBackendVault._activeBackend = 'unknown-backend';
+      invalidBackendVault._initialized = true;
+      await expect(invalidBackendVault.encrypt('test')).rejects.toThrow(/unavailable/);
+      await expect(invalidBackendVault.decrypt('1234', '5678')).rejects.toThrow(/unavailable/);
+
+      // Webcrypto backend encrypt and decrypt coverage
+      const webcryptoVault = new secrets.SecretVault();
+      webcryptoVault._activeBackend = 'webcrypto';
+      webcryptoVault._initialized = true;
+      const webEnc = await webcryptoVault.encrypt('test');
+      expect(webEnc.ciphertext).toBeDefined();
+      const webDec = await webcryptoVault.decrypt(webEnc.ciphertext, webEnc.iv);
+      expect(webDec).toBe('test');
+
+      // Webcrypto crypto engine unavailable branch (lines 3641, 3721)
+      const nullKeyVault = new secrets.SecretVault();
+      nullKeyVault._activeBackend = 'webcrypto';
+      nullKeyVault._initialized = true;
+      const origCrypto = globalThis.crypto;
+      try {
+        globalThis.crypto = null;
+        await expect(nullKeyVault.encrypt('test')).rejects.toThrow(/crypto engine unavailable/);
+        await expect(nullKeyVault.decrypt('1234', '5678')).rejects.toThrow(/crypto engine unavailable/);
+      } finally {
+        globalThis.crypto = origCrypto;
+      }
+
+      // Short ciphertext length check in node-crypto
+      const nodeCryptoVault = new secrets.SecretVault();
+      nodeCryptoVault._activeBackend = 'node-crypto';
+      nodeCryptoVault._initialized = true;
+      await expect(nodeCryptoVault.decrypt('010203', '0102030405060708090a0b0c', { getItem: () => null })).rejects.toThrow(/Invalid ciphertext length/);
+
+      // AgentGroupManager updates files branches & getAgentGroupManager with itemStorage
+      const groupUpdatesMgr = new state.AgentGroupManager({ storage: itemStorage });
+      const gUp = groupUpdatesMgr.createGroup('Updates Group');
+      groupUpdatesMgr.updateGroup(gUp.groupId, { files: [{ name: 'f1.txt' }] });
+      groupUpdatesMgr.updateGroup(gUp.groupId, { files: 'not-array' });
+      groupUpdatesMgr.addFileToGroup(gUp.groupId, { name: 'no-extra-fields.txt' });
+      groupUpdatesMgr.addFileToGroup(gUp.groupId, null);
+
+      const agm1 = state.getAgentGroupManager(itemStorage);
+      expect(agm1).toBeDefined();
+      const agmReset = state.getAgentGroupManager({ reset: true });
+      expect(agmReset).toBeDefined();
+
+      // secrets.js rotateVaultKey with null existing secrets
+      const rekeyVault = new secrets.SecretVault();
+      await rekeyVault.rotateVaultKey({ storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
+    });
+  });
+
 });

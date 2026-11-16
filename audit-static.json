@@ -1,10 +1,10 @@
 {
   "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 36533,
-  "script_bytes": 1861981,
-  "function_count": 918,
-  "interactive_element_count": 67,
+  "lines": 37705,
+  "script_bytes": 1896668,
+  "function_count": 963,
+  "interactive_element_count": 102,
   "target_hits": {
     "bottom_mode_bar": {
       "Chat": true,
@@ -51,6 +51,10 @@
       "reason": "toast-heavy first 1200 chars; manual review required"
     },
     {
+      "function": "clearAppCache",
+      "reason": "toast-heavy first 1200 chars; manual review required"
+    },
+    {
       "function": "clearLogs",
       "reason": "toast-heavy first 1200 chars; manual review required"
     },
@@ -68,6 +72,10 @@
     },
     {
       "function": "decodeJwtPayload",
+      "reason": "toast-heavy first 1200 chars; manual review required"
+    },
+    {
+      "function": "downloadOrOpenGroupFile",
       "reason": "toast-heavy first 1200 chars; manual review required"
     },
     {
@@ -298,6 +306,46 @@
       "onclick": "openStudioView()",
       "handlers": [
         "openStudioView"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "chatHeaderMoreBtn",
+      "text": "",
+      "onclick": "toggleCueChatMoreMenu(event)",
+      "handlers": [
+        "toggleCueChatMoreMenu"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "👥 Group Chat Info",
+      "onclick": "openCueGroupChatInfoPanel()",
+      "handlers": [
+        "openCueGroupChatInfoPanel"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cueChatPinToggleBtn",
+      "text": "📌 Pin this group chat",
+      "onclick": "togglePinCurrentChat()",
+      "handlers": [
+        "togglePinCurrentChat"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "🗑️ Delete group chat",
+      "onclick": "confirmDeleteCurrentGroupChat()",
+      "handlers": [
+        "confirmDeleteCurrentGroupChat"
       ],
       "missing_handlers": []
     },
@@ -574,6 +622,36 @@
     {
       "tag": "button",
       "id": "",
+      "text": "🎨 Appearance Dark mode ›",
+      "onclick": "openCueAppearanceModal()",
+      "handlers": [
+        "openCueAppearanceModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "🌐 Language فارسی (Farsi) ›",
+      "onclick": "openCueLanguageModal()",
+      "handlers": [
+        "openCueLanguageModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "🖼️ App icon Classic ›",
+      "onclick": "openCueAppIconModal()",
+      "handlers": [
+        "openCueAppIconModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
       "text": "🛡️ Self-Review & Diagnostics Active ›",
       "onclick": "openSettingsPanel('diagnostics')",
       "handlers": [
@@ -593,11 +671,11 @@
     },
     {
       "tag": "button",
-      "id": "",
-      "text": "🧹 Clear cache 0.0 KB ›",
-      "onclick": "clearAppTempCache()",
+      "id": "settingsClearCacheBtn",
+      "text": "🧹 Clear cache Clear cache - 4 MB 0.0 KB › ›",
+      "onclick": "clearAppCache()",
       "handlers": [
-        "clearAppTempCache"
+        "clearAppCache"
       ],
       "missing_handlers": []
     },
@@ -633,11 +711,11 @@
     },
     {
       "tag": "button",
-      "id": "",
+      "id": "cueAddSkillsBtn",
       "text": "+ Add Skills",
-      "onclick": "toggleSkillsMenu(event)",
+      "onclick": "toggleCueAddSkillsMenu(event)",
       "handlers": [
-        "toggleSkillsMenu"
+        "toggleCueAddSkillsMenu"
       ],
       "missing_handlers": []
     },
@@ -655,9 +733,9 @@
       "tag": "button",
       "id": "",
       "text": "🐙 Import from GitHub",
-      "onclick": "importSkillFromGitHubPrompt()",
+      "onclick": "openCueImportGithubModal()",
       "handlers": [
-        "importSkillFromGitHubPrompt"
+        "openCueImportGithubModal"
       ],
       "missing_handlers": []
     },
@@ -808,21 +886,301 @@
         "closeSettingsPanel"
       ],
       "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "✕",
+      "onclick": "closeCueAppearanceModal()",
+      "handlers": [
+        "closeCueAppearanceModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "⚙️ Follow system Match device theme ✓",
+      "onclick": "setPersistedThemeMode('system')",
+      "handlers": [
+        "setPersistedThemeMode"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "☀️ Light mode Clean bright palette ✓",
+      "onclick": "setPersistedThemeMode('light')",
+      "handlers": [
+        "setPersistedThemeMode"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "🌙 Dark mode Forui deep black palette ✓",
+      "onclick": "setPersistedThemeMode('dark')",
+      "handlers": [
+        "setPersistedThemeMode"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "‹",
+      "onclick": "closeCueLanguageModal()",
+      "handlers": [
+        "closeCueLanguageModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "",
+      "onclick": "closeCueSkillsHubModal()",
+      "handlers": [
+        "closeCueSkillsHubModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "+ Add Skills",
+      "onclick": "toggleCueAddSkillsMenu(event)",
+      "handlers": [
+        "toggleCueAddSkillsMenu"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "💬 Create through chat",
+      "onclick": "createSkillThroughChatPrompt()",
+      "handlers": [
+        "createSkillThroughChatPrompt"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "🐙 Import from GitHub",
+      "onclick": "openCueImportGithubModal()",
+      "handlers": [
+        "openCueImportGithubModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "✕",
+      "onclick": "closeCueImportGithubModal()",
+      "handlers": [
+        "closeCueImportGithubModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cueImportGithubBtn",
+      "text": "Import",
+      "onclick": "submitImportSkillFromGitHub()",
+      "handlers": [
+        "submitImportSkillFromGitHub"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "",
+      "onclick": "closeCueGroupChatInfoPanel()",
+      "handlers": [
+        "closeCueGroupChatInfoPanel"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "",
+      "onclick": "toggleCueChatMoreMenu(event)",
+      "handlers": [
+        "toggleCueChatMoreMenu"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cueAddMembersBtn",
+      "text": "+ Add members",
+      "onclick": "openAddGroupMembersModal()",
+      "handlers": [
+        "openAddGroupMembersModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "Download",
+      "onclick": "downloadOrOpenGroupFile('app-debug.apk')",
+      "handlers": [
+        "downloadOrOpenGroupFile"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "Download",
+      "onclick": "downloadOrOpenGroupFile('doorway-controls-revealed.png')",
+      "handlers": [
+        "downloadOrOpenGroupFile"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cueViewAllFilesBtn",
+      "text": "View all files",
+      "onclick": "viewAllGroupFiles()",
+      "handlers": [
+        "viewAllGroupFiles"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "✕",
+      "onclick": "closeAddGroupMembersModal()",
+      "handlers": [
+        "closeAddGroupMembersModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "Add to Group",
+      "onclick": "confirmAddGroupMembers()",
+      "handlers": [
+        "confirmAddGroupMembers"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "✕",
+      "onclick": "closeCueConnectorAuthModal()",
+      "handlers": [
+        "closeCueConnectorAuthModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cueConnectorOAuthBtn",
+      "text": "⚡ Connect with OAuth",
+      "onclick": "connectConnectorOAuth()",
+      "handlers": [
+        "connectConnectorOAuth"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "Save API Key",
+      "onclick": "saveConnectorApiKey()",
+      "handlers": [
+        "saveConnectorApiKey"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cueConnectorDisconnectBtn",
+      "text": "Disconnect",
+      "onclick": "disconnectCurrentConnector()",
+      "handlers": [
+        "disconnectCurrentConnector"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "✕",
+      "onclick": "closeCueAppIconModal()",
+      "handlers": [
+        "closeCueAppIconModal"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "⚡ Classic Default Cue icon ✓",
+      "onclick": "selectAppIcon('Classic')",
+      "handlers": [
+        "selectAppIcon"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "⚡ OLED Dark Deep pure black ✓",
+      "onclick": "selectAppIcon('OLED Dark')",
+      "handlers": [
+        "selectAppIcon"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "⚡ Cyberpunk Neon cyan & purple ✓",
+      "onclick": "selectAppIcon('Cyberpunk')",
+      "handlers": [
+        "selectAppIcon"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "",
+      "text": "⚡ Minimal Clean monochrome ✓",
+      "onclick": "selectAppIcon('Minimal')",
+      "handlers": [
+        "selectAppIcon"
+      ],
+      "missing_handlers": []
     }
   ],
   "test_summary": {
-    "passed_tests": 842,
-    "total_tests": 842,
-    "passed_suites": 32,
-    "total_suites": 32,
+    "passed_tests": 893,
+    "total_tests": 893,
+    "passed_suites": 33,
+    "total_suites": 33,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
   "coverage_summary": {
-    "lines_pct": 89.57,
-    "statements_pct": 88.05,
-    "functions_pct": 88.75,
-    "branches_pct": 80.04
+    "lines_pct": 90.18,
+    "statements_pct": 88.54,
+    "functions_pct": 90,
+    "branches_pct": 80.08
   },
   "npm_audit": {
     "vulnerabilities": 0,
@@ -835,10 +1193,10 @@
     "zero_drift": true
   },
   "evidence_manifest": {
-    "gitHead": "f65d1ba7e787bcc3fd584b0eaf37d80c1105f77d",
-    "packageLockHash": "7971fb3228b2929a6e79310e508fc4eea6228557da3bc718ee4ff905e2da71ce",
-    "coverageSummaryHash": "c38e9fa3717a6c5bd98935aae9da702121b362a275bd000d389f66fc6711de4d",
-    "jestResultsHash": "5c500a7a2d8fdbc55797109ddb4b336d58609c40c5a045b636cae19c951d52f9",
-    "timestamp": "2026-11-16T12:03:10.434Z"
+    "gitHead": "5e398221175172e80a706c06c6bc70257a17d154",
+    "packageLockHash": "e0fe8a0195ed358c5f7a24ae5d9d640039b4e4da4d27d76a0999ac5f366e79df",
+    "coverageSummaryHash": "55147b8d2f92badddc72204f2b0cf5433421a2b2787fba129a13bfc3b0520fae",
+    "jestResultsHash": "5aad07de0fa4e69a0d0b1138bc95d24bbca925bd70e2ba39222ecfb61c3d140b",
+    "timestamp": "2026-11-16T14:05:11.271Z"
   }
 }
