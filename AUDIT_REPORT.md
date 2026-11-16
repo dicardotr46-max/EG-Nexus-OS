@@ -5,7 +5,7 @@
 **Target Branch:** `main`  
 **Execution Context:** Linux / Node.js 24 / Temurin JDK 21 / Android SDK Build-Tools  
 **Audit Viewport:** Strict Mobile Viewport (390 × 844 CSS pixels, `viewport-fit=cover`)  
-**Audit Date:** 2026-11-15  
+**Audit Date:** 2026-11-16  
 
 ---
 
@@ -62,7 +62,7 @@ The web root assets and Capacitor Android web assets in `www/` are verified for 
 
 | File Path | Mirror Path | Verified SHA-256 Checksum | Parity Status |
 |---|---|---|:---:|
-| `index.html` | `www/index.html` | `ba361e0130c20d4fb4875ae0e547ecff976aaed24e06d0683d889174256ccedf` | MATCH |
+| `index.html` | `www/index.html` | `3a89570b5fc3b42fe1dbdc334928535fa742134024569bf98745500917a8c86f` | MATCH |
 | `sw.js` | `www/sw.js` | `ae9857ca7381dacfea465aa2e92c9643fe2139d82a4cb10b16e0289fa0022284` | MATCH |
 | `src/core/*` | `www/src/core/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
 | `src/security/*` | `www/src/security/*` | Recursive directory traversal verification (`diff -rq src www/src`) | MATCH |
@@ -130,7 +130,7 @@ Automated parser run (`python3 full_app_audit.py`) inspects all interactive DOM 
 
 | Audit Parameter | Measured Metric | Status |
 |---|:---:|:---:|
-| Total Source Lines (`index.html`) | 35,053 lines | PASS |
+| Total Source Lines (`index.html`) | 35,111 lines | PASS |
 | Extracted Global & Named Functions | 849 functions | PASS |
 | Interactive Form & Action Controls | 58 elements | PASS |
 | **Missing Application Event Handlers** | **0** | **100% WIRED** |
