@@ -1,10 +1,10 @@
 {
   "audit_mode": "static_ast_and_regex_analysis",
   "file": "index.html",
-  "lines": 38035,
-  "script_bytes": 1912453,
-  "function_count": 968,
-  "interactive_element_count": 102,
+  "lines": 38527,
+  "script_bytes": 1936587,
+  "function_count": 982,
+  "interactive_element_count": 103,
   "target_hits": {
     "bottom_mode_bar": {
       "Chat": true,
@@ -366,6 +366,16 @@
       "onclick": "resolveApprovalGate(false)",
       "handlers": [
         "resolveApprovalGate"
+      ],
+      "missing_handlers": []
+    },
+    {
+      "tag": "button",
+      "id": "cuePlanAccordionToggle",
+      "text": "▼",
+      "onclick": "toggleCuePlanAccordion()",
+      "handlers": [
+        "toggleCuePlanAccordion"
       ],
       "missing_handlers": []
     },
@@ -1169,18 +1179,18 @@
     }
   ],
   "test_summary": {
-    "passed_tests": 904,
-    "total_tests": 904,
-    "passed_suites": 34,
-    "total_suites": 34,
+    "passed_tests": 963,
+    "total_tests": 963,
+    "passed_suites": 35,
+    "total_suites": 35,
     "pass_rate_pct": 100,
     "execution_time": "5.000 s"
   },
   "coverage_summary": {
-    "lines_pct": 90.18,
-    "statements_pct": 88.54,
-    "functions_pct": 90,
-    "branches_pct": 80.08
+    "lines_pct": 90.56,
+    "statements_pct": 88.99,
+    "functions_pct": 90.62,
+    "branches_pct": 80.03
   },
   "npm_audit": {
     "vulnerabilities": 0,
@@ -1193,10 +1203,10 @@
     "zero_drift": true
   },
   "evidence_manifest": {
-    "gitHead": "bd0bcc922d83177b792a3d88e210f969ae5513db",
-    "packageLockHash": "64aa3fce2f21c911671845e7d01f8319b732e223f3c56b36497681dd4f62f542",
-    "coverageSummaryHash": "2a23c28ac9e537df0ce8d0b53b44d2a464ffbd03b879b63094ead87b589259ce",
-    "jestResultsHash": "fecbf813556b0a6bc7077fcbc471b9401c86a6fdd6e36ce670a3ddcb3cf708c4",
-    "timestamp": "2026-11-16T22:28:39.393Z"
+    "gitHead": "5858b6bfa223d14d24f34eaa5c481dc229a0880f",
+    "packageLockHash": "68aff57776dd7021415c593cea0d4b2104eb2635c93465079148ce9da2cc66aa",
+    "coverageSummaryHash": "df4a25c74b163d1a82bc667914548d3a3df13757d2b68370046f3d0070a1c971",
+    "jestResultsHash": "d3c2ffc20ded3f5861f02df81f08b4ac2048118008adcdc66a0c59a122491ed1",
+    "timestamp": "2026-11-17T00:15:01.383Z"
   }
 }

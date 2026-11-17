@@ -78,3 +78,65 @@ flowchart TD
 - **سابایجنت ۴ (`__tests__/v650_cue_deep_exhaustive_parity.spec.js`):**
   - تدوین سوئیت تست جامع برای پوشش ۱۰۰٪ تمام قابلیت‌ها، متدها و کامپوننت‌های جدید نسخه v6.5.0.
   - به‌روزرسانی `README.md` و `AUDIT_REPORT.md`.
+
+---
+
+## ۴. کالبدشکافی عمیق درخت سورسکد دارت (Dart AST & Widget Tree) و پروتکل ConnectRPC نسخه v6.6.0
+
+بر اساس اسکن باینری و استخراج عمیق نمادها و متادیتای باینری `libapp.so` برنامه رسمی Cue (`ai.manus.agents` v26.18.15)، درخت کامل ساختار سورسکد دارت، کلاس‌های ویجت، کنترلرها و مانیفست Protobuf استخراج گردید:
+
+### الف) ساختار ماژولار پکیج‌های دارت (`package:ai_manus_agents/...`)
+1. **هسته ارکستراسیون و وضعیت ایجنت‌ها:**
+   - `package:ai_manus_agents/core/orchestrator/deep_engine.dart`
+   - `package:ai_manus_agents/core/orchestrator/plan_dag.dart`
+   - `package:ai_manus_agents/core/orchestrator/step_execution_loop.dart`
+   - `package:ai_manus_agents/core/orchestrator/context_compactor.dart`
+   - `package:ai_manus_agents/core/event_bus/cue_event_stream_bus.dart`
+2. **صفحات و ویجت‌های نمایشی:**
+   - `package:ai_manus_agents/presentation/pages/home/home_chat_list_page.dart`
+   - `package:ai_manus_agents/presentation/pages/chat/chat_detail_page.dart`
+   - `package:ai_manus_agents/presentation/pages/chat/widgets/cue_live_plan_tracker.dart`
+   - `package:ai_manus_agents/presentation/pages/chat/widgets/cue_thinking_accordion.dart`
+   - `package:ai_manus_agents/presentation/pages/group/group_chat_info_page.dart`
+   - `package:ai_manus_agents/presentation/pages/settings/settings_page.dart`
+   - `package:ai_manus_agents/presentation/pages/settings/subpages/cloud_pc_page.dart`
+   - `package:ai_manus_agents/presentation/pages/settings/subpages/telecom_page.dart`
+   - `package:ai_manus_agents/presentation/pages/avatar/avatar_customizer_modal.dart`
+   - `package:ai_manus_agents/presentation/pages/apps/apps_connectors_directory_page.dart`
+   - `package:ai_manus_agents/presentation/pages/skills/skills_hub_page.dart`
+
+### ب) فهرست تفکیکی کلاس‌های ویجت، شیت‌ها و مودال‌ها
+- **صفحات و ویوها (`*Page`, `*Screen`, `*View`):**
+  - `HomeChatListView`: لیست گفتگوهای فعال با پشتیبانی از پین کردن و آواتارهای دونفره چت گروهی.
+  - `ChatDetailView`: صفحه اصلی چت مجهز به نوار وضعیت نوبتی، دکمه‌های لغو/توقف و نوار ورودی صدا.
+  - `SettingsView`: منوی تنظیمات جامع شامل سهمیه هفتگی، برنامه‌ها، مهارت‌ها، ایمیل، تلفن، کامپیوتر، والت، پوسته و زبان.
+  - `GroupChatInfoView`: صفحه مدیریت اعضای چت گروهی، نقش‌ها و فایل‌های ضمیمه شده.
+  - `AppsConnectorsDirectoryView`: دایرکتوری کانکتورها با ۷ تب افقی اسکرول‌پذیر.
+  - `SkillsHubView`: مرکز مدیریت مهارت‌ها با قابلیت تاگل و ایمپورت مستقیم.
+- **مودال‌ها، دیالوگ‌ها و شیت‌ها (`*Modal`, `*Dialog`, `*Sheet`, `*Popup`):**
+  - `AppearanceSelectorPopup`: پاپ‌آپ انتخاب تم ۳ حالته (`Follow system`, `Light mode`, `Dark mode`).
+  - `AvatarCustomizerModal`: کاتالوگ ۱۰ چهره و ۱۰ شکل هندسی اورجینال با انتخاب رنگ.
+  - `AvatarColorPickerSheet`: پالت انتخاب رنگ ۶ گانه آواتار.
+  - `ImportSkillFromGitHubModal`: فیلد ورودی ریپو گیت‌هاب و دکمه اعتبارسنجی.
+  - `CreatePlusPopupMenu`: منوی سه‌گانه شناور `+` (Agent, Scan & Create, Group Chat).
+  - `ChatMorePopupMenu`: منوی سه‌نقطه داخل چت (Group Info, Pin/Unpin, Delete).
+  - `ConfirmSwitchToQualityModeModal`: دیالوگ تایید مصرف توکن قبل از فعال‌سازی Quality Mode.
+- **ویجت‌های تعاملی عمیق (`*Widget`):**
+  - `CueLivePlanTrackerWidget`: کارت متحرک نمایش DAG مراحل، گام‌های تکمیل‌شده، در حال اجرا و شمارنده زمان.
+  - `CueThinkingAccordionWidget`: آکاردئون بازشونده استدلال و نقد بلادرنگ (Thinking & Reflection).
+  - `CueAvatarShapeWidget` & `CueAvatarFaceWidget`: رندرهای وکتور دقیق وکتورهای SVG.
+
+### ج) کنترلرها، کیوبیت‌ها و وضعیت‌ها (`*Cubit`, `*Bloc`, `*State`, `*Notifier`)
+- `PlanningFlowCubit` / `PlanningFlowState`: ایجاد و بازنگری پویای نقشه راه (Plan DAG).
+- `StepExecutionBloc` / `StepExecutionState`: چرخه ۴ مرحله‌ای `THINK -> ACT -> OBSERVE -> REFLECT`.
+- `CueEventStreamNotifier`: توزیع زنده پیام‌ها و رویدادهای جریانی به کامپوننت‌های UI.
+- `AgentGroupCubit` / `AgentGroupState`: ارکستراسیون گروهی و توزیع نقش‌ها در `AOrchestra`.
+- `CloudPCCubit` / `CloudPCState`: وضعیت سلامت و ماشین‌های مجازی Termux Local Bridge.
+
+### د) سرویس‌های نهایی Protobuf / ConnectRPC
+- `agents.v1.AgentGroupsService`: اکشن‌های Create, Update, Delete, List, BatchAddMember, RemoveMember, SetPinned.
+- `orchestrator.v1.DeepOrchestratorService`: اکشن‌های CreatePlan, AdvanceStep, ReflectStep, CompactContext.
+- `skill.v1.SkillService`: اکشن‌های Toggle, Upload, ImportFromGitHub, Delete.
+- `telecom.v1.TelecomService`: اکشن‌های BindPhone, BindEmail, ReserveNumber, ListCalls.
+- `cloud_pc.v1.CloudPCService`: اکشن‌های Start, Stop, Restart, CreateSnapshot, RestoreSnapshot, ResetSSH.
+

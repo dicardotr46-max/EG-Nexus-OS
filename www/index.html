@@ -275,6 +275,43 @@ body > header,
         <button onclick="resolveApprovalGate(false)" data-i18n="btn_reject" class="px-2.5 py-1 rounded-xl bg-rose-500/30 text-rose-200 font-bold text-[11px]">Reject</button>
       </div>
     </div>
+    <!-- Cue Live Plan & Thinking Accordion Live UI Widget -->
+    <div id="cueLivePlanTracker" class="cue-live-plan-tracker hidden mb-3 p-3.5 rounded-2xl bg-[#1b1b24] border border-white/10 shadow-xl text-white transition-all duration-300">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span id="cuePlanStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
+            <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+            برنامه‌ریزی
+          </span>
+          <span id="cuePlanTitle" class="font-bold text-xs sm:text-sm text-slate-100 truncate">نقشه راه اجرایی</span>
+        </div>
+        <div class="flex items-center gap-2.5 shrink-0">
+          <span id="cuePlanStepProgress" class="text-[11px] text-slate-400 font-mono">گام ۰ از ۰</span>
+          <span id="cuePlanTimer" class="text-[11px] text-amber-400/90 font-mono bg-black/30 px-2 py-0.5 rounded-md border border-white/5">⏱ 00:00</span>
+          <button id="cuePlanAccordionToggle" type="button" onclick="toggleCuePlanAccordion()" aria-label="نمایش جزئیات تفکر و مراحل" class="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-xs text-slate-300 transition">▼</button>
+        </div>
+      </div>
+      <!-- Progress Bar -->
+      <div class="w-full bg-white/10 rounded-full h-1.5 mt-2.5 overflow-hidden">
+        <div id="cuePlanProgressBar" class="bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+      <!-- Accordion Body -->
+      <div id="cuePlanAccordionBody" class="mt-3 pt-3 border-t border-white/10 space-y-3">
+        <!-- Steps List -->
+        <div id="cuePlanStepsList" class="space-y-1.5 text-xs"></div>
+        <!-- Collapsible Live Thinking Stream -->
+        <div class="rounded-xl bg-black/40 border border-white/5 p-2.5">
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+            <span class="flex items-center gap-1.5 font-semibold text-slate-300">
+              <svg class="w-3.5 h-3.5 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+              استدلال زنده و خوداصلاحی (Live Thinking & Reflection)
+            </span>
+            <span id="cueThinkingDeltaCount" class="text-[10px] font-mono text-slate-500">0 tokens</span>
+          </div>
+          <div id="cuePlanThinkingStream" class="text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-36 overflow-y-auto leading-relaxed p-1.5 bg-black/20 rounded-lg">در انتظار آغاز تفکر...</div>
+        </div>
+      </div>
+    </div>
     <!-- Messages Container -->
     <div id="chatMessagesBox" class="flex-1 overflow-y-auto px-3.5 py-4 space-y-4"></div>
     <!-- Attached File/Image Preview Bar -->
@@ -1670,11 +1707,13 @@ body > header,
     ];
     const AVATAR_SHAPES = [
       'roundedSquare', 'speechBubble', 'heart', 'star', 'briefcase',
-      'triangle', 'flameDrop', 'burstBadge', 'bell', 'circle'
+      'triangle', 'flameDrop', 'burstBadge', 'bell', 'circle',
+      'badge', 'bread', 'chat', 'fire', 'moon', 'square'
     ];
     const AVATAR_FACES = [
       'classic', 'unibrow', 'wink', 'skeptic', 'happy',
-      'smirk', 'visor', 'glasses', 'focused', 'angry'
+      'smirk', 'visor', 'glasses', 'focused', 'angry',
+      'bashful', 'cheerful', 'curious', 'puzzled', 'side_eye', 'skeptical', 'stern', 'wide_eyes'
     ];
     // 60+ Authentic Apps Catalog from User Screenshots (Zero Fake Checkmarks)
     const APPS_CATALOG = [
@@ -3190,13 +3229,18 @@ body > header,
     function buildAvatarSVG(avatar, sizePx = 48, expressionOverride = null) {
       const safeAv = sanitizeAvatarSpec(avatar);
       const safeSize = Math.max(12, Math.min(256, Math.round(Number(sizePx) || 48)));
-      const shapeKey = (typeof CUE_SHAPE_ALIASES !== 'undefined' && CUE_SHAPE_ALIASES[safeAv.shape]) || safeAv.shape || 'square';
+      const shapeAliases = (typeof CUE_SHAPE_ALIASES !== 'undefined' ? CUE_SHAPE_ALIASES : (typeof window !== 'undefined' && window.CUE_SHAPE_ALIASES)) || {};
+      const faceAliases = (typeof CUE_FACE_ALIASES !== 'undefined' ? CUE_FACE_ALIASES : (typeof window !== 'undefined' && window.CUE_FACE_ALIASES)) || {};
+      const shapeKey = shapeAliases[safeAv.shape] || safeAv.shape || 'square';
       const isGenerating = typeof uiState !== 'undefined' && uiState.isOrchestratorRunning;
-      const faceKey = expressionOverride || (isGenerating ? 'focused' : ((typeof CUE_FACE_ALIASES !== 'undefined' && CUE_FACE_ALIASES[safeAv.face]) || safeAv.face || 'wink'));
+      const rawFaceKey = expressionOverride || (isGenerating ? 'focused' : safeAv.face);
+      const faceKey = faceAliases[rawFaceKey] || rawFaceKey || 'wink';
       const color = safeAv.color || '#3E97F6';
       
-      const rawShape = (typeof CUE_AVATAR_SHAPES_SVGS !== 'undefined' && CUE_AVATAR_SHAPES_SVGS[shapeKey]) || '';
-      const rawFace = (typeof CUE_AVATAR_FACES_SVGS !== 'undefined' && CUE_AVATAR_FACES_SVGS[faceKey]) || '';
+      const shapesMap = (typeof CUE_AVATAR_SHAPES_SVGS !== 'undefined' ? CUE_AVATAR_SHAPES_SVGS : (typeof window !== 'undefined' && window.CUE_AVATAR_SHAPES_SVGS)) || {};
+      const facesMap = (typeof CUE_AVATAR_FACES_SVGS !== 'undefined' ? CUE_AVATAR_FACES_SVGS : (typeof window !== 'undefined' && window.CUE_AVATAR_FACES_SVGS)) || {};
+      const rawShape = shapesMap[shapeKey] || '';
+      const rawFace = facesMap[faceKey] || '';
       
       if (rawShape && rawFace) {
         const coloredShape = rawShape.replace(/fill="#[A-Fa-f0-9]+"/g, `fill="${color}"`);
@@ -4106,7 +4150,15 @@ body > header,
           : (m.selfReviewed ? `<div class="mt-2 text-[10px] text-emerald-400/90">🛡️ قالب‌بندی کد و خروجی بررسی شد</div>` : '');
         return `
           <div class="flex flex-col items-start space-y-1">
-            ${chat.isGroup ? `<div onclick="openActiveAgentOrGroupProfile('${escapeJsAttr(m.senderId || '')}')" class="flex items-center gap-1.5 px-1 text-[11px] text-cue-muted cursor-pointer hover:text-white">${buildAvatarSVG(ag?.avatar, 18)} <span>${escapeHtml(m.senderName || ag?.name || 'Agent')}</span></div>` : ''}
+            ${chat.isGroup ? `
+              <div onclick="openActiveAgentOrGroupProfile('${escapeJsAttr(m.senderId || '')}')" class="flex items-center gap-2 mb-1 px-1 cursor-pointer group" dir="rtl">
+                ${buildAvatarSVG(m.avatar || ag?.avatar, 36)}
+                <div class="flex flex-col">
+                  <span class="text-xs font-bold text-slate-100 group-hover:text-blue-400 transition">${escapeHtml(m.senderName || ag?.name || 'Agent')}</span>
+                  ${m.orchestratorRole && m.orchestratorRole !== (m.senderName || ag?.name) ? `<span class="text-[10px] text-blue-400 font-mono">${escapeHtml(m.orchestratorRole)}</span>` : ''}
+                </div>
+              </div>
+            ` : ''}
             <div class="max-w-[90%] bg-[#1a1a22] border border-white/[0.06] text-slate-100 rounded-3xl rounded-tl-lg px-4 py-3 text-sm leading-relaxed select-text">
               <div class="whitespace-pre-wrap select-text" dir="auto">${formatAgentMessageContent(m.text)}</div>
               ${optionsHtml}
@@ -4747,7 +4799,20 @@ body > header,
       const memberIds = (Array.isArray(chat.memberIds) && chat.memberIds.length)
         ? chat.memberIds
         : (validCatalog[0] ? [validCatalog[0].id] : []);
-      const turns = chat.isGroup ? Math.max(1, memberIds.length) : 1;
+      const memberAgents = memberIds.map(id => validCatalog.find(a => a.id === id)).filter(Boolean);
+      const turns = chat.isGroup ? Math.max(1, memberAgents.length || memberIds.length) : 1;
+
+      if (chat.isGroup && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+        window.CueEventStreamBus.emit('plan_created', {
+          title: `هماهنگی چندایجنتی AOrchestra (${chat.title || 'گروه'})`,
+          steps: (memberAgents.length > 0 ? memberAgents : [{ id: 'ag_default', name: 'ایجنت' }]).map((ag, i) => ({
+            id: ag.id,
+            title: `${i === 0 ? 'تحلیل و بینش اولیه' : (i === 1 ? 'اعتبارسنجی و پیاده‌سازی' : 'جمع‌بندی نهایی')} (${ag.name})`,
+            status: 'pending'
+          }))
+        });
+      }
+
       try {
         for (let t = 0; t < turns; t++) {
           if (uiState.stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
@@ -4761,13 +4826,40 @@ body > header,
             id: 'ag_default',
             name: chat.title || 'Nexus Agent',
             model: 'gemini-3.8-flash',
+            avatar: { color: '#1d8cf8', shape: 'square', face: 'cheerful' },
             systemPrompt: 'تو ایجنت هوشمند EG Nexus OS هستی.'
           };
           uiState.activeThinkingAgent = agent;
           renderChatMessages();
-          const rawReply = await callAgentAPI(agent, chat, userPrompt, t, turns, '', null, activeTaskJournal);
+
+          if (chat.isGroup && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+            window.CueEventStreamBus.emit('step_started', {
+              stepIndex: t + 1,
+              totalSteps: turns,
+              stepId: agent.id,
+              title: `${agent.name} - ${t === 0 ? 'تحلیل اولیه' : 'پیاده‌سازی'}`
+            });
+          }
+
+          let extraContextDirective = '';
+          if (chat.isGroup && turns > 1) {
+            const lastMsg = (chat.messages || []).slice(-1)[0];
+            const lastTail = lastMsg ? String(lastMsg.text || '').slice(-400) : '';
+            if (window.AOrchestra && typeof window.AOrchestra.formatGroupDirective === 'function') {
+              extraContextDirective = window.AOrchestra.formatGroupDirective(agent, t, turns, lastMsg?.senderName, lastTail);
+            } else if (t === 0) {
+              extraContextDirective = '\n[هماهنگی AOrchestra - نقش: تحلیل‌گر و برنامه‌ریز (Lead Analyst / Planner)]:\nبه عنوان اولین عضو گروه، درخواست کاربر را تحلیل کن، چارچوب کلی، بینش اولیه و برنامه اجرایی را تدوین کن.';
+            } else {
+              extraContextDirective = `\n[هماهنگی AOrchestra - نقش: بازنگر فنی و پیاده‌ساز (Reviewer / Implementer)]:\nهمکار قبلی تو («${lastMsg?.senderName || 'همکار'}») تحلیل خود را ارائه کرد. اکنون بر اساس تحلیل او، راهکار عملیاتی، کد اجرایی دقیق یا بازنگری فنی را ارائه بده بدون تکرار مطالب گفته‌شده.`;
+            }
+          }
+
+          const rawReply = await callAgentAPI(agent, chat, userPrompt, t, turns, extraContextDirective, null, activeTaskJournal);
           if (uiState.stopOrchestrationFlag || _orchestratorRunSeq !== currentRunId) break;
           const reviewedReply = performAutomaticSelfReview(rawReply);
+          if (reviewedReply !== rawReply && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+            window.CueEventStreamBus.emit('reflection_triggered', { notice: `خوداصلاحی و اعتبارسنجی خروجی توسط ${agent.name}` });
+          }
           const isSimReply = reviewedReply.startsWith('🧪 **[حالت شبیه‌ساز آفلاین');
           const isErrorReply = reviewedReply.startsWith('⚠️ **[خطای') || reviewedReply.startsWith('⚠️ **[مهلت زمانی');
           const codeMatch = reviewedReply.match(/```(?:html|xml)?[ \t]*\r?\n([\s\S]*?)```/i);
@@ -4785,16 +4877,18 @@ body > header,
           const nowStamp = formatChatTimestamp();
           if (!Array.isArray(chat.messages)) chat.messages = [];
           chat.messages.push({
-            id: generateUniqueId('m_ag_' + t),
+            id: generateUniqueId('m_agent'),
             senderType: 'agent',
             senderId: agent.id,
             senderName: agent.name,
+            avatar: agent.avatar,
             text: reviewedReply,
             selfReviewed: !isSimReply && !isErrorReply,
             isSimulated: isSimReply,
             chattedWith: nextPartnerObj?.name || '',
             chattedWithId: nextPartnerObj?.id || '',
-            timestamp: nowStamp
+            timestamp: nowStamp,
+            orchestratorRole: agent.name
           });
           chat.updatedAt = nowStamp;
           chat.updatedAtTs = Date.now();
@@ -4808,6 +4902,13 @@ body > header,
             saveTaskJournalToStorage(activeTaskJournal);
           }
           renderChatMessages();
+
+          if (window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+            window.CueEventStreamBus.emit('step_completed', { agent: agent.name, stepIndex: t + 1, totalSteps: turns, stepId: agent.id });
+          }
+        }
+        if (chat.isGroup && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+          window.CueEventStreamBus.emit('task_completed', { success: true });
         }
       } catch (err) {
         if (activeTaskJournal) {
@@ -6116,14 +6217,23 @@ body > header,
 
         try {
           showToast(`⚡ فراخوانی ابزار MCP: ${toolName}...`);
+          if (typeof window !== 'undefined' && window.CueEventStreamBus) {
+            window.CueEventStreamBus.emit('tool_call_started', { tool: toolName, args });
+          }
           if (effectiveGuard && typeof effectiveGuard.recordToolCall === 'function') {
             effectiveGuard.recordToolCall(toolName, args);
           }
           const result = await NexusMCP.executeTool(toolName, args, effectiveGuard);
+          if (typeof window !== 'undefined' && window.CueEventStreamBus) {
+            window.CueEventStreamBus.emit('tool_call_result', { tool: toolName, result });
+          }
           const replacement = `\n\n⚡ **[پاسخ زنده ابزار MCP (${toolName})]:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`;
           return text.replace(match[0], replacement);
         } catch (err) {
           console.warn('MCP execution error:', err);
+          if (typeof window !== 'undefined' && window.CueEventStreamBus) {
+            window.CueEventStreamBus.emit('tool_call_result', { tool: toolName, error: err.message });
+          }
           const replacement = `\n\n⚠️ **[خطا در اجرای ابزار MCP (${toolName})]:** ${err.message}\n`;
           return text.replace(match[0], replacement);
         }
@@ -16077,13 +16187,29 @@ zernio: {
 
     const CUE_SHAPE_ALIASES = {
       roundedSquare: 'square', speechBubble: 'chat', flameDrop: 'fire',
-      burstBadge: 'badge', bell: 'bread', circle: 'moon'
+      burstBadge: 'badge', bell: 'bread', circle: 'moon',
+      badge: 'badge', bread: 'bread', briefcase: 'briefcase', chat: 'chat',
+      fire: 'fire', heart: 'heart', moon: 'moon', square: 'square',
+      star: 'star', triangle: 'triangle'
     };
     const CUE_FACE_ALIASES = {
       classic: 'cheerful', unibrow: 'stern', skeptic: 'skeptical',
       happy: 'cheerful', smirk: 'wink', visor: 'focused',
-      glasses: 'focused', angry: 'stern'
+      glasses: 'focused', angry: 'stern',
+      bashful: 'bashful', cheerful: 'cheerful', curious: 'curious',
+      focused: 'focused', puzzled: 'puzzled', side_eye: 'side_eye',
+      skeptical: 'skeptical', stern: 'stern', wide_eyes: 'wide_eyes', wink: 'wink'
     };
+
+    window.CUE_AVATAR_SHAPES_SVGS = CUE_AVATAR_SHAPES_SVGS;
+    window.CUE_AVATAR_FACES_SVGS = CUE_AVATAR_FACES_SVGS;
+    window.CUE_AVATAR_FACES_WHITE_SVGS = CUE_AVATAR_FACES_WHITE_SVGS;
+    window.CUE_AVATAR_SHAPES = CUE_AVATAR_SHAPES;
+    window.CUE_AVATAR_FACES = CUE_AVATAR_FACES;
+    window.CUE_AVATAR_COLORS = CUE_AVATAR_COLORS;
+    window.CUE_SHAPE_ALIASES = CUE_SHAPE_ALIASES;
+    window.CUE_FACE_ALIASES = CUE_FACE_ALIASES;
+    window.buildAvatarSVG = buildAvatarSVG;
 
     // 2. Three-part '+' (Create) Popup Menu Openers
     function openAgentCreateModal() {
@@ -16358,7 +16484,7 @@ zernio: {
       triggerCueHaptic(25);
       if (!Array.isArray(appState.computerSnapshots)) appState.computerSnapshots = [];
       const snapData = {
-        version: '6.5.1',
+        version: '6.6.0',
         timestamp: Date.now(),
         dateStr: new Date().toISOString(),
         stateChecksum: 'sha256_' + Math.random().toString(36).slice(2, 10),
@@ -18161,6 +18287,323 @@ zernio: {
       showToast('Cache cleared successfully (0 KB) 🧹');
     }
     window.clearAppCache = clearAppCache;
+
+    // ========================================================================
+    // Authentic Cue Event Stream Bus & Live Plan Tracker Architecture
+    // ========================================================================
+    class CueEventStreamBusClass {
+      constructor() {
+        this._handlers = new Map();
+      }
+      on(event, fn) {
+        if (!this._handlers.has(event)) {
+          this._handlers.set(event, new Set());
+        }
+        this._handlers.get(event).add(fn);
+        return () => this.off(event, fn);
+      }
+      off(event, fn) {
+        if (this._handlers.has(event)) {
+          this._handlers.get(event).delete(fn);
+        }
+      }
+      emit(event, data) {
+        if (this._handlers.has(event)) {
+          this._handlers.get(event).forEach(fn => {
+            try { fn(data); } catch (err) { console.warn('CueEventStreamBus listener error:', err); }
+          });
+        }
+      }
+      subscribe(event, fn) {
+        return this.on(event, fn);
+      }
+    }
+
+    const _cueStreamBusInstance = window.CueEventStreamBus ||
+                                  (window.NexusProviders && window.NexusProviders.CueEventStreamBus) ||
+                                  new CueEventStreamBusClass();
+    window.CueEventStreamBus = _cueStreamBusInstance;
+    if (window.NexusProviders && !window.NexusProviders.CueEventStreamBus) {
+      window.NexusProviders.CueEventStreamBus = _cueStreamBusInstance;
+    }
+
+    let _cuePlanTimerInterval = null;
+    let _cuePlanStartTime = 0;
+    let _cuePlanTokensCount = 0;
+    let _cuePlanSteps = [];
+
+    function formatCuePlanTimer(ms) {
+      const totalSec = Math.floor(Math.max(0, ms) / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return `⏱ ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function toggleCuePlanAccordion() {
+      const body = document.getElementById('cuePlanAccordionBody');
+      const toggleBtn = document.getElementById('cuePlanAccordionToggle');
+      if (!body) return;
+      const isHidden = body.classList.contains('hidden');
+      if (isHidden) {
+        body.classList.remove('hidden');
+        if (toggleBtn) toggleBtn.innerText = '▲';
+      } else {
+        body.classList.add('hidden');
+        if (toggleBtn) toggleBtn.innerText = '▼';
+      }
+    }
+    window.toggleCuePlanAccordion = toggleCuePlanAccordion;
+
+    function renderCueLivePlanTracker(plan) {
+      const tracker = document.getElementById('cueLivePlanTracker');
+      if (!tracker) return;
+      tracker.classList.remove('hidden');
+
+      const titleEl = document.getElementById('cuePlanTitle');
+      const badgeEl = document.getElementById('cuePlanStatusBadge');
+      const progressTextEl = document.getElementById('cuePlanStepProgress');
+      const barEl = document.getElementById('cuePlanProgressBar');
+      const stepsListEl = document.getElementById('cuePlanStepsList');
+      const timerEl = document.getElementById('cuePlanTimer');
+      const streamEl = document.getElementById('cuePlanThinkingStream');
+      const deltaCountEl = document.getElementById('cueThinkingDeltaCount');
+
+      const title = (plan && plan.title) ? plan.title : 'نقشه راه اجرایی';
+      if (titleEl) titleEl.innerText = title;
+
+      if (badgeEl) {
+        badgeEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0';
+        badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span> برنامه‌ریزی';
+      }
+
+      _cuePlanSteps = (plan && Array.isArray(plan.steps)) ? plan.steps.map((s, idx) => ({
+        id: s.id || `step_${idx + 1}`,
+        title: s.title || `گام ${idx + 1}`,
+        status: s.status || 'pending',
+        details: s.details || ''
+      })) : [];
+
+      const total = _cuePlanSteps.length;
+      if (progressTextEl) progressTextEl.innerText = `گام ۰ از ${total}`;
+      if (barEl) barEl.style.width = '5%';
+
+      if (stepsListEl) {
+        stepsListEl.innerHTML = _cuePlanSteps.map((st, idx) => `
+          <div id="cueStepRow_${st.id}" class="flex items-center justify-between p-2 rounded-xl bg-white/[0.03] border border-white/5 text-slate-300 transition">
+            <div class="flex items-center gap-2 min-w-0">
+              <span id="cueStepIcon_${st.id}" class="w-4 h-4 rounded-full border border-slate-600 flex items-center justify-center text-[10px] text-slate-400 shrink-0">${idx + 1}</span>
+              <span class="truncate font-medium text-[11px]">${escapeHtml(st.title)}</span>
+            </div>
+            <span id="cueStepBadge_${st.id}" class="text-[10px] text-slate-500 shrink-0">در انتظار</span>
+          </div>
+        `).join('');
+      }
+
+      _cuePlanTokensCount = 0;
+      if (deltaCountEl) deltaCountEl.innerText = '0 tokens';
+      if (streamEl) {
+        streamEl.innerHTML = '<span class="text-slate-500">در انتظار آغاز تفکر...</span>';
+      }
+
+      if (_cuePlanTimerInterval) clearInterval(_cuePlanTimerInterval);
+      _cuePlanStartTime = Date.now();
+      if (timerEl) timerEl.innerText = '⏱ 00:00';
+      _cuePlanTimerInterval = setInterval(() => {
+        const el = document.getElementById('cuePlanTimer');
+        if (el) {
+          el.innerText = formatCuePlanTimer(Date.now() - _cuePlanStartTime);
+        }
+      }, 1000);
+    }
+    window.renderCueLivePlanTracker = renderCueLivePlanTracker;
+
+    function updateCueLivePlanStep(stepId, status, details) {
+      const st = _cuePlanSteps.find(s => s.id === stepId || String(s.id) === String(stepId));
+      if (st) {
+        st.status = status;
+        if (details) st.details = details;
+      }
+      const rowEl = document.getElementById(`cueStepRow_${stepId}`);
+      const iconEl = document.getElementById(`cueStepIcon_${stepId}`);
+      const badgeEl = document.getElementById(`cueStepBadge_${stepId}`);
+      const mainBadge = document.getElementById('cuePlanStatusBadge');
+      const barEl = document.getElementById('cuePlanProgressBar');
+      const progressTextEl = document.getElementById('cuePlanStepProgress');
+
+      const totalSteps = Math.max(1, _cuePlanSteps.length);
+      const completedCount = _cuePlanSteps.filter(s => s.status === 'completed').length;
+      const currentIndex = _cuePlanSteps.findIndex(s => s.id === stepId || String(s.id) === String(stepId));
+
+      if (status === 'in_progress') {
+        if (rowEl) {
+          rowEl.className = 'flex items-center justify-between p-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-white transition';
+        }
+        if (iconEl) {
+          iconEl.className = 'w-4 h-4 rounded-full border-2 border-blue-400 border-t-transparent animate-spin inline-block shrink-0';
+          iconEl.innerHTML = '';
+        }
+        if (badgeEl) {
+          badgeEl.className = 'text-[10px] text-blue-400 font-bold shrink-0';
+          badgeEl.innerText = 'در حال اجرا...';
+        }
+        if (mainBadge) {
+          mainBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0';
+          mainBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span> در حال اجرا';
+        }
+        if (progressTextEl && currentIndex >= 0) {
+          progressTextEl.innerText = `گام ${currentIndex + 1} از ${totalSteps}`;
+        }
+        const pct = Math.min(95, Math.max(10, Math.round(((currentIndex + 0.5) / totalSteps) * 100)));
+        if (barEl) barEl.style.width = `${pct}%`;
+      } else if (status === 'completed') {
+        if (rowEl) {
+          rowEl.className = 'flex items-center justify-between p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-slate-200 transition';
+        }
+        if (iconEl) {
+          iconEl.className = 'w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold shrink-0';
+          iconEl.innerHTML = '✓';
+        }
+        if (badgeEl) {
+          badgeEl.className = 'text-[10px] text-emerald-400 font-semibold shrink-0';
+          badgeEl.innerText = 'تکمیل شد';
+        }
+        const pct = Math.min(100, Math.round((completedCount / totalSteps) * 100));
+        if (barEl) barEl.style.width = `${pct}%`;
+      } else if (status === 'failed') {
+        if (rowEl) {
+          rowEl.className = 'flex items-center justify-between p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 transition';
+        }
+        if (iconEl) {
+          iconEl.className = 'w-4 h-4 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center text-[10px] font-bold shrink-0';
+          iconEl.innerHTML = '✕';
+        }
+        if (badgeEl) {
+          badgeEl.className = 'text-[10px] text-rose-400 font-semibold shrink-0';
+          badgeEl.innerText = 'خطا';
+        }
+      }
+    }
+    window.updateCueLivePlanStep = updateCueLivePlanStep;
+
+    _cueStreamBusInstance.on('plan_created', (data) => {
+      renderCueLivePlanTracker(data);
+    });
+
+    _cueStreamBusInstance.on('step_started', (data) => {
+      const stepId = data.stepId || (_cuePlanSteps[data.stepIndex - 1]?.id) || `step_${data.stepIndex || 1}`;
+      updateCueLivePlanStep(stepId, 'in_progress', data.details);
+      if (data.title) {
+        const stepEl = document.getElementById(`cueStepRow_${stepId}`);
+        if (stepEl) {
+          const textSpan = stepEl.querySelector('span.truncate');
+          if (textSpan) textSpan.innerText = data.title;
+        }
+      }
+    });
+
+    _cueStreamBusInstance.on('thinking_delta', (data) => {
+      const streamEl = document.getElementById('cuePlanThinkingStream');
+      const deltaCountEl = document.getElementById('cueThinkingDeltaCount');
+      const textChunk = (data && typeof data === 'object') ? (data.delta || data.chunk || data.text || '') : String(data || '');
+      if (!streamEl || !textChunk) return;
+
+      if (streamEl.querySelector('span.text-slate-500')) {
+        streamEl.innerHTML = '';
+      }
+      const textNode = document.createTextNode(textChunk);
+      streamEl.appendChild(textNode);
+      streamEl.scrollTop = streamEl.scrollHeight;
+
+      _cuePlanTokensCount += Math.max(1, Math.ceil(textChunk.length / 3.5));
+      if (deltaCountEl) {
+        deltaCountEl.innerText = `${_cuePlanTokensCount} tokens`;
+      }
+    });
+
+    _cueStreamBusInstance.on('reflection_triggered', (data) => {
+      const streamEl = document.getElementById('cuePlanThinkingStream');
+      if (!streamEl) return;
+      const notice = (data && typeof data === 'object') ? (data.notice || data.reason || data.text || 'خوداصلاحی و بهینه‌سازی پاسخ') : String(data || '');
+      const block = document.createElement('div');
+      block.className = 'my-1.5 p-1.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-200 text-[11px] font-sans flex items-center gap-1.5';
+      block.innerHTML = `<span class="shrink-0 text-amber-400">🔍</span><span><strong>[خوداصلاحی / Reflection]:</strong> ${escapeHtml(notice)}</span>`;
+      streamEl.appendChild(block);
+      streamEl.scrollTop = streamEl.scrollHeight;
+    });
+
+    _cueStreamBusInstance.on('tool_call_started', (data) => {
+      const streamEl = document.getElementById('cuePlanThinkingStream');
+      if (!streamEl) return;
+      const toolName = (data && typeof data === 'object') ? (data.tool || data.name || 'ابزار') : String(data || 'ابزار');
+      const block = document.createElement('div');
+      block.className = 'my-1 p-1 rounded bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] font-mono flex items-center gap-1';
+      block.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-400 animate-ping shrink-0"></span><span>⚡ فراخوانی ابزار: <code>${escapeHtml(toolName)}</code></span>`;
+      streamEl.appendChild(block);
+      streamEl.scrollTop = streamEl.scrollHeight;
+    });
+
+    _cueStreamBusInstance.on('tool_call_result', (data) => {
+      const streamEl = document.getElementById('cuePlanThinkingStream');
+      if (!streamEl) return;
+      const toolName = (data && typeof data === 'object') ? (data.tool || data.name || 'ابزار') : String(data || 'ابزار');
+      const block = document.createElement('div');
+      block.className = 'my-1 p-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] font-mono flex items-center gap-1';
+      block.innerHTML = `<span class="text-emerald-400 font-bold shrink-0">✓</span><span>پاسخ ابزار <code>${escapeHtml(toolName)}</code> دریافت شد.</span>`;
+      streamEl.appendChild(block);
+      streamEl.scrollTop = streamEl.scrollHeight;
+    });
+
+    _cueStreamBusInstance.on('step_completed', (data) => {
+      const stepId = data.stepId || (_cuePlanSteps[data.stepIndex - 1]?.id) || (data.agent ? _cuePlanSteps.find(s => s.id === data.agent || s.title.includes(data.agent))?.id : null) || `step_${data.stepIndex || 1}`;
+      updateCueLivePlanStep(stepId, 'completed', data.details);
+    });
+
+    _cueStreamBusInstance.on('task_completed', (data) => {
+      if (_cuePlanTimerInterval) {
+        clearInterval(_cuePlanTimerInterval);
+        _cuePlanTimerInterval = null;
+      }
+      const badgeEl = document.getElementById('cuePlanStatusBadge');
+      if (badgeEl) {
+        badgeEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0';
+        badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> تکمیل شد ✓';
+      }
+      const barEl = document.getElementById('cuePlanProgressBar');
+      if (barEl) barEl.style.width = '100%';
+
+      _cuePlanSteps.forEach(st => {
+        if (st.status !== 'completed' && st.status !== 'failed') {
+          updateCueLivePlanStep(st.id, 'completed');
+        }
+      });
+    });
+
+    // ========================================================================
+    // AOrchestra Multi-Agent Coordination Manager
+    // ========================================================================
+    window.AOrchestra = {
+      isAOrchestraActive: true,
+      coordinateGroupMembers(groupChat) {
+        if (!groupChat || !groupChat.isGroup) return [];
+        const catalog = (appState.agentsCatalog || []).filter(Boolean);
+        const memberIds = Array.isArray(groupChat.memberIds) ? groupChat.memberIds : [];
+        return memberIds.map(id => catalog.find(a => a.id === id)).filter(Boolean);
+      },
+      getTurnRole(agent, index, totalMembers) {
+        if (index === 0) return { role: 'Lead Analyst / Planner', label: 'تحلیل‌گر و برنامه‌ریز' };
+        if (index === 1) return { role: 'Technical Reviewer / Implementer', label: 'بازنگر و پیاده‌ساز' };
+        return { role: 'Specialist Contributor', label: 'متخصص تکمیلی' };
+      },
+      formatGroupDirective(agent, index, totalMembers, lastPartnerName, lastPartnerTail) {
+        if (index === 0) {
+          return `\n[هماهنگی AOrchestra - نوبت ۱ از ${totalMembers} - نقش: تحلیل‌گر و برنامه‌ریز (Lead Analyst / Planner)]:\nبه عنوان اولین عضو گروه، درخواست کاربر را تحلیل کن، چارچوب کلی، بینش اولیه و برنامه اجرایی را تدوین کن.`;
+        }
+        if (index === 1) {
+          return `\n[هماهنگی AOrchestra - نوبت ۲ از ${totalMembers} - نقش: بازنگر فنی و پیاده‌ساز (Reviewer / Implementer)]:\nهمکار قبلی تو («${lastPartnerName || 'همکار'}») این تحلیل را ارائه داد:\n«${lastPartnerTail || ''}»\nاکنون بر اساس تحلیل او، راهکار عملیاتی، کد اجرایی دقیق یا بازنگری فنی را ارائه بده بدون تکرار مطالب گفته‌شده.`;
+        }
+        return `\n[هماهنگی AOrchestra - نوبت ${index + 1} از ${totalMembers} - نقش: متخصص تکمیلی (Specialist Contributor)]:\nنکات بهینه‌سازی، امنیت و جمع‌بندی نهایی را بر اساس گفتگوی همکاران اضافه کن.`;
+      }
+    };
 
 
     // === [محل قرارگیری خودکار ماژول‌های فاز ۲، فاز ۳، فاز ۴ و فاز ۵ در زیر این خط] ===
@@ -20807,6 +21250,20 @@ zernio: {
             validCatalogMap.set(a.id, a);
           }
 
+          if (chat.isGroup && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+            window.CueEventStreamBus.emit('plan_created', {
+              title: `هماهنگی چندایجنتی AOrchestra (${chat.title || 'گروه'})`,
+              steps: memberIds.map((id, i) => {
+                const a = validCatalogMap.get(id);
+                return {
+                  id: id,
+                  title: `${i === 0 ? 'تحلیل و بینش اولیه' : (i === 1 ? 'اعتبارسنجی و کد اجرایی' : 'جمع‌بندی تخصصی')} (${a?.name || 'ایجنت'})`,
+                  status: 'pending'
+                };
+              })
+            });
+          }
+
           for (let t = 0; t < turns; t++) {
             if (!isCurrentPhase2Run()) break;
             const liveChatTurn = resolveLiveChatInstance(targetChatId) || chat;
@@ -20815,19 +21272,37 @@ zernio: {
               id: 'ag_default',
               name: liveChatTurn.title || 'Nexus Agent',
               model: 'gemini-3.8-flash',
+              avatar: { color: '#1d8cf8', shape: 'square', face: 'cheerful' },
               systemPrompt: 'تو ایجنت هوشمند EG Nexus OS هستی.',
               files: []
             };
             activeThinkingChatId = targetChatId;
             uiState.activeThinkingAgent = agent;
             refreshChatAndHomeViewsIfVisible(targetChatId);
-            const groupTurnDirective = (liveChatTurn.isGroup && turns > 1 && t > 0)
-              ? `\n[دستور هماهنگی گروهی (نوبت ${t + 1} از ${turns})]: همکار قبلی تو («${lastPartnerName}») تحلیل خود را با این جمع‌بندی به پایان رساند:\n«${lastPartnerTail}»\nبدون تکرار بخش‌های گفته‌شده، ادامه کار و تحلیل تخصصی خودت را ارائه بده.`
+
+            if (liveChatTurn.isGroup && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+              window.CueEventStreamBus.emit('step_started', {
+                stepIndex: t + 1,
+                totalSteps: turns,
+                stepId: agent.id,
+                title: `${agent.name} - ${t === 0 ? 'تحلیل اولیه' : 'پیاده‌سازی'}`
+              });
+            }
+
+            const groupTurnDirective = (liveChatTurn.isGroup && turns > 1)
+              ? (window.AOrchestra && typeof window.AOrchestra.formatGroupDirective === 'function'
+                  ? window.AOrchestra.formatGroupDirective(agent, t, turns, lastPartnerName, lastPartnerTail)
+                  : (t === 0
+                      ? '\n[هماهنگی AOrchestra - نقش: تحلیل‌گر و برنامه‌ریز (Lead Analyst / Planner)]:\nبه عنوان اولین عضو گروه، درخواست کاربر را تحلیل کن، چارچوب کلی، بینش اولیه و برنامه اجرایی را تدوین کن.'
+                      : `\n[دستور هماهنگی گروهی (نوبت ${t + 1} از ${turns})]: همکار قبلی تو («${lastPartnerName}») تحلیل خود را با این جمع‌بندی به پایان رساند:\n«${lastPartnerTail}»\nبدون تکرار بخش‌های گفته‌شده، ادامه کار و تحلیل تخصصی خودت را ارائه بده.`))
               : '';
             const rawReply = await callAgentAPI(agent, liveChatTurn, userPrompt, t, turns, ragContext + webContext + groupTurnDirective);
             if (!isCurrentPhase2Run()) break;
             const postAwaitChat = resolveLiveChatInstance(targetChatId) || liveChatTurn;
             const reviewed = performAutomaticSelfReview(rawReply);
+            if (reviewed !== rawReply && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+              window.CueEventStreamBus.emit('reflection_triggered', { notice: `خوداصلاحی و اعتبارسنجی خروجی توسط ${agent.name}` });
+            }
             const replyClass = classifyModelReplyStatus(reviewed);
             const parsed = parseAutonomousTagsAndOptions(reviewed, { allowMemoryProposals: replyClass.isLiveSuccess });
             if (replyClass.isLiveSuccess) {
@@ -20849,10 +21324,11 @@ zernio: {
             postAwaitChat.updatedAtTs = Date.now();
             if (!Array.isArray(postAwaitChat.messages)) postAwaitChat.messages = [];
             postAwaitChat.messages.push({
-              id: 'm_ag_' + Date.now() + '_' + t + '_' + (++autoTagSequenceCounter),
+              id: (typeof generateUniqueId === 'function' ? generateUniqueId('m_agent') : ('m_ag_' + Date.now() + '_' + t + '_' + (++autoTagSequenceCounter))),
               senderType: 'agent',
               senderId: agent.id,
               senderName: agent.name,
+              avatar: agent.avatar,
               text: parsed.text,
               options: isFinalTurn ? accumulatedGroupOptions : [],
               citations: t === 0 ? citations : [],
@@ -20861,10 +21337,18 @@ zernio: {
               isError: replyClass.isError,
               chattedWith: nextPartnerObj ? nextPartnerObj.name : '',
               chattedWithId: nextPartnerObj ? nextPartnerObj.id : '',
-              timestamp: nowTimeStr
+              timestamp: nowTimeStr,
+              orchestratorRole: agent.name
             });
             saveState();
             refreshChatAndHomeViewsIfVisible(targetChatId);
+
+            if (window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+              window.CueEventStreamBus.emit('step_completed', { agent: agent.name, stepIndex: t + 1, totalSteps: turns, stepId: agent.id });
+            }
+          }
+          if (chat.isGroup && window.CueEventStreamBus && typeof window.CueEventStreamBus.emit === 'function') {
+            window.CueEventStreamBus.emit('task_completed', { success: true });
           }
         } catch (err) {
           if (isCurrentPhase2Run() && err?.name !== 'AbortError') {
@@ -21015,7 +21499,15 @@ zernio: {
               : (m.selfReviewed ? `<div class="mt-2 text-[10px] text-emerald-400/90">🛡️ قالب‌بندی کد و خروجی بررسی شد</div>` : ''));
           return `
             <div class="flex flex-col items-start space-y-1">
-              ${chat.isGroup ? `<div onclick="openActiveAgentOrGroupProfile('${escapeJsAttr(m.senderId || '')}')" class="flex items-center gap-1.5 px-1 text-[11px] text-cue-muted cursor-pointer hover:text-white">${buildAvatarSVG(ag?.avatar, 18)} <span>${escapeHtml(m.senderName || ag?.name || 'Agent')}</span></div>` : ''}
+              ${chat.isGroup ? `
+              <div onclick="openActiveAgentOrGroupProfile('${escapeJsAttr(m.senderId || '')}')" class="flex items-center gap-2 mb-1 px-1 cursor-pointer group" dir="rtl">
+                ${buildAvatarSVG(m.avatar || ag?.avatar, 36)}
+                <div class="flex flex-col">
+                  <span class="text-xs font-bold text-slate-100 group-hover:text-blue-400 transition">${escapeHtml(m.senderName || ag?.name || 'Agent')}</span>
+                  ${m.orchestratorRole && m.orchestratorRole !== (m.senderName || ag?.name) ? `<span class="text-[10px] text-blue-400 font-mono">${escapeHtml(m.orchestratorRole)}</span>` : ''}
+                </div>
+              </div>
+            ` : ''}
               <div class="max-w-[92%] bg-[#1a1a22] border border-white/[0.06] text-slate-100 rounded-3xl rounded-tl-lg px-4 py-3 text-sm leading-relaxed select-text">
                 ${swarmHtml}
                 <div class="whitespace-pre-wrap select-text" dir="auto">${formatAgentMessageContent(m.text)}</div>

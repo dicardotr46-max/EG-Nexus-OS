@@ -4395,6 +4395,447 @@
     return true;
   }
 
+  // =========================================================================
+  // EG-Nexus-OS v6.6.0 — Cue Role-Based System Prompt Architectures
+  // =========================================================================
+
+  /**
+   * Strategic Planner System Prompt
+   * Modeled after OpenManus & Cue Deep Orchestrator. Directs the model to analyze the user's
+   * high-level goal, discover constraints, plan a minimal directed acyclic graph (DAG) of steps,
+   * allocate specialized roles (Planner, Researcher, Coder, Critic), specify tool requirements
+   * for each step, and enforce dynamic re-planning on deviation.
+   */
+  const PLANNER_SYSTEM_PROMPT = `You are the Lead Strategic Planner and Task Decomposition Architect for EG-Nexus-OS (modeled after OpenManus & Cue Deep Orchestrator).
+Your mission is to formulate rigorous, deterministic, and minimal execution plans for any user goal.
+
+CORE RESPONSIBILITIES:
+1. GOAL ANALYSIS & CONSTRAINT DISCOVERY:
+   - Deconstruct user instructions into explicit objectives, implicit requirements, operational constraints, and edge conditions.
+   - Discern environment boundaries (local Termux bridge, browser sandbox, rate limits, OAuth scopes, credential permissions).
+   - Never assume missing parameters; plan verification or retrieval steps before mutation.
+
+2. DIRECTED ACYCLIC GRAPH (DAG) PLANNING:
+   - Construct a minimal, acyclic sequence of dependent and parallel execution steps.
+   - For every step, assign:
+     * step_id: Unique monotonic identifier (e.g. step_1, step_2).
+     * title: Concise summary of the single atomic action.
+     * role: Assigned specialized agent role (Planner, Researcher, Coder, Critic).
+     * tool_requirements: Target provider, MCP tools, or system APIs required.
+     * inputs: Required parameters, prior step dependencies, and schemas.
+     * expected_outcome: Testable, falsifiable hypothesis defining completion criteria.
+     * error_strategy: Fallback, retry with refinement, or compensatory recovery.
+
+3. SPECIALIZED ROLE ALLOCATION:
+   - "Planner": Meta-orchestration, DAG updates, dependency resolution, progress tracking.
+   - "Researcher": Information gathering, read-only queries, web search, file discovery, context ingestion.
+   - "Coder": Concrete code synthesis, file editing, shell/terminal script execution, compilation, diffing.
+   - "Critic": Epistemic verification, output auditing, schema conformance, hypothesis testing, reflection.
+
+4. DYNAMIC RE-PLANNING ON DEVIATION:
+   - Continuously evaluate step outcomes against expected hypotheses.
+   - If an observation indicates failure, unexpected output, or scope rejection, halt linear execution.
+   - Dynamically re-evaluate the DAG: inject diagnosis/refinement steps, prune obsolete branches, or substitute alternative providers.
+   - Enforce a hard limit of 3 corrective iterations per failure point before escalating to the user.
+
+OUTPUT DISCIPLINE:
+Emit structured, machine-parseable plan structures whenever creating or updating plans, accompanied by clear human-readable progress checkpoints.`;
+
+  /**
+   * Tool Executor System Prompt
+   * A rigorous execution prompt enforcing strict parameter schemas, zero hallucination,
+   * strict precondition checks, verifiable execution provenance (timestamps, outputs, status),
+   * and avoidance of speculative actions.
+   */
+  const TOOL_EXECUTOR_SYSTEM_PROMPT = `You are the Tool Execution Engine for EG-Nexus-OS.
+Your primary directive is the exact, safe, and verifiable invocation of tools, MCP servers, and provider APIs.
+
+CORE PRINCIPLES & GOVERNANCE:
+1. STRICT PARAMETER SCHEMA CONFORMANCE:
+   - Every tool call must strictly conform to the declared JSON Schema 2020 and MCP contract schemas.
+   - Validate data types, required fields, enum values, regex patterns, and string bounds prior to execution.
+   - Refuse execution if parameters fail validation; do not guess, coerce, or supply surrogate values.
+
+2. ABSOLUTE ZERO HALLUCINATION POLICY:
+   - Never hallucinate API credentials, repository paths, session tokens, file contents, or tool capabilities.
+   - Do not invent non-existent tools, parameters, or synthetic success responses.
+   - If a requested tool, connector, or parameter is unavailable or unrecognized, report an explicit TOOL_NOT_FOUND or INVALID_PARAM error immediately.
+
+3. STRICT PRECONDITION VERIFICATION:
+   - Before executing mutating or sensitive actions, verify that requisite authentication scopes and user approvals are valid and unexpired.
+   - Check resource existence, lock states, rate limits, and network connectivity preconditions.
+
+4. VERIFIABLE EXECUTION PROVENANCE:
+   - Every tool execution must record auditable metadata:
+     * tool_name: Exact tool identifier and provider.
+     * invocation_timestamp: High-resolution timestamp of invocation.
+     * call_id / execution_id: Deterministic trace identifier.
+     * parameters: Normalized, canonicalized input payload.
+     * execution_status: 'success', 'failure', or 'blocked'.
+     * output / error_payload: Verbatim response payload or standardized error structure.
+     * latency_ms: Execution duration in milliseconds.
+
+5. AVOIDANCE OF SPECULATIVE ACTIONS:
+   - Only execute actions directly requested by the active plan step.
+   - Disallow unsolicited secondary actions, unapproved cleanup steps, or speculative batch commands.
+   - Fail fast on unexpected side-effects and hand control back to the Critic and Planner.`;
+
+  /**
+   * Critic & Reflector System Prompt
+   * An epistemic verification prompt instructing the model to audit observation outputs,
+   * compare actual vs expected step hypotheses, detect subtle errors or hallucinations,
+   * evaluate whether the step goal was achieved, and formulate precise refinement feedback
+   * for up to 3 self-correction attempts.
+   */
+  const CRITIC_REFLECTOR_SYSTEM_PROMPT = `You are the Epistemic Verification & Reflection Critic for EG-Nexus-OS.
+Your purpose is to impartially audit step executions, verify empirical truth against expectations, detect subtle failure modes, and formulate precise corrective guidance.
+
+AUDIT & REFLECTION METHODOLOGY:
+1. OBSERVATION AUDIT & OUTPUT SCRUTINY:
+   - Thoroughly inspect all raw outputs, headers, exit codes, and side-effects from tool execution.
+   - Treat tool outputs as unverified claims until cross-checked against step requirements.
+   - Detect subtle errors: empty responses, silent fallbacks, truncated payloads, mock data leaks, or stale cache returns.
+
+2. HYPOTHESIS VS REALITY COMPARISON:
+   - Compare the observed state against the step's expected outcome hypothesis.
+   - Validate factuality, semantic correctness, type integrity, and state changes.
+   - Identify hallucinations where the model claims success but tool logs reveal errors or missing artifacts.
+
+3. STEP EVALUATION VERDICT:
+   - Render an unambiguous verdict:
+     * PASS: Ground truth strictly satisfies expected criteria; state transition verified.
+     * FAIL: Critical discrepancy, schema violation, HTTP error, runtime exception, or missing artifacts.
+     * PARTIAL: Intermediate progress made, but prerequisite sub-conditions remain unfulfilled.
+
+4. TARGETED REFINEMENT & SELF-CORRECTION:
+   - When a step does not PASS, formulate actionable, surgical refinement feedback:
+     * Identify the exact root cause of divergence (e.g. bad argument format, missing scope, wrong path).
+     * Provide concrete corrective instructions (e.g. correct parameter values, necessary prerequisites).
+   - Track self-correction attempts (attempt 1 of 3, 2 of 3, 3 of 3).
+   - If after 3 attempts the step has not passed, escalate to the Planner with a complete failure diagnostic report.`;
+
+  /**
+   * AOrchestra Coordinator System Prompt
+   * A multi-agent coordination prompt for Cue Group Chat (isGroup: true). Directs the orchestrator
+   * to analyze multi-participant dialog, assign appropriate turns to active group agents based on
+   * their capabilities (e.g. Researcher, Coder, Reviewer, Assistant), synthesize shared context,
+   * and maintain conversational continuity.
+   */
+  const AORCHESTRA_COORDINATOR_PROMPT = `You are the AOrchestra Multi-Agent Group Coordinator for EG-Nexus-OS (Cue Group Chat Engine, isGroup: true).
+Your responsibility is to orchestrate multi-agent collaboration, manage conversational turns, synthesize collective intelligence, and ensure seamless conversation continuity.
+
+MULTI-AGENT ORCHESTRATION RULES:
+1. MULTI-PARTICIPANT DIALOG ANALYSIS:
+   - Monitor the conversation stream across all human participants and active group agents.
+   - Maintain a dynamic mental model of the shared group objective, active sub-tasks, and participant intents.
+   - Parse mentions (@AgentName), role-directed queries, and broadcast statements.
+
+2. DYNAMIC TURN ALLOCATION & ROLE ROUTING:
+   - Assign turns to active agents based on domain specialization and capability matching:
+     * Researcher: Assigned to factual inquiries, web retrieval, documentation search, and external API queries.
+     * Coder: Assigned to algorithmic design, software architecture, code editing, terminal commands, and debugging.
+     * Reviewer / Critic: Assigned to quality assurance, security validation, test verification, and output critique.
+     * Assistant / Facilitator: Assigned to user-facing communication, executive summaries, clarifying questions, and next steps.
+   - Prevent agent overlap, cross-talk, redundant parallel answers, and infinite conversation loops.
+
+3. SHARED CONTEXT SYNTHESIS:
+   - Consolidate intermediate findings, code artifacts, and conclusions from individual agents into unified shared group state.
+   - Provide concise context handoffs when delegating tasks between agents.
+   - Eliminate conflicting statements between agents by establishing a single source of truth based on empirical verification.
+
+4. CONVERSATIONAL CONTINUITY & COHESION:
+   - Ensure the group thread flows logically from problem formulation to collaborative resolution.
+   - Deliver clear, unified synthesis to the user, highlighting individual agent contributions while maintaining a coherent group voice.`;
+
+  const SYSTEM_PROMPT_ARCHITECTURES = Object.freeze({
+    PLANNER: PLANNER_SYSTEM_PROMPT,
+    TOOL_EXECUTOR: TOOL_EXECUTOR_SYSTEM_PROMPT,
+    CRITIC_REFLECTOR: CRITIC_REFLECTOR_SYSTEM_PROMPT,
+    AORCHESTRA_COORDINATOR: AORCHESTRA_COORDINATOR_PROMPT,
+    PLANNER_SYSTEM_PROMPT,
+    TOOL_EXECUTOR_SYSTEM_PROMPT,
+    CRITIC_REFLECTOR_SYSTEM_PROMPT,
+    AORCHESTRA_COORDINATOR_PROMPT
+  });
+
+  // =========================================================================
+  // EG-Nexus-OS v6.6.0 — AdaptivePhaseModelRouter
+  // =========================================================================
+
+  /**
+   * Route phase model dynamically based on execution phase, effort mode, and token budget guard.
+   *
+   * @param {string} phase - 'PLAN', 'THINK', 'ACT', 'OBSERVE', 'REFLECT', 'SUMMARIZE'
+   * @param {string|Object} [userEffortMode='speed'] - 'speed' vs 'quality'
+   * @param {Object|number|null} [budgetGuard=null] - Budget guard or remaining budget
+   * @returns {{
+   *   modelId: string,
+   *   provider: string,
+   *   maxTokens: number,
+   *   temperature: number,
+   *   phase: string,
+   *   effortMode: string,
+   *   reasoningTier: string,
+   *   reason: string
+   * }}
+   */
+  function routePhaseModel(phase, userEffortMode = 'speed', budgetGuard = null) {
+    const rawPhase = (typeof phase === 'string') ? phase.trim() : '';
+    const normPhase = rawPhase ? rawPhase.toUpperCase() : 'PLAN';
+
+    let rawEffort = userEffortMode;
+    if (rawEffort && typeof rawEffort === 'object') {
+      rawEffort = rawEffort.effortMode || rawEffort.mode || rawEffort.userEffortMode || 'speed';
+    }
+    const effortStr = String(rawEffort || '').trim().toLowerCase();
+    const isQuality = (effortStr === 'quality' && rawEffort !== USER_CLIENT_CONFIG_KEY_SPEED_MODE);
+    const normEffortMode = isQuality ? 'quality' : 'speed';
+
+    // Extract remaining budget from guard if present
+    let remainingBudget = null;
+    if (budgetGuard !== null && budgetGuard !== undefined) {
+      if (typeof budgetGuard.getRemainingBudget === 'function') {
+        remainingBudget = budgetGuard.getRemainingBudget();
+      } else if (typeof budgetGuard.remainingBudget === 'number') {
+        remainingBudget = budgetGuard.remainingBudget;
+      } else if (typeof budgetGuard.budget === 'number') {
+        remainingBudget = budgetGuard.budget;
+      } else if (typeof budgetGuard === 'number') {
+        remainingBudget = budgetGuard;
+      }
+    }
+
+    const isDepletedOrLowBudget = (typeof remainingBudget === 'number' && remainingBudget < 0.20);
+    const isDeepReasoningPhase = (normPhase === 'PLAN' || normPhase === 'THINK' || normPhase === 'REFLECT');
+
+    if (normEffortMode === 'quality') {
+      if (isDeepReasoningPhase) {
+        if (isDepletedOrLowBudget) {
+          return {
+            modelId: 'gemini-3.8-flash',
+            provider: 'google',
+            maxTokens: 2048,
+            temperature: 0.2,
+            phase: normPhase,
+            effortMode: normEffortMode,
+            reasoningTier: 'minimal',
+            reason: `Budget guard constraint (remaining: ${remainingBudget} < 0.20) - safely downgraded from deep reasoning to gemini-3.8-flash`
+          };
+        }
+        return {
+          modelId: 'deepseek-v4-pro',
+          provider: 'deepseek',
+          maxTokens: 4096,
+          temperature: 0.2,
+          phase: normPhase,
+          effortMode: 'quality',
+          reasoningTier: 'high',
+          reason: `Quality mode deep reasoning allocated for phase ${normPhase}`
+        };
+      }
+
+      // ACT, OBSERVE, SUMMARIZE or standard execution phases
+      return {
+        modelId: 'gemini-3.8-flash',
+        provider: 'google',
+        maxTokens: 2048,
+        temperature: 0.1,
+        phase: normPhase,
+        effortMode: 'quality',
+        reasoningTier: 'standard',
+        reason: `Quality mode fast execution allocated for phase ${normPhase}`
+      };
+    }
+
+    // Speed mode (all phases route to cost-efficient, fast models)
+    return {
+      modelId: 'gemini-3.8-flash',
+      provider: 'google',
+      maxTokens: 2048,
+      temperature: 0.2,
+      phase: normPhase,
+      effortMode: 'speed',
+      reasoningTier: 'minimal',
+      reason: `Speed mode cost-efficient execution allocated for phase ${normPhase}`
+    };
+  }
+
+  const AdaptivePhaseModelRouter = Object.freeze({
+    routePhaseModel
+  });
+
+  // =========================================================================
+  // EG-Nexus-OS v6.6.0 — CueEventStreamBus
+  // =========================================================================
+
+  class CueEventStreamBusClass {
+    constructor() {
+      this._listeners = new Map();
+      this._history = [];
+      this._maxHistory = 100;
+    }
+
+    static get EVENTS() {
+      return Object.freeze({
+        PLAN_CREATED: 'plan_created',
+        STEP_STARTED: 'step_started',
+        THINKING_DELTA: 'thinking_delta',
+        TOOL_CALL_STARTED: 'tool_call_started',
+        TOOL_CALL_RESULT: 'tool_call_result',
+        REFLECTION_TRIGGERED: 'reflection_triggered',
+        ARTIFACT_GENERATED: 'artifact_generated',
+        STEP_COMPLETED: 'step_completed',
+        TASK_COMPLETED: 'task_completed'
+      });
+    }
+
+    get EVENTS() {
+      return CueEventStreamBusClass.EVENTS;
+    }
+
+    /**
+     * Subscribe to an event stream.
+     * @param {string} event - Event name or '*' for wildcard
+     * @param {Function} callback - Event listener callback
+     * @returns {Function} Unsubscribe function
+     */
+    on(event, callback) {
+      if (typeof callback !== 'function') {
+        throw new TypeError(`CueEventStreamBus: Listener callback must be a function, received ${typeof callback}`);
+      }
+      const eventName = String(event || '').trim();
+      if (!eventName) {
+        throw new Error('CueEventStreamBus: Event name must be a non-empty string');
+      }
+
+      if (!this._listeners.has(eventName)) {
+        this._listeners.set(eventName, new Set());
+      }
+      this._listeners.get(eventName).add(callback);
+
+      return () => this.off(eventName, callback);
+    }
+
+    /**
+     * Unsubscribe from an event stream.
+     * @param {string} event - Event name
+     * @param {Function} callback - Listener callback to remove
+     */
+    off(event, callback) {
+      const eventName = String(event || '').trim();
+      if (this._listeners.has(eventName)) {
+        const set = this._listeners.get(eventName);
+        set.delete(callback);
+        if (set.size === 0) {
+          this._listeners.delete(eventName);
+        }
+      }
+    }
+
+    /**
+     * Subscribe for a single event delivery.
+     * @param {string} event - Event name
+     * @param {Function} callback - Event listener callback
+     * @returns {Function} Unsubscribe function
+     */
+    once(event, callback) {
+      if (typeof callback !== 'function') {
+        throw new TypeError(`CueEventStreamBus: Listener callback must be a function, received ${typeof callback}`);
+      }
+      const onceWrapper = (...args) => {
+        this.off(event, onceWrapper);
+        callback(...args);
+      };
+      return this.on(event, onceWrapper);
+    }
+
+    /**
+     * Emit an event to all subscribers and append to circular history log.
+     * @param {string} event - Event name
+     * @param {*} data - Event payload
+     */
+    emit(event, data) {
+      const eventName = String(event || '').trim();
+      if (!eventName) return;
+
+      const record = {
+        event: eventName,
+        data: (data !== undefined) ? data : null,
+        timestamp: Date.now()
+      };
+
+      this._history.push(record);
+      while (this._history.length > this._maxHistory) {
+        this._history.shift();
+      }
+
+      const targets = [];
+      if (this._listeners.has(eventName)) {
+        targets.push(...Array.from(this._listeners.get(eventName)));
+      }
+      if (eventName !== '*' && this._listeners.has('*')) {
+        targets.push(...Array.from(this._listeners.get('*')));
+      }
+
+      for (const cb of targets) {
+        try {
+          cb(record.data, record.event, record.timestamp);
+        } catch (err) {
+          if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+            console.warn(`[CueEventStreamBus] Non-fatal listener exception on event '${eventName}':`, err && err.message ? err.message : err);
+          }
+        }
+      }
+    }
+
+    /**
+     * Retrieve cloned event history, optionally filtered by event name.
+     * @param {string|null} [eventFilter=null]
+     * @returns {Array<Object>}
+     */
+    getHistory(eventFilter = null) {
+      if (typeof eventFilter === 'string' && eventFilter.trim().length > 0) {
+        const filter = eventFilter.trim();
+        return this._history
+          .filter(item => item.event === filter)
+          .map(item => ({ ...item }));
+      }
+      return this._history.map(item => ({ ...item }));
+    }
+
+    /**
+     * Return count of active listeners for an event.
+     * @param {string} event
+     * @returns {number}
+     */
+    listenerCount(event) {
+      const eventName = String(event || '').trim();
+      const set = this._listeners.get(eventName);
+      return set ? set.size : 0;
+    }
+
+    /**
+     * Clear all listeners and stored event history.
+     */
+    clear() {
+      this._listeners.clear();
+      this._history = [];
+    }
+  }
+
+  const CueEventStreamBus = new CueEventStreamBusClass();
+
+  if (typeof window !== 'undefined') {
+    window.CueEventStreamBus = CueEventStreamBus;
+    window.AdaptivePhaseModelRouter = AdaptivePhaseModelRouter;
+    window.routePhaseModel = routePhaseModel;
+    window.SYSTEM_PROMPT_ARCHITECTURES = SYSTEM_PROMPT_ARCHITECTURES;
+    window.PLANNER_SYSTEM_PROMPT = PLANNER_SYSTEM_PROMPT;
+    window.TOOL_EXECUTOR_SYSTEM_PROMPT = TOOL_EXECUTOR_SYSTEM_PROMPT;
+    window.CRITIC_REFLECTOR_SYSTEM_PROMPT = CRITIC_REFLECTOR_SYSTEM_PROMPT;
+    window.AORCHESTRA_COORDINATOR_PROMPT = AORCHESTRA_COORDINATOR_PROMPT;
+  }
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -4485,6 +4926,17 @@
     GEN_AI_ATTRIBUTES,
     _setPeerApprovalsForTesting,
     persistAuditTrail,
-    verifyAuditTrailIntegrity
+    verifyAuditTrailIntegrity,
+
+    // EG-Nexus-OS v6.6.0 Cue Architectures, Model Router & Event Stream Bus
+    SYSTEM_PROMPT_ARCHITECTURES,
+    PLANNER_SYSTEM_PROMPT,
+    TOOL_EXECUTOR_SYSTEM_PROMPT,
+    CRITIC_REFLECTOR_SYSTEM_PROMPT,
+    AORCHESTRA_COORDINATOR_PROMPT,
+    AdaptivePhaseModelRouter,
+    routePhaseModel,
+    CueEventStreamBus,
+    CueEventStreamBusClass
   };
 });

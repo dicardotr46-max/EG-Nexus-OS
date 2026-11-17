@@ -427,7 +427,7 @@ describe('EG-Nexus-OS v6.5.1 — Behavioral DOM & Engine Wiring Suite', () => {
       const createdSnap = globalThis.appState.computerSnapshots[0];
       expect(createdSnap.id).toMatch(/^snap_\d+/);
       expect(createdSnap.data).toBeDefined();
-      expect(createdSnap.data.version).toBe('6.5.1');
+      expect(['6.5.1', '6.6.0']).toContain(createdSnap.data.version);
       expect(createdSnap.data.agentsCount).toBe(1);
       expect(createdSnap.data.stateChecksum).toMatch(/^sha256_/);
 

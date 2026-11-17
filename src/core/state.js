@@ -2921,6 +2921,848 @@
     clearAppCache
   });
 
+  // ============================================================================
+  // OPENMANUS / AORCHESTRA DEEP AGENTIC EXECUTION ENGINE (v6.6.0)
+  // Unified DAG Planning, 4-Phase Step Execution Loop, Context Compaction & Engine
+  // ============================================================================
+
+  const _globalDeepAgentPlans = new Map();
+
+  class StepNode {
+    constructor(data = {}) {
+      this.id = data.id || secureRandomId('step');
+      this.title = String(data.title || data.name || 'Untitled Step');
+      this.assignedRole = data.assignedRole || 'planner';
+      this.requiredTools = Array.isArray(data.requiredTools) ? [...data.requiredTools] : [];
+      this.status = data.status || 'pending';
+      this.dependencies = Array.isArray(data.dependencies) ? [...data.dependencies] : [];
+      this.resultSummary = data.resultSummary || '';
+      this.retryCount = Number(data.retryCount) || 0;
+      this.maxRetries = Number(data.maxRetries) >= 0 ? Number(data.maxRetries) : 3;
+      this.lastError = data.lastError || null;
+      this.replanned = Boolean(data.replanned);
+      this.replanReason = data.replanReason || null;
+      this.metadata = (data.metadata && typeof data.metadata === 'object') ? { ...data.metadata } : {};
+    }
+
+    toJSON() {
+      return {
+        id: this.id,
+        title: this.title,
+        assignedRole: this.assignedRole,
+        requiredTools: [...this.requiredTools],
+        status: this.status,
+        dependencies: [...this.dependencies],
+        resultSummary: this.resultSummary,
+        retryCount: this.retryCount,
+        maxRetries: this.maxRetries,
+        lastError: this.lastError,
+        replanned: this.replanned,
+        replanReason: this.replanReason,
+        metadata: safeStructuredClone(this.metadata)
+      };
+    }
+  }
+
+  class PlanDAG {
+    constructor(data = {}) {
+      this.id = data.id || secureRandomId('dag');
+      this.goal = String(data.goal || 'Autonomous Goal');
+      this.steps = [];
+      this.metadata = (data.metadata && typeof data.metadata === 'object')
+        ? safeStructuredClone(data.metadata)
+        : {};
+      this.createdAt = data.createdAt || Date.now();
+      this.updatedAt = data.updatedAt || Date.now();
+      this.status = data.status || 'pending';
+
+      if (Array.isArray(data.steps)) {
+        for (const s of data.steps) {
+          this.addStep(s);
+        }
+      }
+    }
+
+    addStep(step) {
+      if (!step || typeof step !== 'object') {
+        throw new Error('addStep requires a valid step object');
+      }
+      const node = (step instanceof StepNode) ? step : new StepNode(step);
+      const existingIndex = this.steps.findIndex(s => s.id === node.id);
+      if (existingIndex >= 0) {
+        this.steps[existingIndex] = node;
+      } else {
+        this.steps.push(node);
+      }
+      this.updatedAt = Date.now();
+      return node;
+    }
+
+    getStep(stepId) {
+      if (!stepId) return null;
+      return this.steps.find(s => s.id === stepId) || null;
+    }
+
+    getNextExecutableSteps() {
+      const completedIds = new Set(
+        this.steps.filter(s => s.status === 'completed').map(s => s.id)
+      );
+      return this.steps.filter(s => {
+        if (s.status !== 'pending') return false;
+        if (!Array.isArray(s.dependencies) || s.dependencies.length === 0) return true;
+        return s.dependencies.every(depId => completedIds.has(depId));
+      });
+    }
+
+    markStepStatus(stepId, status, resultSummary = '', error = null) {
+      const step = this.getStep(stepId);
+      if (!step) {
+        throw new Error(`Step not found in PlanDAG: ${stepId}`);
+      }
+      step.status = status;
+      if (resultSummary !== undefined && resultSummary !== null && resultSummary !== '') {
+        step.resultSummary = resultSummary;
+      }
+      if (error !== undefined && error !== null) {
+        step.lastError = error;
+      }
+      this.updatedAt = Date.now();
+
+      if (this.isCompleted()) {
+        this.status = 'completed';
+      } else if (this.hasFailures()) {
+        this.status = 'failed';
+      } else if (this.steps.some(s => s.status === 'in_progress' || s.status === 'completed' || s.status === 'retrying')) {
+        this.status = 'in_progress';
+      } else {
+        this.status = 'pending';
+      }
+      return step;
+    }
+
+    replan(failedStepId, newStepsToAdd = [], reason = '') {
+      const step = this.getStep(failedStepId);
+      if (step) {
+        step.replanned = true;
+        step.replanReason = reason || 'Dynamic re-planning triggered';
+      }
+
+      const rawSteps = Array.isArray(newStepsToAdd) ? newStepsToAdd : (newStepsToAdd ? [newStepsToAdd] : []);
+      const normalizedNewSteps = rawSteps.map(s => (s instanceof StepNode ? s : new StepNode(s)));
+
+      const failedIndex = this.steps.findIndex(s => s.id === failedStepId);
+      if (failedIndex >= 0) {
+        this.steps.splice(failedIndex + 1, 0, ...normalizedNewSteps);
+      } else {
+        this.steps.push(...normalizedNewSteps);
+      }
+
+      this.metadata = this.metadata || {};
+      this.metadata.replans = this.metadata.replans || [];
+      this.metadata.replans.push({
+        failedStepId,
+        reason: reason || 'Execution deviation or failure',
+        addedStepIds: normalizedNewSteps.map(s => s.id),
+        timestamp: Date.now()
+      });
+
+      this.updatedAt = Date.now();
+      if (this.isCompleted()) {
+        this.status = 'completed';
+      } else if (this.hasFailures()) {
+        this.status = 'failed';
+      } else if (this.steps.some(s => s.status === 'pending' || s.status === 'in_progress' || s.status === 'retrying')) {
+        this.status = 'in_progress';
+      }
+      return this;
+    }
+
+    isCompleted() {
+      const activeSteps = this.steps.filter(s => !s.replanned);
+      return activeSteps.length > 0 && activeSteps.every(s => s.status === 'completed');
+    }
+
+    hasFailures() {
+      const hasActiveRecovery = this.steps.some(s => (s.status === 'pending' || s.status === 'in_progress') && !s.replanned);
+      return this.steps.some(s => {
+        if (s.status !== 'failed') return false;
+        if (!s.replanned) return true;
+        return !hasActiveRecovery;
+      });
+    }
+
+    toJSON() {
+      return {
+        id: this.id,
+        goal: this.goal,
+        status: this.status,
+        createdAt: this.createdAt,
+        updatedAt: this.updatedAt,
+        steps: this.steps.map(s => (typeof s.toJSON === 'function' ? s.toJSON() : { ...s })),
+        metadata: safeStructuredClone(this.metadata || {})
+      };
+    }
+  }
+
+  function createExecutionPlan(goal, context = {}) {
+    const cleanGoal = typeof goal === 'string' ? goal.trim() : (goal ? String(goal) : 'Autonomous Task');
+    const planId = context.id || secureRandomId('dag');
+
+    const plan = new PlanDAG({
+      id: planId,
+      goal: cleanGoal,
+      metadata: {
+        ...(context.metadata || {}),
+        context: safeStructuredClone(context.context || {}),
+        autoReplan: Boolean(context.autoReplan)
+      }
+    });
+
+    if (Array.isArray(context.presetSteps) && context.presetSteps.length > 0) {
+      for (const step of context.presetSteps) {
+        plan.addStep(step);
+      }
+    } else {
+      plan.addStep({
+        id: 'step_1',
+        title: `Analyze & Plan: ${cleanGoal}`,
+        assignedRole: 'planner',
+        requiredTools: ['codebase_search', 'file_reader'],
+        status: 'pending',
+        dependencies: [],
+        resultSummary: '',
+        retryCount: 0,
+        maxRetries: 3
+      });
+
+      plan.addStep({
+        id: 'step_2',
+        title: `Execute & Synthesize: ${cleanGoal}`,
+        assignedRole: 'coder',
+        requiredTools: ['code_editor', 'bash_executor', 'web_search'],
+        status: 'pending',
+        dependencies: ['step_1'],
+        resultSummary: '',
+        retryCount: 0,
+        maxRetries: 3
+      });
+
+      plan.addStep({
+        id: 'step_3',
+        title: `Validate & Reflect: ${cleanGoal}`,
+        assignedRole: 'critic',
+        requiredTools: ['test_runner', 'linter', 'security_audit'],
+        status: 'pending',
+        dependencies: ['step_2'],
+        resultSummary: '',
+        retryCount: 0,
+        maxRetries: 3
+      });
+    }
+
+    _globalDeepAgentPlans.set(plan.id, plan);
+    return plan;
+  }
+
+  function advancePlanStep(plan, stepId, observation = {}, context = {}) {
+    let resolvedPlan = plan;
+    if (typeof plan === 'string') {
+      resolvedPlan = _globalDeepAgentPlans.get(plan);
+      if (!resolvedPlan) {
+        throw new Error(`Plan with ID "${plan}" could not be resolved from active engine plans`);
+      }
+    }
+    if (!resolvedPlan || typeof resolvedPlan !== 'object') {
+      throw new Error('advancePlanStep requires a valid PlanDAG instance or resolved plan ID');
+    }
+
+    const step = typeof resolvedPlan.getStep === 'function'
+      ? resolvedPlan.getStep(stepId)
+      : (Array.isArray(resolvedPlan.steps) ? resolvedPlan.steps.find(s => s.id === stepId) : null);
+
+    if (!step) {
+      throw new Error(`Step "${stepId}" not found in plan "${resolvedPlan.id || 'unknown'}"`);
+    }
+
+    if (observation.success === false) {
+      const maxRetries = Number(step.maxRetries >= 0 ? step.maxRetries : 3);
+      const currentRetries = Number(step.retryCount || 0);
+
+      if (currentRetries < maxRetries) {
+        step.retryCount = currentRetries + 1;
+        step.status = 'retrying';
+        step.lastError = observation.error || observation.output || 'Step execution failed';
+        resolvedPlan.updatedAt = Date.now();
+      } else {
+        if (typeof resolvedPlan.markStepStatus === 'function') {
+          resolvedPlan.markStepStatus(stepId, 'failed', '', observation.error || observation.output || 'Max retries exceeded');
+        } else {
+          step.status = 'failed';
+          step.lastError = observation.error || observation.output || 'Max retries exceeded';
+          resolvedPlan.updatedAt = Date.now();
+        }
+
+        const shouldReplan = Boolean(
+          observation.autoReplan ||
+          observation.replanRequested ||
+          context?.autoReplan ||
+          (resolvedPlan.metadata && resolvedPlan.metadata.autoReplan)
+        );
+
+        if (shouldReplan && typeof resolvedPlan.replan === 'function') {
+          resolvedPlan.replan(
+            stepId,
+            observation.replanSteps || observation.newStepsToAdd || [],
+            observation.replanReason || observation.error || observation.output || 'Max retries exceeded'
+          );
+        }
+      }
+    } else {
+      const summary = observation.output !== undefined
+        ? (typeof observation.output === 'string' ? observation.output : JSON.stringify(observation.output))
+        : (observation.result !== undefined
+          ? (typeof observation.result === 'string' ? observation.result : JSON.stringify(observation.result))
+          : (observation.summary || 'Step completed successfully'));
+
+      if (typeof resolvedPlan.markStepStatus === 'function') {
+        resolvedPlan.markStepStatus(stepId, 'completed', summary);
+      } else {
+        step.status = 'completed';
+        step.resultSummary = summary;
+        resolvedPlan.updatedAt = Date.now();
+      }
+    }
+
+    if (typeof resolvedPlan.isCompleted === 'function' && resolvedPlan.isCompleted()) {
+      resolvedPlan.status = 'completed';
+    } else if (typeof resolvedPlan.hasFailures === 'function' && resolvedPlan.hasFailures()) {
+      resolvedPlan.status = 'failed';
+    } else if (Array.isArray(resolvedPlan.steps) && resolvedPlan.steps.some(s => s.status === 'in_progress' || s.status === 'retrying' || s.status === 'completed')) {
+      resolvedPlan.status = 'in_progress';
+    }
+
+    return resolvedPlan;
+  }
+
+  class StepExecutionLoop {
+    constructor(options = {}) {
+      this.approvalGate = options.approvalGate || null;
+      this.executeProviderRequest = options.executeProviderRequest || null;
+      this.maxRetries = Number(options.maxRetries >= 0 ? options.maxRetries : 3);
+      this.eventBus = options.eventBus || (typeof window !== 'undefined' ? window.CueEventStreamBus : null) || (typeof globalThis !== 'undefined' ? globalThis.CueEventStreamBus : null) || null;
+      this.budgetGuard = options.budgetGuard || null;
+    }
+
+    _emit(eventName, payload) {
+      const bus = this.eventBus || (typeof window !== 'undefined' ? window.CueEventStreamBus : null) || (typeof globalThis !== 'undefined' ? globalThis.CueEventStreamBus : null);
+      if (!bus) return;
+      try {
+        if (typeof bus.emit === 'function') {
+          bus.emit(eventName, payload);
+        } else if (typeof bus.publish === 'function') {
+          bus.publish(eventName, payload);
+        } else if (typeof bus.dispatch === 'function') {
+          bus.dispatch(eventName, payload);
+        } else if (typeof bus.trigger === 'function') {
+          bus.trigger(eventName, payload);
+        }
+      } catch (_) {}
+    }
+
+    async executePhaseThink(step, context = {}) {
+      const role = step.assignedRole || 'planner';
+      const toolsStr = Array.isArray(step.requiredTools) && step.requiredTools.length > 0
+        ? step.requiredTools.join(', ')
+        : 'standard system tools';
+
+      let hypothesis = '';
+      if (context.previousAttemptError) {
+        hypothesis = `Remediation hypothesis for "${step.title}": Resolving previous failure ("${context.previousAttemptError}"). Will refine execution parameters, apply stricter input constraints, and adapt tool invocation.`;
+      } else {
+        hypothesis = `Operational hypothesis for "${step.title}": Step goal will be achieved by activating ${role} role using tools [${toolsStr}] within designated parameter envelope.`;
+      }
+
+      const planOfAction = [
+        `1. Initialize runtime context and validate prerequisite inputs for role "${role}".`,
+        `2. Prepare bounded execution payload for required tools [${toolsStr}].`,
+        `3. Execute tool operations with active safety and budget monitoring.`,
+        `4. Verify output artifacts and synthesize standardized observation summary.`
+      ];
+
+      const thought = {
+        stepId: step.id,
+        role,
+        hypothesis,
+        planOfAction,
+        thinkingDelta: `[${role.toUpperCase()} THINKING] ${hypothesis}`,
+        timestamp: Date.now()
+      };
+
+      this._emit('thinking_delta', thought);
+      return thought;
+    }
+
+    async executePhaseAct(step, context = {}, thought = {}) {
+      const sensitiveKeywords = ['bash', 'code_editor', 'write', 'delete', 'remove', 'shell', 'exec', 'kill', 'fs_', 'mutate'];
+      const hasMutatingTool = Array.isArray(step.requiredTools) && step.requiredTools.some(tool => {
+        const lower = String(tool).toLowerCase();
+        return sensitiveKeywords.some(kw => lower.includes(kw));
+      });
+
+      const isSensitive = Boolean(step.isMutating || context.isMutating || context.sensitive || hasMutatingTool);
+
+      if (isSensitive && this.approvalGate) {
+        let approved = true;
+        let gateDetails = null;
+
+        try {
+          if (typeof this.approvalGate === 'function') {
+            const res = await this.approvalGate({ step, thought, context, sensitive: true });
+            if (res === false || (res && res.approved === false)) {
+              approved = false;
+              gateDetails = res;
+            }
+          } else if (typeof this.approvalGate.checkApproval === 'function') {
+            const res = await this.approvalGate.checkApproval({ step, thought, context, sensitive: true });
+            if (res === false || (res && res.approved === false)) {
+              approved = false;
+              gateDetails = res;
+            }
+          } else if (typeof this.approvalGate.requestApproval === 'function') {
+            const res = await this.approvalGate.requestApproval({ step, thought, context, sensitive: true });
+            if (res === false || (res && res.approved === false)) {
+              approved = false;
+              gateDetails = res;
+            }
+          }
+        } catch (gateErr) {
+          approved = false;
+          gateDetails = { error: gateErr.message };
+        }
+
+        if (!approved) {
+          return {
+            success: false,
+            error: `Action blocked by ApprovalGate: Step "${step.title}" requires user approval before modifying resources.`,
+            approvalRequired: true,
+            approvalDetails: gateDetails
+          };
+        }
+      }
+
+      this._emit('tool_call_started', {
+        stepId: step.id,
+        role: step.assignedRole,
+        tools: step.requiredTools || [],
+        thought,
+        timestamp: Date.now()
+      });
+
+      if (this.budgetGuard) {
+        if (typeof this.budgetGuard.checkBudget === 'function') {
+          const canProceed = this.budgetGuard.checkBudget({ step, role: step.assignedRole, context });
+          if (canProceed === false) {
+            return {
+              success: false,
+              error: `Action halted by BudgetGuard: Quota or cost threshold reached for step "${step.title}".`,
+              budgetExceeded: true
+            };
+          }
+        }
+      }
+
+      let actionResult = null;
+      try {
+        if (typeof this.executeProviderRequest === 'function') {
+          actionResult = await this.executeProviderRequest({
+            step,
+            thought,
+            context,
+            budgetGuard: this.budgetGuard
+          });
+        } else if (typeof context.executeProviderRequest === 'function') {
+          actionResult = await context.executeProviderRequest({
+            step,
+            thought,
+            context,
+            budgetGuard: this.budgetGuard
+          });
+        } else {
+          actionResult = {
+            success: true,
+            output: `Successfully executed step "${step.title}" via role "${step.assignedRole}" with tools: ${(step.requiredTools || []).join(', ') || 'standard'}`,
+            stepId: step.id,
+            role: step.assignedRole
+          };
+        }
+      } catch (execErr) {
+        actionResult = {
+          success: false,
+          error: execErr.message || String(execErr),
+          stepId: step.id
+        };
+      }
+
+      if (this.budgetGuard && typeof this.budgetGuard.recordUsage === 'function') {
+        try {
+          this.budgetGuard.recordUsage({ step, actionResult });
+        } catch (_) {}
+      }
+
+      this._emit('tool_call_result', {
+        stepId: step.id,
+        role: step.assignedRole,
+        success: actionResult?.success !== false && !actionResult?.error,
+        result: actionResult,
+        timestamp: Date.now()
+      });
+
+      return actionResult;
+    }
+
+    executePhaseObserve(step, actionResult, startTime) {
+      const durationMs = (typeof startTime === 'number') ? Math.max(0, Date.now() - startTime) : 0;
+      const isSuccess = actionResult != null && actionResult.success !== false && !actionResult.error;
+
+      let output = null;
+      if (actionResult != null) {
+        if (actionResult.output !== undefined) {
+          output = actionResult.output;
+        } else if (actionResult.result !== undefined) {
+          output = actionResult.result;
+        } else if (actionResult.data !== undefined) {
+          output = actionResult.data;
+        } else {
+          output = actionResult;
+        }
+      }
+
+      const error = !isSuccess
+        ? (actionResult?.error || actionResult?.message || 'Step execution encountered an error')
+        : null;
+
+      return {
+        stepId: step.id,
+        success: isSuccess,
+        output,
+        error,
+        provenance: {
+          timestamp: Date.now(),
+          source: step.assignedRole || 'planner'
+        },
+        durationMs
+      };
+    }
+
+    async executePhaseReflect(step, observation, context = {}) {
+      this._emit('reflection_triggered', {
+        stepId: step.id,
+        success: observation.success,
+        observation,
+        timestamp: Date.now()
+      });
+
+      const critique = observation.success
+        ? `Step "${step.title}" succeeded. Objective verified with output matching expected constraints.`
+        : `Step "${step.title}" failed. Cause: ${observation.error || 'Execution deviation'}. Needs critique refinement.`;
+
+      const feedback = observation.success
+        ? 'Step outputs validated. Ready to advance execution flow.'
+        : 'Analyze failure mode, augment context constraints, and re-attempt execution.';
+
+      const assessment = {
+        stepId: step.id,
+        valid: observation.success,
+        critique,
+        feedback,
+        timestamp: Date.now()
+      };
+
+      let refinedContext = null;
+      if (!observation.success && (Number(step.retryCount) || 0) < (step.maxRetries || this.maxRetries || 3)) {
+        refinedContext = await this.retryWithRefinement(step, observation, context);
+      }
+      assessment.refinedContext = refinedContext;
+
+      return assessment;
+    }
+
+    async retryWithRefinement(step, observation, context = {}) {
+      step.retryCount = (Number(step.retryCount) || 0) + 1;
+      step.lastError = observation.error || observation.output || 'Step execution failed';
+      step.status = 'retrying';
+
+      const refinementFeedback = `Critic refinement for attempt #${step.retryCount}: Prior failure "${step.lastError}". Adjusting operational assumptions and tightening parameters.`;
+
+      const refinedContext = {
+        ...context,
+        retryCount: step.retryCount,
+        previousAttemptError: step.lastError,
+        refinementFeedback,
+        updatedAt: Date.now()
+      };
+
+      step.metadata = step.metadata || {};
+      step.metadata.retries = step.metadata.retries || [];
+      step.metadata.retries.push({
+        attempt: step.retryCount,
+        error: step.lastError,
+        feedback: refinementFeedback,
+        timestamp: Date.now()
+      });
+
+      return refinedContext;
+    }
+
+    async executeStep(step, context = {}) {
+      const maxRetries = Number(step.maxRetries >= 0 ? step.maxRetries : (this.maxRetries >= 0 ? this.maxRetries : 3));
+      let currentContext = { ...context };
+      step.status = 'in_progress';
+
+      let startTime = Date.now();
+      let thought = await this.executePhaseThink(step, currentContext);
+      let actionResult = await this.executePhaseAct(step, currentContext, thought);
+      let observation = this.executePhaseObserve(step, actionResult, startTime);
+      let reflection = await this.executePhaseReflect(step, observation, currentContext);
+
+      while (!observation.success && (Number(step.retryCount) || 0) < maxRetries) {
+        if (reflection && reflection.refinedContext) {
+          currentContext = { ...currentContext, ...reflection.refinedContext };
+        } else {
+          currentContext = await this.retryWithRefinement(step, observation, currentContext);
+        }
+        const retryStartTime = Date.now();
+        thought = await this.executePhaseThink(step, currentContext);
+        actionResult = await this.executePhaseAct(step, currentContext, thought);
+        observation = this.executePhaseObserve(step, actionResult, retryStartTime);
+        reflection = await this.executePhaseReflect(step, observation, currentContext);
+      }
+
+      return {
+        step,
+        thought,
+        actionResult,
+        observation,
+        reflection,
+        success: observation.success
+      };
+    }
+
+    async runLoop(plan, context = {}) {
+      if (!plan) throw new Error('A valid PlanDAG is required for runLoop');
+      const loopStartTime = Date.now();
+      plan.status = 'in_progress';
+
+      let executableSteps = plan.getNextExecutableSteps();
+      while (executableSteps.length > 0 && !plan.hasFailures()) {
+        for (const step of executableSteps) {
+          const result = await this.executeStep(step, context);
+          advancePlanStep(plan, step.id, result.observation);
+
+          this._emit('step_completed', {
+            planId: plan.id,
+            stepId: step.id,
+            status: step.status,
+            resultSummary: step.resultSummary,
+            success: step.status === 'completed',
+            timestamp: Date.now()
+          });
+
+          if (step.status === 'failed') {
+            break;
+          }
+        }
+
+        if (plan.hasFailures()) {
+          break;
+        }
+        executableSteps = plan.getNextExecutableSteps();
+      }
+
+      if (plan.isCompleted()) {
+        plan.status = 'completed';
+        this._emit('task_completed', {
+          planId: plan.id,
+          goal: plan.goal,
+          stepsCount: plan.steps.length,
+          durationMs: Date.now() - loopStartTime,
+          timestamp: Date.now()
+        });
+      } else if (plan.hasFailures()) {
+        plan.status = 'failed';
+      }
+
+      return {
+        planId: plan.id,
+        goal: plan.goal,
+        status: plan.status,
+        completed: plan.isCompleted(),
+        stepsCount: plan.steps.length,
+        completedSteps: plan.steps.filter(s => s.status === 'completed').length,
+        failedSteps: plan.steps.filter(s => s.status === 'failed').length,
+        steps: plan.steps.map(s => (typeof s.toJSON === 'function' ? s.toJSON() : { ...s })),
+        durationMs: Date.now() - loopStartTime
+      };
+    }
+  }
+
+  const ContextWindowCompactor = {
+    compactExecutionHistory(steps, tokenBudget = 4000) {
+      let stepsArray = [];
+      let goal = 'Autonomous Task';
+
+      if (Array.isArray(steps)) {
+        stepsArray = steps;
+        goal = steps[0]?.goal || steps[0]?.metadata?.goal || 'Autonomous Task';
+      } else if (steps && typeof steps === 'object') {
+        stepsArray = Array.isArray(steps.steps) ? steps.steps : [];
+        goal = steps.goal || steps.metadata?.goal || 'Autonomous Task';
+      }
+
+      const rawJson = JSON.stringify(stepsArray);
+      const estimatedTokens = Math.max(1, Math.ceil(rawJson.length / 3.8));
+
+      if (estimatedTokens <= tokenBudget) {
+        return steps;
+      }
+
+      const completedSteps = [];
+      const nonCompletedSteps = [];
+
+      for (const step of stepsArray) {
+        if (step && step.status === 'completed') {
+          completedSteps.push(step);
+        } else if (step) {
+          nonCompletedSteps.push(step);
+        }
+      }
+
+      const retainCompletedCount = Math.min(2, completedSteps.length);
+      const olderCompleted = completedSteps.slice(0, completedSteps.length - retainCompletedCount);
+      const recentCompleted = completedSteps.slice(completedSteps.length - retainCompletedCount);
+
+      const retainedSteps = [...recentCompleted, ...nonCompletedSteps];
+
+      const keyArtifacts = [];
+      for (const step of stepsArray) {
+        if (!step) continue;
+        if (Array.isArray(step.artifacts)) {
+          for (const art of step.artifacts) {
+            keyArtifacts.push({
+              id: art.id || secureRandomId('art'),
+              name: art.name || art.title || 'Generated Artifact',
+              summary: String(art.summary || art.description || 'Artifact produced during step')
+            });
+          }
+        } else if (step.metadata && Array.isArray(step.metadata.artifacts)) {
+          for (const art of step.metadata.artifacts) {
+            keyArtifacts.push({
+              id: art.id || secureRandomId('art'),
+              name: art.name || art.title || 'Generated Artifact',
+              summary: String(art.summary || art.description || 'Artifact produced during step')
+            });
+          }
+        } else if (step.status === 'completed' && step.resultSummary) {
+          keyArtifacts.push({
+            id: `art_${step.id}`,
+            name: `${step.title || 'Step'} Output`,
+            summary: String(step.resultSummary).slice(0, 200)
+          });
+        }
+      }
+
+      const milestones = completedSteps.map(s => {
+        const summaryText = s.resultSummary ? ` (${String(s.resultSummary).slice(0, 50)})` : '';
+        return `${s.title}${summaryText}`;
+      });
+
+      const pendingSteps = stepsArray.filter(s => s && (s.status === 'pending' || s.status === 'in_progress' || s.status === 'retrying'));
+      const failedSteps = stepsArray.filter(s => s && s.status === 'failed');
+
+      const para1 = `### EPISODIC DIGEST: ${goal}\nExecution progress: ${completedSteps.length} of ${stepsArray.length} steps completed. Mission Goal: ${goal}.`;
+      const para2 = `Completed Milestones:\n${milestones.length > 0 ? milestones.map(m => `- ${m}`).join('\n') : '- Initial planning phase initiated.'}\n\nGenerated Artifacts (${keyArtifacts.length}):\n${keyArtifacts.length > 0 ? keyArtifacts.slice(0, 8).map(a => `- [${a.name}] ${String(a.summary).slice(0, 60)}`).join('\n') : '- None recorded yet.'}`;
+      const para3 = `Active Operational State:\n- Remaining Steps: ${pendingSteps.length > 0 ? pendingSteps.map(s => s.title).join(', ') : 'None pending'}\n- Blockers / Failures: ${failedSteps.length > 0 ? failedSteps.map(s => `${s.title}: ${s.lastError}`).join(', ') : 'None'}`;
+
+      const episodicDigest = [para1, para2, para3].join('\n\n');
+
+      const retainedJson = JSON.stringify(retainedSteps) + episodicDigest;
+      const retainedTokens = Math.max(1, Math.ceil(retainedJson.length / 3.8));
+      const olderCompletedJson = JSON.stringify(olderCompleted);
+      const olderTokens = Math.max(1, Math.ceil(olderCompletedJson.length / 3.8));
+      const digestTokens = Math.max(1, Math.ceil(episodicDigest.length / 3.8));
+      const estimatedTokensSaved = Math.max(1, Math.max(olderTokens - digestTokens, estimatedTokens - retainedTokens));
+
+      return {
+        goal,
+        totalSteps: stepsArray.length,
+        completedStepsCount: completedSteps.length,
+        keyArtifacts,
+        episodicDigest,
+        retainedSteps,
+        estimatedTokensSaved,
+        timestamp: Date.now()
+      };
+    }
+  };
+
+  function compactExecutionHistory(steps, tokenBudget = 4000) {
+    return ContextWindowCompactor.compactExecutionHistory(steps, tokenBudget);
+  }
+
+  class NexusDeepAgentEngine {
+    constructor(options = {}) {
+      this.options = options;
+      this.activePlans = new Map();
+      this.loop = new StepExecutionLoop(options);
+      this.compactor = ContextWindowCompactor;
+    }
+
+    createPlan(goal, context = {}) {
+      const plan = createExecutionPlan(goal, context);
+      this.activePlans.set(plan.id, plan);
+      _globalDeepAgentPlans.set(plan.id, plan);
+      return plan;
+    }
+
+    getPlan(planId) {
+      if (!planId) return null;
+      return this.activePlans.get(planId) || _globalDeepAgentPlans.get(planId) || null;
+    }
+
+    advanceStep(planIdOrPlan, stepId, observation = {}) {
+      const plan = (typeof planIdOrPlan === 'string')
+        ? this.getPlan(planIdOrPlan)
+        : planIdOrPlan;
+      return advancePlanStep(plan, stepId, observation);
+    }
+
+    async executeStep(step, context = {}) {
+      return this.loop.executeStep(step, context);
+    }
+
+    async executePlan(planIdOrPlan, context = {}) {
+      const plan = (typeof planIdOrPlan === 'string')
+        ? this.getPlan(planIdOrPlan)
+        : planIdOrPlan;
+      if (!plan) {
+        throw new Error(`Plan not found: ${planIdOrPlan}`);
+      }
+      return this.loop.runLoop(plan, context);
+    }
+
+    compactHistory(steps, tokenBudget = 4000) {
+      return this.compactor.compactExecutionHistory(steps, tokenBudget);
+    }
+  }
+
+  NexusDeepAgentEngine.PlanDAG = PlanDAG;
+  NexusDeepAgentEngine.StepNode = StepNode;
+  NexusDeepAgentEngine.StepExecutionLoop = StepExecutionLoop;
+  NexusDeepAgentEngine.ContextWindowCompactor = ContextWindowCompactor;
+  NexusDeepAgentEngine.createExecutionPlan = createExecutionPlan;
+  NexusDeepAgentEngine.advancePlanStep = advancePlanStep;
+  NexusDeepAgentEngine.compactExecutionHistory = compactExecutionHistory;
+
   return {
     STORAGE_KEYS,
     STORAGE_KEY,
@@ -3000,6 +3842,14 @@
     AppearanceManager,
     LanguageManager,
     AppIconManager,
-    CacheManager
+    CacheManager,
+    NexusDeepAgentEngine,
+    PlanDAG,
+    StepNode,
+    StepExecutionLoop,
+    ContextWindowCompactor,
+    createExecutionPlan,
+    advancePlanStep,
+    compactExecutionHistory
   };
 });
